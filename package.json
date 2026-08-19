@@ -1,0 +1,14 @@
+{
+  "name": "carboyz",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-tenant PWA core: tenant branding config and native service bridges.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

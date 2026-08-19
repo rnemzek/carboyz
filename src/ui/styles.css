@@ -1,0 +1,237 @@
+:root {
+  --color-primary: #0057d9;
+  --color-secondary: #1b1f27;
+  --color-background: #ffffff;
+  --color-text: #111318;
+  --color-surface: #f4f5f7;
+  --color-border: #e1e4e9;
+  --color-underpriced: #1b8a4b;
+  --color-fair: #b07a05;
+  --color-overpriced: #c02f2f;
+  --radius: 10px;
+  --spacing: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--color-background);
+  color: var(--color-text);
+  min-height: 100vh;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing);
+  padding: var(--spacing);
+  background: var(--color-primary);
+  color: #ffffff;
+}
+
+.app__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #ffffff;
+}
+
+.app__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabs__button {
+  flex: 1;
+  padding: var(--spacing);
+  border: none;
+  background: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+}
+
+.tabs__button[aria-selected='true'] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.view {
+  flex: 1;
+  padding: var(--spacing);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing);
+}
+
+.view[hidden] {
+  display: none;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--spacing);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+}
+
+.form__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form__row--split {
+  flex-direction: row;
+  gap: var(--spacing);
+}
+
+.form__row--split > * {
+  flex: 1;
+}
+
+.form label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.form input,
+.form select {
+  font-size: 1rem;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button--secondary {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.card__title {
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.card__meta {
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card__price {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.badge--underpriced {
+  background: var(--color-underpriced);
+}
+
+.badge--fair {
+  background: var(--color-fair);
+}
+
+.badge--overpriced {
+  background: var(--color-overpriced);
+}
+
+.badge--unrated {
+  background: var(--color-secondary);
+}
+
+.empty-state {
+  color: var(--color-secondary);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: var(--spacing);
+}
+
+@media (min-width: 600px) {
+  .app {
+    max-width: 720px;
+  }
+}
