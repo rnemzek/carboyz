@@ -17,6 +17,15 @@ function makeVehicle(overrides = {}) {
   });
 }
 
+test('registerDealer makes a dealer resolvable for vehicle location lookups after construction', () => {
+  const service = new TelemetryService();
+  const dealerA = new Dealer({ tenantId: 't1', dealerId: 'dA', name: 'A', lat: 0, lng: 0 });
+  service.registerDealer(dealerA);
+
+  const vehicle = makeVehicle({ dealerId: 'dA' });
+  assert.deepEqual(service.resolveVehicleLocation(vehicle), { lat: 0, lng: 0 });
+});
+
 test('filterByRadius includes vehicles within range and excludes vehicles outside range', () => {
   const dealerA = new Dealer({ tenantId: 't1', dealerId: 'dA', name: 'A', lat: 0, lng: 0 });
   const dealerB = new Dealer({ tenantId: 't1', dealerId: 'dB', name: 'B', lat: 0, lng: 0.5 });

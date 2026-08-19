@@ -19,3 +19,14 @@ test('createTenantConfig merges themeColors instead of replacing them wholesale'
   assert.equal(config.themeColors.primary, '#FF0000');
   assert.equal(config.themeColors.secondary, DEFAULT_TENANT_CONFIG.themeColors.secondary);
 });
+
+test('createTenantConfig merges contact info instead of replacing it wholesale', () => {
+  const config = createTenantConfig({ contact: { phone: '555-0100' } });
+  assert.equal(config.contact.phone, '555-0100');
+  assert.equal(config.contact.email, DEFAULT_TENANT_CONFIG.contact.email);
+});
+
+test('createTenantConfig accepts a tagline override', () => {
+  const config = createTenantConfig({ tagline: 'Deals you can trust.' });
+  assert.equal(config.tagline, 'Deals you can trust.');
+});

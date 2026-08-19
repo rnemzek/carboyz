@@ -18,6 +18,10 @@ export class SearchService {
     this.dealersById = new Map(dealers.map((dealer) => [dealer.dealerId, dealer]));
   }
 
+  registerDealer(dealer) {
+    this.dealersById.set(dealer.dealerId, dealer);
+  }
+
   resolveVehicleLocation(vehicle) {
     if (typeof vehicle.lat === 'number' && typeof vehicle.lng === 'number') {
       return { lat: vehicle.lat, lng: vehicle.lng };

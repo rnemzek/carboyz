@@ -72,6 +72,28 @@ function ids(entries) {
   return entries.map((entry) => entry.vehicle.vehicleId);
 }
 
+test('registerDealer makes a newly discovered dealer resolvable for distance-based filtering', () => {
+  const service = new SearchService({ dealers: [dealerA] });
+  const dealerNew = new Dealer({ tenantId: 't1', dealerId: 'dNew', name: 'New', lat: 0, lng: 0.5 });
+  service.registerDealer(dealerNew);
+
+  const vehicle = new Vehicle({
+    tenantId: 't1',
+    vehicleId: 'v-new',
+    dealerId: 'dNew',
+    make: 'Toyota',
+    model: 'Camry',
+    year: 2022,
+    price: 21000,
+  });
+
+  const result = service.search([vehicle], { tenantId: 't1', originDealerId: 'dA', radiusMiles: 50 });
+  assert.deepEqual(
+    result.map((entry) => entry.vehicle.vehicleId),
+    ['v-new'],
+  );
+});
+
 test('search filters by tenantId, isolating other tenants', () => {
   const service = new SearchService({ dealers: [dealerA, dealerB, dealerC] });
   const result = service.search(buildVehicles(), { tenantId: 't1' });

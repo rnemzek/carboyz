@@ -5,11 +5,18 @@ const DEFAULT_THEME_COLORS = Object.freeze({
   text: '#111318',
 });
 
+const DEFAULT_CONTACT = Object.freeze({
+  phone: '',
+  email: '',
+});
+
 export const DEFAULT_TENANT_CONFIG = Object.freeze({
   tenantId: 'default',
   name: 'Carboyz',
+  tagline: '',
   logoUrl: '',
   themeColors: DEFAULT_THEME_COLORS,
+  contact: DEFAULT_CONTACT,
 });
 
 export function createTenantConfig(overrides = {}) {
@@ -19,6 +26,10 @@ export function createTenantConfig(overrides = {}) {
     themeColors: {
       ...DEFAULT_TENANT_CONFIG.themeColors,
       ...(overrides.themeColors ?? {}),
+    },
+    contact: {
+      ...DEFAULT_TENANT_CONFIG.contact,
+      ...(overrides.contact ?? {}),
     },
   };
 }

@@ -47,17 +47,67 @@ body {
 }
 
 .app__logo {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 8px;
   object-fit: cover;
   background: #ffffff;
+  flex-shrink: 0;
+}
+
+.app__logo--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.app__title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .app__title {
   font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
+}
+
+.app__tagline {
+  font-size: 0.8rem;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.brand-switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--spacing);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+}
+
+.brand-switcher label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+  white-space: nowrap;
+}
+
+.brand-switcher select {
+  flex: 1;
+  font-size: 0.95rem;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text);
 }
 
 .tabs {
@@ -228,6 +278,40 @@ body {
   font-size: 0.9rem;
   text-align: center;
   padding: var(--spacing);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 19, 24, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing);
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--color-background);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: 20px;
+  max-width: 320px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.modal__stage {
+  margin: 0 0 8px;
+  color: var(--color-primary);
+  font-size: 1rem;
+}
+
+.modal__message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-secondary);
 }
 
 @media (min-width: 600px) {

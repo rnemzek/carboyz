@@ -1,45 +1,96 @@
-import { createTenantConfig } from '../config/tenantConfig.js';
 import { Dealer } from '../models/Dealer.js';
+import { TenantRegistry, CARBOYZ_TENANT_ID, CARBOYZ_FLAGSHIP_PRESET } from '../config/TenantRegistry.js';
+import { writeTenantIdToStorage } from '../config/tenantResolution.js';
 import { TelemetryService } from '../services/TelemetryService.js';
 import { SearchService } from '../services/SearchService.js';
 import { IngestService } from '../services/IngestService.js';
 import { HapticsService } from '../services/HapticsService.js';
 import { ShareService } from '../services/ShareService.js';
+import { DiscoveryService } from '../services/DiscoveryService.js';
+import { SEED_ANCHOR, CARBOYZ_HQ_DEALER_ID, VENDOR_FEEDS as CARBOYZ_VENDOR_FEEDS, seedDirectInventory } from '../utils/seedInventory.js';
 import { applyTenantTheme } from './theme.js';
+import { getBrandInitials } from './branding.js';
+import { discoveryStageLabel } from './discoveryProgress.js';
 import { DealerStudioController } from './DealerStudioController.js';
 import { BuyerSearchController } from './BuyerSearchController.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 
-const DEMO_TENANT_CONFIG = createTenantConfig({
-  tenantId: 'demo-tenant',
-  name: 'Carboyz Motors',
-  themeColors: { primary: '#0057d9', secondary: '#1b1f27' },
-});
-
-const DEMO_DEALERS = [
-  new Dealer({
-    tenantId: DEMO_TENANT_CONFIG.tenantId,
-    dealerId: 'dealer-downtown',
-    name: 'Downtown Motors',
-    lat: 39.7684,
-    lng: -86.158,
-  }),
-  new Dealer({
-    tenantId: DEMO_TENANT_CONFIG.tenantId,
-    dealerId: 'dealer-north',
-    name: 'North Auto Plaza',
-    lat: 39.92,
-    lng: -86.09,
-  }),
-  new Dealer({
-    tenantId: DEMO_TENANT_CONFIG.tenantId,
-    dealerId: 'dealer-eastside',
-    name: 'Eastside Certified',
-    lat: 39.77,
-    lng: -85.95,
-  }),
+const TENANT_PRESETS = [
+  {
+    ...CARBOYZ_FLAGSHIP_PRESET,
+    dealers: [{ dealerId: CARBOYZ_HQ_DEALER_ID, name: 'CarBoyZ Motors HQ', lat: SEED_ANCHOR.lat, lng: SEED_ANCHOR.lng }],
+  },
+  {
+    tenantId: 'summit-auto',
+    name: 'Summit Auto Group',
+    tagline: 'Mountain-tested deals, valley-low prices.',
+    themeColors: { primary: '#b3541e', secondary: '#2b2118' },
+    contact: { phone: '(555) 040-8080', email: 'sales@summitauto.example' },
+    dealers: [
+      { dealerId: 'summit-central', name: 'Summit Central', lat: 39.74, lng: -104.99 },
+      { dealerId: 'summit-foothills', name: 'Summit Foothills', lat: 39.65, lng: -105.15 },
+    ],
+  },
+  {
+    tenantId: 'harbor-motors',
+    name: 'Harbor Motors Collective',
+    tagline: 'Coastal rides, honest prices.',
+    themeColors: { primary: '#0a7f6b', secondary: '#0e2430' },
+    contact: { phone: '(555) 070-3030', email: 'info@harbormotors.example' },
+    dealers: [
+      { dealerId: 'harbor-pier', name: 'Harbor Pier Autos', lat: 42.3601, lng: -71.0589 },
+      { dealerId: 'harbor-bay', name: 'Harbor Bay Certified', lat: 42.35, lng: -71.08 },
+    ],
+  },
 ];
+
+const DEFAULT_TENANT_ID = TENANT_PRESETS[0].tenantId;
+
+const VENDOR_FEEDS_BY_TENANT = {
+  [CARBOYZ_TENANT_ID]: CARBOYZ_VENDOR_FEEDS,
+  'summit-auto': [
+    {
+      dealer: {
+        dealer_id: 'vendor-alpine',
+        dealer_name: 'Alpine Pre-Owned (Vendor)',
+        latitude: 39.72,
+        longitude: -105.02,
+      },
+      vehicles: [
+        { id: 'va-3001', dealer_id: 'vendor-alpine', make: 'Subaru', model: 'Outback', year: 2022, asking_price: 28500, odometer: 15000, body_type: 'suv' },
+        { id: 'va-3002', dealer_id: 'vendor-alpine', make: 'Subaru', model: 'Outback', year: 2022, asking_price: 25500, odometer: 27000, body_type: 'suv' },
+      ],
+    },
+  ],
+  'harbor-motors': [
+    {
+      dealer: {
+        dealer_id: 'vendor-seaside',
+        dealer_name: 'Seaside Import Exchange (Vendor)',
+        latitude: 42.34,
+        longitude: -71.06,
+      },
+      vehicles: [
+        { id: 'vs-4001', dealer_id: 'vendor-seaside', make: 'Mazda', model: 'CX-5', year: 2023, asking_price: 29500, odometer: 5000, body_type: 'suv' },
+        { id: 'vs-4002', dealer_id: 'vendor-seaside', make: 'Mazda', model: 'CX-5', year: 2023, asking_price: 26500, odometer: 18000, body_type: 'suv' },
+      ],
+    },
+  ],
+};
+
+function buildTenantRegistry() {
+  return new TenantRegistry(TENANT_PRESETS.map(({ dealers, ...preset }) => preset));
+}
+
+function buildDealersByTenant() {
+  return new Map(
+    TENANT_PRESETS.map((preset) => [
+      preset.tenantId,
+      preset.dealers.map((dealer) => new Dealer({ tenantId: preset.tenantId, ...dealer })),
+    ]),
+  );
+}
 
 function h(tag, props = {}, children = []) {
   const node = document.createElement(tag);
@@ -66,23 +117,51 @@ function h(tag, props = {}, children = []) {
   return node;
 }
 
-function renderHeader(tenantConfig) {
-  const header = h('header', { class: 'app__header' });
-  if (tenantConfig.logoUrl) {
-    header.appendChild(
-      h('img', { class: 'app__logo', src: tenantConfig.logoUrl, alt: `${tenantConfig.name} logo` }),
-    );
+function renderBrandLogo(tenantConfig) {
+  const fallback = h('span', {
+    class: 'app__logo app__logo--fallback',
+    text: getBrandInitials(tenantConfig.name),
+  });
+
+  if (!tenantConfig.logoUrl) {
+    return fallback;
   }
-  header.appendChild(h('h1', { class: 'app__title', text: tenantConfig.name }));
-  return header;
+
+  const img = h('img', {
+    class: 'app__logo',
+    src: tenantConfig.logoUrl,
+    alt: `${tenantConfig.name} logo`,
+  });
+  img.addEventListener('error', () => img.replaceWith(fallback), { once: true });
+  return img;
 }
 
-function renderTabs(onSelect) {
+function renderHeader(tenantConfig) {
+  const titleGroup = h('div', { class: 'app__title-group' }, [
+    h('h1', { class: 'app__title', text: tenantConfig.name }),
+    tenantConfig.tagline ? h('p', { class: 'app__tagline', text: tenantConfig.tagline }) : null,
+  ]);
+  return h('header', { class: 'app__header' }, [renderBrandLogo(tenantConfig), titleGroup]);
+}
+
+function renderBrandSwitcher(presets, activeTenantId, onSwitch) {
+  const select = h(
+    'select',
+    { 'aria-label': 'Switch dealer brand' },
+    presets.map((preset) => h('option', { value: preset.tenantId, text: preset.name })),
+  );
+  select.value = activeTenantId;
+  select.addEventListener('change', () => onSwitch(select.value));
+
+  return h('div', { class: 'brand-switcher' }, [h('label', { text: 'Dealer Brand' }), select]);
+}
+
+function renderTabs(activeTab, onSelect) {
   const dealerBtn = h('button', {
     class: 'tabs__button',
     type: 'button',
     role: 'tab',
-    'aria-selected': 'true',
+    'aria-selected': String(activeTab === 'dealer'),
     text: 'Dealer Studio',
     onClick: () => onSelect('dealer'),
   });
@@ -90,7 +169,7 @@ function renderTabs(onSelect) {
     class: 'tabs__button',
     type: 'button',
     role: 'tab',
-    'aria-selected': 'false',
+    'aria-selected': String(activeTab === 'buyer'),
     text: 'Buyer Search',
     onClick: () => onSelect('buyer'),
   });
@@ -131,7 +210,22 @@ function renderVehicleCard(card, { onShare } = {}) {
   return h('article', { class: 'card' }, children);
 }
 
-function renderDealerStudioView(dealerController, dealers, onShare) {
+function renderProgressModal() {
+  const stageEl = h('h3', { class: 'modal__stage', text: 'Starting scan...' });
+  const messageEl = h('p', { class: 'modal__message', text: '' });
+  const overlay = h('div', { class: 'modal-overlay' }, [
+    h('div', { class: 'modal', role: 'status', 'aria-live': 'polite' }, [stageEl, messageEl]),
+  ]);
+
+  function setStage(event) {
+    stageEl.textContent = event.stage === 'ERROR' ? 'Scan Failed' : discoveryStageLabel(event.stage);
+    messageEl.textContent = event.message ?? '';
+  }
+
+  return { overlay, setStage };
+}
+
+function renderDealerStudioView(dealerController, dealers, onShare, brandSwitcher) {
   const dealerSelect = h(
     'select',
     { name: 'dealerId', required: '' },
@@ -199,10 +293,15 @@ function renderDealerStudioView(dealerController, dealers, onShare) {
 
   renderInventory();
 
-  return h('section', { class: 'view', id: 'view-dealer' }, [form, h('h2', { text: 'Inventory' }), list]);
+  return h('section', { class: 'view', id: 'view-dealer' }, [
+    brandSwitcher,
+    form,
+    h('h2', { text: 'Inventory' }),
+    list,
+  ]);
 }
 
-function renderBuyerSearchView(buyerController, dealers, getSearchableVehicles) {
+function renderBuyerSearchView(buyerController, dealers, getSearchableVehicles, tenantId, onScan) {
   const originSelect = h('select', { name: 'originDealerId' }, [
     h('option', { value: '', text: 'Any location' }),
     ...dealers.map((dealer) => h('option', { value: dealer.dealerId, text: dealer.name })),
@@ -226,6 +325,28 @@ function renderBuyerSearchView(buyerController, dealers, getSearchableVehicles) 
     ].map(([value, label]) => h('option', { value, text: label })),
   );
 
+  const scanBtn = h('button', {
+    class: 'button button--secondary',
+    type: 'button',
+    text: 'Scan 50-mile Radius',
+  });
+  scanBtn.addEventListener('click', async () => {
+    const { overlay, setStage } = renderProgressModal();
+    document.body.appendChild(overlay);
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'Scanning...';
+    try {
+      await onScan(originSelect.value, (event) => setStage(event));
+    } catch (error) {
+      setStage({ stage: 'ERROR', message: error.message });
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    } finally {
+      overlay.remove();
+      scanBtn.disabled = false;
+      scanBtn.textContent = 'Scan 50-mile Radius';
+    }
+  });
+
   const form = h('form', { class: 'form' }, [
     h('div', { class: 'form__row' }, [h('label', { text: 'Search Near' }), originSelect]),
     h('div', { class: 'form__row form__row--split' }, [
@@ -237,14 +358,17 @@ function renderBuyerSearchView(buyerController, dealers, getSearchableVehicles) 
       h('div', {}, [h('label', { text: 'Body Style' }), bodyStyleSelect]),
     ]),
     h('div', { class: 'form__row' }, [h('label', { text: 'Sort By' }), sortSelect]),
-    h('button', { class: 'button', type: 'submit', text: 'Search' }),
+    h('div', { class: 'form__row form__row--split' }, [
+      h('button', { class: 'button', type: 'submit', text: 'Search' }),
+      scanBtn,
+    ]),
   ]);
 
   const results = h('div', { class: 'card-list' });
 
   function runSearch() {
     const data = new FormData(form);
-    const criteria = { tenantId: DEMO_TENANT_CONFIG.tenantId };
+    const criteria = { tenantId };
 
     const maxPrice = data.get('maxPrice');
     if (maxPrice) criteria.maxPrice = Number(maxPrice);
@@ -299,33 +423,132 @@ function renderBuyerSearchView(buyerController, dealers, getSearchableVehicles) 
 }
 
 export function mountApp(root) {
-  applyTenantTheme(DEMO_TENANT_CONFIG);
-  document.title = DEMO_TENANT_CONFIG.name;
-
-  const telemetryService = new TelemetryService({ dealers: DEMO_DEALERS });
-  const ingestService = new IngestService({ telemetryService, tenantId: DEMO_TENANT_CONFIG.tenantId });
-  const searchService = new SearchService({ dealers: DEMO_DEALERS });
+  const registry = buildTenantRegistry();
+  const dealersByTenant = buildDealersByTenant();
   const hapticsService = new HapticsService();
   const shareService = new ShareService();
+  const tenantStateByTenantId = new Map();
 
-  const dealerController = new DealerStudioController({ ingestService, telemetryService, hapticsService });
-  const buyerController = new BuyerSearchController({ searchService, shareService });
-
-  const dealerView = renderDealerStudioView(dealerController, DEMO_DEALERS, (card) =>
-    shareService.share(card.shareData),
-  );
-  const buyerView = renderBuyerSearchView(buyerController, DEMO_DEALERS, () => ingestService.getInventory());
-
-  const { nav, dealerBtn, buyerBtn } = renderTabs((tab) => {
-    const dealerActive = tab === 'dealer';
-    dealerView.hidden = !dealerActive;
-    buyerView.hidden = dealerActive;
-    dealerBtn.setAttribute('aria-selected', String(dealerActive));
-    buyerBtn.setAttribute('aria-selected', String(!dealerActive));
+  let activeTenantConfig = registry.resolveTenant({
+    search: window.location.search,
+    storage: window.localStorage,
+    defaultTenantId: DEFAULT_TENANT_ID,
   });
+  let activeTab = 'dealer';
 
-  const app = h('div', { class: 'app' }, [renderHeader(DEMO_TENANT_CONFIG), nav, dealerView, buyerView]);
-  root.replaceChildren(app);
+  function getTenantState(tenantId) {
+    if (!tenantStateByTenantId.has(tenantId)) {
+      const dealers = dealersByTenant.get(tenantId) ?? [];
+      const telemetryService = new TelemetryService({ dealers });
+      const ingestService = new IngestService({ telemetryService, tenantId });
+      const searchService = new SearchService({ dealers });
+      tenantStateByTenantId.set(tenantId, { dealers, telemetryService, ingestService, searchService });
+      if (tenantId === CARBOYZ_TENANT_ID) {
+        seedDirectInventory(ingestService);
+      }
+    }
+    return tenantStateByTenantId.get(tenantId);
+  }
+
+  function switchTenant(tenantId) {
+    const nextConfig = registry.get(tenantId);
+    if (!nextConfig) {
+      return;
+    }
+    activeTenantConfig = nextConfig;
+    writeTenantIdToStorage(window.localStorage, tenantId);
+    render();
+  }
+
+  async function runDiscovery(originDealerId, onProgress) {
+    const state = getTenantState(activeTenantConfig.tenantId);
+    const originDealer = state.dealers.find((dealer) => dealer.dealerId === originDealerId) ?? state.dealers[0];
+    if (!originDealer) {
+      throw new Error('No dealer available to scan from yet.');
+    }
+
+    const discoveryService = new DiscoveryService({
+      telemetryService: state.telemetryService,
+      vendorFeeds: VENDOR_FEEDS_BY_TENANT[activeTenantConfig.tenantId] ?? [],
+    });
+
+    const result = await discoveryService.scanRadius({
+      origin: { lat: originDealer.lat, lng: originDealer.lng },
+      radiusMiles: 50,
+      tenantId: activeTenantConfig.tenantId,
+      onProgress,
+    });
+
+    result.dealers.forEach((dealer) => {
+      state.searchService.registerDealer(dealer);
+      state.telemetryService.registerDealer(dealer);
+      if (!state.dealers.some((existing) => existing.dealerId === dealer.dealerId)) {
+        state.dealers.push(dealer);
+      }
+    });
+
+    result.vehicleResults.forEach(({ vehicle }) => {
+      state.ingestService.intake({
+        dealerId: vehicle.dealerId,
+        make: vehicle.make,
+        model: vehicle.model,
+        year: vehicle.year,
+        price: vehicle.price,
+        mileage: vehicle.mileage,
+        bodyStyle: vehicle.bodyStyle,
+      });
+    });
+
+    hapticsService.vibrate();
+    render();
+
+    return result;
+  }
+
+  function render() {
+    applyTenantTheme(activeTenantConfig);
+    document.title = activeTenantConfig.name;
+
+    const state = getTenantState(activeTenantConfig.tenantId);
+    const dealerController = new DealerStudioController({
+      ingestService: state.ingestService,
+      telemetryService: state.telemetryService,
+      hapticsService,
+    });
+    const buyerController = new BuyerSearchController({ searchService: state.searchService, shareService });
+
+    const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
+
+    const dealerView = renderDealerStudioView(
+      dealerController,
+      state.dealers,
+      (card) => shareService.share(card.shareData),
+      brandSwitcher,
+    );
+    const buyerView = renderBuyerSearchView(
+      buyerController,
+      state.dealers,
+      () => state.ingestService.getInventory(),
+      activeTenantConfig.tenantId,
+      runDiscovery,
+    );
+
+    const { nav, dealerBtn, buyerBtn } = renderTabs(activeTab, (tab) => {
+      activeTab = tab;
+      const dealerActive = tab === 'dealer';
+      dealerView.hidden = !dealerActive;
+      buyerView.hidden = dealerActive;
+      dealerBtn.setAttribute('aria-selected', String(dealerActive));
+      buyerBtn.setAttribute('aria-selected', String(!dealerActive));
+    });
+    dealerView.hidden = activeTab !== 'dealer';
+    buyerView.hidden = activeTab !== 'buyer';
+
+    const app = h('div', { class: 'app' }, [renderHeader(activeTenantConfig), nav, dealerView, buyerView]);
+    root.replaceChildren(app);
+  }
+
+  render();
 }
 
 if (typeof document !== 'undefined') {
