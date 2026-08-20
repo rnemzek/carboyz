@@ -6,7 +6,8 @@
   "description": "Multi-tenant PWA core: tenant branding config and native service bridges.",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "start": "npx serve . -p ${PORT:-8080}"
   },
   "engines": {
     "node": ">=20"
