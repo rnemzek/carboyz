@@ -537,3 +537,23 @@ or `npx serve .`. `file://` still won't work (ES module CORS restriction).
 ℹ skipped 0
 ℹ todo 0
 ```
+
+## [Spatial Core / Domain Overlay Contract Refactor]
+- **Date:** 2026-08-20
+- **Status:** Complete. Cross-repo refactor across `@nemzilla/spatial-core` and `carboyz`. `spatial-core` tests: 24/24 passing. `carboyz` tests: 180/180 passing.
+- **Scope:** Establish a clean Generic Spatial Core + Domain Overlay contract — spatial-core owns map mechanics (pan/zoom/flyTo/H3/geocoding) and marker lifecycle; the domain overlay owns pin appearance and node click/hover behavior. Clean break (no back-compat shim); carboyz is spatial-core's only consumer.
+
+### Summary
+- **spatial-core** (`e989da1`): `map.ts` replaced the fixed circle-paint-layer with a pluggable `OverlayConfig` (`renderMarker`, `onNodeClick` with `stopPropagation`, `onNodeHover`/`onNodeLeave`, `onMapBackgroundClick`) driving real DOM `Marker` instances (`MarkerClass` injected by the caller, e.g. `maplibregl.Marker`); the H3 hex overlay is untouched. Added `places.ts` (`GooglePlacesAdapter`, implementing the existing `IngestionAdapter` interface — Field-Masked `searchNearby`, injectable `apiKey`/`fetchImpl`, graceful no-key short-circuit) and `spatialCellIndex.ts` (`SpatialCellIndex`, an H3-keyed cache) for a "look far" Places gap-fill capability. Library-only this pass — no carboyz UI trigger wired in, per explicit scope confirmation. Added 24 new tests across 3 new test files (`map.test.ts`, `places.test.ts`, `spatialCellIndex.test.ts`); since this stack has no jsdom anywhere, DOM stand-ins use Node's native `EventTarget`/`Event` globals rather than a real `document`.
+- **carboyz** (`1d01ebc`): `carboyzAdapter.js` gained `buildDartPinSvgMarkup`/`buildDartPinElement` (a custom dealership "dart" pin, SVG generation kept as a pure/testable function separate from the DOM-touching wrapper, matching the existing `vehicleCard.js` view-model convention). `MapView.js` migrated to the new `overlay`/`MarkerClass` shape — `onNodeClick` opens the existing inventory drawer, `onNodeHover`/`onNodeLeave` drive the synopsis popup, `onMapBackgroundClick` closes the drawer. `seedInventory.js`/`App.js` seed two new default local dealer nodes — Leland Motors and Wilmington Auto Plaza (Leland/Wilmington NC) — alongside CarBoyZ Motors HQ, kept in a separate `LOCAL_DEALERS`/`seedLocalDealers` export so the existing fixed 30/70 direct/vendor seed-inventory ratio test stays intact.
+- **Verification:** `npm test` green in both repos (spatial-core's `pretest` rebuilds `dist/`, which carboyz's `file:../spatial-core` dependency resolves against). No Playwright suite exists in either repo's `package.json` — ran an ad hoc headless Chromium script (via a locally cached Playwright install, not a project dependency) against the live app instead: 3 dart pins render (HQ + both new local dealers), hover shows the synopsis popup, pin click opens the drawer with the correct title, map-background click closes it, zero console errors.
+
+### Files added/modified
+- spatial-core: `src/map.ts`, `src/index.ts`, `tsconfig.json` (modified); `src/places.ts`, `src/spatialCellIndex.ts`, `tests/map.test.ts`, `tests/places.test.ts`, `tests/spatialCellIndex.test.ts` (new)
+- carboyz: `src/adapters/carboyzAdapter.js`, `src/ui/MapView.js`, `src/ui/App.js`, `src/ui/styles.css`, `src/utils/seedInventory.js`, `tests/carboyzAdapter.test.js`, `tests/seedInventory.test.js` (modified)
+
+### Test output
+```
+spatial-core: 24 pass / 0 fail
+carboyz:      180 pass / 0 fail
+```
