@@ -6,6 +6,11 @@ import {
   DIRECT_INVENTORY,
   VENDOR_FEEDS,
   seedDirectInventory,
+  LELAND_DEALER_ID,
+  WILMINGTON_DEALER_ID,
+  LOCAL_DEALERS,
+  LOCAL_DEALER_INVENTORY,
+  seedLocalDealers,
 } from '../src/utils/seedInventory.js';
 import { haversineDistanceMiles } from '../src/utils/geo.js';
 import { TelemetryService, MarketPosition } from '../src/services/TelemetryService.js';
@@ -77,6 +82,31 @@ test('every simulated vendor lot is within a 50-mile radius of the ZIP 28451 see
     const distance = haversineDistanceMiles(SEED_ANCHOR, { lat: feed.dealer.latitude, lng: feed.dealer.longitude });
     assert.ok(distance <= 50, `${feed.dealer.dealer_name} is ${distance.toFixed(1)}mi away`);
   }
+});
+
+test('LOCAL_DEALERS defines Leland and Wilmington NC default local dealer nodes', () => {
+  assert.equal(LOCAL_DEALERS.length, 2);
+  const ids = LOCAL_DEALERS.map((d) => d.dealerId);
+  assert.ok(ids.includes(LELAND_DEALER_ID));
+  assert.ok(ids.includes(WILMINGTON_DEALER_ID));
+  for (const localDealer of LOCAL_DEALERS) {
+    assert.equal(typeof localDealer.lat, 'number');
+    assert.equal(typeof localDealer.lng, 'number');
+  }
+});
+
+test('LOCAL_DEALER_INVENTORY only references LOCAL_DEALERS ids', () => {
+  const localDealerIds = new Set(LOCAL_DEALERS.map((d) => d.dealerId));
+  assert.ok(LOCAL_DEALER_INVENTORY.every((vehicle) => localDealerIds.has(vehicle.dealerId)));
+});
+
+test('seedLocalDealers ingests every LOCAL_DEALER_INVENTORY entry, tagged with the ingest service tenantId', () => {
+  const telemetryService = new TelemetryService();
+  const ingestService = new IngestService({ telemetryService, tenantId: 'carboyz' });
+  const results = seedLocalDealers(ingestService);
+
+  assert.equal(results.length, LOCAL_DEALER_INVENTORY.length);
+  assert.ok(results.every((r) => r.vehicle.tenantId === 'carboyz'));
 });
 
 test('vendor feed vehicles normalize cleanly through VendorAdapter', () => {

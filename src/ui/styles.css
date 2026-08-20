@@ -329,6 +329,13 @@ body {
   inset: 0;
 }
 
+.map-dart-pin {
+  cursor: pointer;
+  display: flex;
+  transform: translateY(-50%);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
+
 .map-location-bar {
   position: absolute;
   top: var(--spacing);

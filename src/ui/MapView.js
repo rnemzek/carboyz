@@ -1,5 +1,5 @@
-import { normalizePayload, renderTopicLayer, updateTopicLayer, getNearbyCells, latLngToCell } from '@nemzilla/spatial-core';
-import { buildDealerLayerConfig } from '../adapters/carboyzAdapter.js';
+import { normalizePayload, renderTopicLayer, updateTopicLayer, resolveHoverContent, getNearbyCells, latLngToCell } from '@nemzilla/spatial-core';
+import { buildDealerLayerConfig, buildDartPinElement } from '../adapters/carboyzAdapter.js';
 import { evaluateVehicleMarketPosition } from '../adapters/marketEvaluationAdapter.js';
 import { resolveChatQuery, rankTopMatches } from '../adapters/chatFilterAdapter.js';
 import { resolveLocationQuery, describeCoordinates } from '../adapters/locationAdapter.js';
@@ -256,30 +256,44 @@ export function renderMapView({ onFeatureSelect } = {}) {
     drawer.hidden = false;
   }
 
+  const renderOptions = {
+    showH3Overlay: true,
+    MarkerClass: maplibregl.Marker,
+    overlay: {
+      renderMarker: buildDartPinElement,
+      onNodeClick: (node) => {
+        showDrawer(node);
+        onFeatureSelect?.(node.id, node);
+      },
+      onNodeHover: (node) => {
+        popup?.remove();
+        if (!node.coordinates) return;
+        popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
+          .setLngLat([node.coordinates.lng, node.coordinates.lat])
+          .setHTML(resolveHoverContent(node))
+          .addTo(map);
+      },
+      onNodeLeave: () => {
+        popup?.remove();
+        popup = null;
+      },
+      onMapBackgroundClick: () => {
+        drawer.hidden = true;
+        popup?.remove();
+        popup = null;
+      },
+    },
+  };
+
   function renderLayer() {
     const relevantDealers = nearbyDealers ?? dealers;
     const layerConfig = buildNormalizedDealerLayerConfig(relevantDealers, vehicles);
     featuresById = new Map(layerConfig.features.map((feature) => [feature.id, feature]));
 
     if (!handle) {
-      handle = renderTopicLayer(map, layerConfig, {
-        showH3Overlay: true,
-        onFeatureHover: (feature, hoverContentHtml) => {
-          popup?.remove();
-          if (!feature) return;
-          popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
-            .setLngLat([feature.coordinates.lng, feature.coordinates.lat])
-            .setHTML(hoverContentHtml)
-            .addTo(map);
-        },
-        onFeatureSelect: (featureId) => {
-          const feature = featuresById.get(featureId);
-          if (feature) showDrawer(feature);
-          onFeatureSelect?.(featureId, feature);
-        },
-      });
+      handle = renderTopicLayer(map, layerConfig, renderOptions);
     } else {
-      updateTopicLayer(map, layerConfig, handle);
+      updateTopicLayer(map, layerConfig, handle, renderOptions);
     }
   }
 

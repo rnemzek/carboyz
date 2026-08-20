@@ -135,3 +135,37 @@ export function buildDealerLayerConfig({ dealers = [], vehicles = [], layerId = 
     features: buildDealerFeatures({ dealers, vehicles }),
   };
 }
+
+/**
+ * Inline SVG markup for the CarBoyZ dealership "dart" pin (a downward-pointing teardrop), colored via
+ * CARBOYZ_MAP_STYLE.pinColor. Kept as a pure string builder, separate from DOM construction, so it's
+ * unit-testable without a browser/DOM environment.
+ */
+export function buildDartPinSvgMarkup(pinColor = CARBOYZ_MAP_STYLE.pinColor) {
+  return `
+    <svg viewBox="0 0 24 32" width="28" height="36" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20c0-6.627-5.373-12-12-12z"
+        fill="${pinColor}"
+        stroke="#ffffff"
+        stroke-width="1.5"
+      />
+      <circle cx="12" cy="12" r="4.5" fill="#ffffff" />
+    </svg>
+  `;
+}
+
+/**
+ * The CarBoyZ domain overlay's `renderMarker`: wraps the dart-pin SVG markup in a DOM element per the
+ * @nemzilla/spatial-core OverlayConfig contract. Requires a browser/DOM environment (`document`) —
+ * DOM construction itself is intentionally left untested, matching this codebase's existing convention
+ * of keeping DOM-touching UI code thin and delegating logic to plain, testable builders (see MapView.js).
+ */
+export function buildDartPinElement(feature) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'map-dart-pin';
+  wrapper.setAttribute('role', 'img');
+  wrapper.setAttribute('aria-label', feature?.title ?? 'Dealer');
+  wrapper.innerHTML = buildDartPinSvgMarkup();
+  return wrapper;
+}

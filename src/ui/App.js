@@ -7,7 +7,14 @@ import { IngestService } from '../services/IngestService.js';
 import { HapticsService } from '../services/HapticsService.js';
 import { ShareService } from '../services/ShareService.js';
 import { DiscoveryService } from '../services/DiscoveryService.js';
-import { SEED_ANCHOR, CARBOYZ_HQ_DEALER_ID, VENDOR_FEEDS as CARBOYZ_VENDOR_FEEDS, seedDirectInventory } from '../utils/seedInventory.js';
+import {
+  SEED_ANCHOR,
+  CARBOYZ_HQ_DEALER_ID,
+  VENDOR_FEEDS as CARBOYZ_VENDOR_FEEDS,
+  seedDirectInventory,
+  LOCAL_DEALERS,
+  seedLocalDealers,
+} from '../utils/seedInventory.js';
 import { applyTenantTheme } from './theme.js';
 import { getBrandInitials } from './branding.js';
 import { discoveryStageLabel } from './discoveryProgress.js';
@@ -20,7 +27,10 @@ const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 const TENANT_PRESETS = [
   {
     ...CARBOYZ_FLAGSHIP_PRESET,
-    dealers: [{ dealerId: CARBOYZ_HQ_DEALER_ID, name: 'CarBoyZ Motors HQ', lat: SEED_ANCHOR.lat, lng: SEED_ANCHOR.lng }],
+    dealers: [
+      { dealerId: CARBOYZ_HQ_DEALER_ID, name: 'CarBoyZ Motors HQ', lat: SEED_ANCHOR.lat, lng: SEED_ANCHOR.lng },
+      ...LOCAL_DEALERS,
+    ],
   },
   {
     tenantId: 'summit-auto',
@@ -455,6 +465,7 @@ export function mountApp(root) {
       tenantStateByTenantId.set(tenantId, { dealers, telemetryService, ingestService, searchService });
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
+        seedLocalDealers(ingestService);
       }
     }
     return tenantStateByTenantId.get(tenantId);

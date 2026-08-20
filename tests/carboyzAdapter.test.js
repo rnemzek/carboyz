@@ -5,6 +5,7 @@ import {
   buildCarboyzLayerConfig,
   buildDealerFeatures,
   buildDealerLayerConfig,
+  buildDartPinSvgMarkup,
   CARBOYZ_MAP_LAYER_ID,
   CARBOYZ_MAP_TOPIC,
   CARBOYZ_MAP_STYLE,
@@ -135,4 +136,15 @@ test('buildDealerLayerConfig sets the auto topic, CarBoyZ pin style, and default
   assert.equal(layerConfig.topic, 'auto');
   assert.deepEqual(layerConfig.style, CARBOYZ_MAP_STYLE);
   assert.equal(layerConfig.features.length, 1);
+});
+
+test('buildDartPinSvgMarkup renders an SVG using the given pin color', () => {
+  const markup = buildDartPinSvgMarkup('#ff0000');
+  assert.match(markup, /<svg/);
+  assert.match(markup, /fill="#ff0000"/);
+});
+
+test('buildDartPinSvgMarkup defaults to CARBOYZ_MAP_STYLE.pinColor', () => {
+  const markup = buildDartPinSvgMarkup();
+  assert.match(markup, new RegExp(`fill="${CARBOYZ_MAP_STYLE.pinColor}"`));
 });

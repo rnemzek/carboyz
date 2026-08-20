@@ -71,3 +71,26 @@ export const VENDOR_FEEDS = Object.freeze([
 export function seedDirectInventory(ingestService) {
   return DIRECT_INVENTORY.map((vehicleData) => ingestService.intake(vehicleData));
 }
+
+// Default local nodes for the CarBoyZ domain overlay: dealers that render on the map immediately,
+// without requiring a DiscoveryService scan, covering the Leland/Wilmington NC local market around
+// SEED_ANCHOR. Kept separate from DIRECT_INVENTORY/CARBOYZ_HQ_DEALER_ID so the fixed 30/70 direct-vs-
+// vendor seed-set ratio asserted elsewhere is untouched.
+export const LELAND_DEALER_ID = 'leland-motors';
+export const WILMINGTON_DEALER_ID = 'wilmington-auto-plaza';
+
+export const LOCAL_DEALERS = Object.freeze([
+  { dealerId: LELAND_DEALER_ID, name: 'Leland Motors', lat: 34.2388, lng: -78.0145 },
+  { dealerId: WILMINGTON_DEALER_ID, name: 'Wilmington Auto Plaza', lat: 34.2104, lng: -77.8868 },
+]);
+
+export const LOCAL_DEALER_INVENTORY = Object.freeze([
+  { dealerId: LELAND_DEALER_ID, make: 'Honda', model: 'CR-V', year: 2021, price: 26500, mileage: 34000, bodyStyle: 'suv' },
+  { dealerId: LELAND_DEALER_ID, make: 'Toyota', model: 'Camry', year: 2020, price: 21500, mileage: 41000, bodyStyle: 'sedan' },
+  { dealerId: WILMINGTON_DEALER_ID, make: 'Ford', model: 'Escape', year: 2022, price: 25500, mileage: 19000, bodyStyle: 'suv' },
+  { dealerId: WILMINGTON_DEALER_ID, make: 'Nissan', model: 'Altima', year: 2021, price: 19500, mileage: 28000, bodyStyle: 'sedan' },
+]);
+
+export function seedLocalDealers(ingestService) {
+  return LOCAL_DEALER_INVENTORY.map((vehicleData) => ingestService.intake(vehicleData));
+}
