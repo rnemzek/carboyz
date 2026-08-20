@@ -59,8 +59,20 @@ test('Vehicle defaults optional fields, including bodyStyle, to null', () => {
   const vehicle = new Vehicle({ tenantId: 't1', vehicleId: 'v1', dealerId: 'd1', price: 100 });
   assert.equal(vehicle.bodyStyle, null);
   assert.equal(vehicle.mileage, null);
+  assert.equal(vehicle.condition, null);
   assert.equal(vehicle.lat, null);
   assert.equal(vehicle.lng, null);
+});
+
+test('Vehicle stores an assigned condition', () => {
+  const vehicle = new Vehicle({
+    tenantId: 't1',
+    vehicleId: 'v1',
+    dealerId: 'd1',
+    price: 100,
+    condition: 'Certified Pre-Owned',
+  });
+  assert.equal(vehicle.condition, 'Certified Pre-Owned');
 });
 
 test('Vehicle stores an assigned bodyStyle', () => {

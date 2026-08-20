@@ -11,5 +11,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@nemzilla/spatial-core": "file:../spatial-core"
   }
 }

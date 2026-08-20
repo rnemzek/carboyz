@@ -474,3 +474,66 @@ or `npx serve .`. `file://` still won't work (ES module CORS restriction).
 ℹ ----------------------------------------------------------------------------
 ℹ all files                    |  98.59 |    93.52 |   97.89 |
 ```
+
+## [UOW-07] — Structured LLM Query Parsing & Local Discovery Sync
+- **Date:** 2026-08-20
+- **Status:** Complete. All 5 tasks done, `npm test` passing 167/167. `chatFilterAdapter.js` (the only new/modified business-logic module) at 99.20% line / 87.07% branch / 95.24% funcs coverage (quality gate: 80%).
+
+### Tasks completed
+- **7.1:** Added `parseChatQueryWithLLM(text, options)` to `src/adapters/chatFilterAdapter.js`, calling the Anthropic Messages API (`options.apiKey` → `process.env.ANTHROPIC_API_KEY` → `window.CARBOYZ_ANTHROPIC_API_KEY`, checked in that order) with a system prompt instructing it to return ONLY a JSON object matching `{maxPrice?, maxMileage?, minYear?, bodyStyle?: 'SUV'|'Sedan'|'Truck'|'Coupe'|'Hatchback', conditionPreference?: string[], intentSummary}`. The response is extracted/validated by `sanitizeLlmQuery` (numeric bounds checked, `bodyStyle` whitelisted then lowercased to match the internal representation, non-string array entries dropped) and the whole call is wrapped so any failure — missing key, unavailable `fetch`, network error, non-2xx, unparseable JSON, 6s timeout via `AbortController` — resolves to `null` rather than throwing. `apiKey`/`fetchImpl`/`timeoutMs`/`model` are all injectable via `options` for testability.
+- **7.2:** Added `resolveChatQuery(text, options)`: tries `parseChatQueryWithLLM` first, and on `null` falls back to the existing regex `parseChatQuery`, synthesizing an `intentSummary` from whatever fields the regex parser recognized (or the raw input text if it recognized nothing) so the drawer always has a summary line to render regardless of which path served the query.
+- **7.3:** Wired `resolveChatQuery` into `src/ui/MapView.js`'s chat bar `onSubmit` (now async). The candidate pool passed to `rankTopMatches` is now filtered down to vehicles whose `dealerId` is in `nearbyDealers` (the existing 25-mile/40km H3 nearby-cell set computed for user-location centering) instead of the full unfiltered inventory — closing a gap where the chat bar had been searching the entire tenant's inventory rather than the local pool the map itself was already scoping to. `rankTopMatches` (pre-existing) still runs `evaluateVehicleMarketPosition` → `evaluateMarketComps()` per candidate and returns the best-value Top 5.
+- **7.4:** `ChatDiscovery.js`'s `showResults(matches, intentSummary)` now renders the resolved `intentSummary` as a line above the card list (`.chat-discovery__results-summary`, styled/hidden to match the existing empty-state pattern), and the submit handler disables the Search button for the duration of the now-async `onSubmit` call. Map/card-click sync (`focusDealer` → `map.flyTo` + `showDrawer({ highlightVehicleId })`) was already implemented from a prior pass and needed no changes.
+- **7.4b:** Extended `filterVehiclesByQuery` to filter on `conditionPreference` (case-insensitive match against `deriveVehicleCondition()`, imported from `ui/vehicleCard.js`) so the field the LLM/regex parsers extract is actually consumed by the filtering pipeline, not just carried through unused.
+- **7.5:** New tests in `tests/chatFilterAdapter.test.js`: `parseChatQueryWithLLM` (no-API-key short-circuit never calls `fetch`, network failure, non-ok response, unparseable response text, valid structured parse, invalid `bodyStyle` dropped while the rest of the payload survives), `resolveChatQuery` (prefers a successful LLM parse; falls back to the regex parser + synthesized summary when no key is configured; falls back to raw text when nothing parses), and `filterVehiclesByQuery` `conditionPreference` filtering. `npm test` → 167/167 passing.
+  - Ran a headless Playwright pass (`npx serve .` on :8080; no `chromium-cli` in this environment, so used Playwright's bundled Chromium directly per the `run` skill's documented fallback) against the live app: navigated to `?brand=carboyz` (seeded CarBoyZ inventory), switched to the Map tab, submitted "SUV under $35k" in the chat bar → results drawer opened with 2 cards (both seeded Jeep Wranglers), correct verdict badges (`Fair Market`, `Overpriced`) and the intent-summary line ("Looking for a suv, under $35,000."), clicked the first card → map flew to CarBoyZ Motors HQ and the dealer drawer opened with that exact vehicle card highlighted. Zero browser console errors throughout. (Needed to grant a mocked `geolocation` permission at the seed anchor, ~34.35/-77.8 — the app's hardcoded `FALLBACK_LOCATION` used when geolocation is denied/unavailable is in Orange County, CA, ~2,500 miles from the seeded CarBoyZ HQ, so an un-geolocated session now correctly returns zero *local* matches under the new 25-mile filter from Task 7.3. That's a legitimate consequence of "local" actually meaning local now, not a bug, but worth knowing if a future pass wants a friendlier no-location default.)
+
+### Files added/modified
+- `src/adapters/chatFilterAdapter.js` (modified — LLM parse handler, `resolveChatQuery`, `conditionPreference` filter)
+- `src/ui/MapView.js` (modified — async `onSubmit` via `resolveChatQuery`, 25-mile-filtered candidate pool)
+- `src/ui/ChatDiscovery.js` (modified — renders `intentSummary`, async-aware submit button)
+- `src/ui/styles.css` (modified — `.chat-discovery__results-summary`)
+- `tests/chatFilterAdapter.test.js` (modified — LLM handler, `resolveChatQuery`, `conditionPreference` coverage)
+- `ROADMAP.md`, `.hydrate/CURRENT_UOW.md` (UOW-07 checked off / logged)
+
+### Test output
+```
+ℹ tests 167
+ℹ suites 0
+ℹ pass 167
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+## [UOW-08] — Location Overlay: GPS Locate & ZIP/City Search
+- **Date:** 2026-08-20
+- **Status:** Complete. All 7 tasks done, `npm test` passing 175/175. `locationAdapter.js` (the only new business-logic module) at 100.00% line / 96.55% branch coverage (quality gate: 80%).
+
+### Tasks completed
+- **8.1:** Added `src/adapters/locationAdapter.js`: an offline, `GeocoderResolver`-shaped adapter with a static ZIP/city → `{ lat, lng, label }` gazetteer (Leland NC 28451 plus the cities already referenced by `App.js`'s `TENANT_PRESETS`/`seedInventory.js`). `resolveLocationQuery(text)` matches a 5-digit ZIP or a city/`"City, ST"` string (case-insensitive) to a known point, `null` otherwise. `describeCoordinates(lat, lng)` captions a coordinate with the nearest known label — exact label when within 1 mile, `"Near {label}"` otherwise — via `haversineDistanceMiles` (`src/utils/geo.js`). No network calls, so resolution stays deterministic for tests and offline demo use.
+- **8.2:** Changed `FALLBACK_LOCATION` in `src/ui/MapView.js` from Orange County, CA (`{ lat: 33.6846, lng: -117.8265 }`) to Leland, NC (`{ lat: 34.2388, lng: -78.0145 }`) — the no-geolocation default only. `SEED_ANCHOR` and the `TENANT_PRESETS` dealer coordinates were left untouched (separate, seeded domain data).
+- **8.3:** Added a top Location Overlay bar (`.map-location-bar`, `📍 {label} ({25} mi)`) to `MapView.js`. Tapping it opens a new search modal (`buildLocationModal`, reusing the existing `.modal-overlay`/`.modal` pattern) with an "Enter ZIP Code or City..." input. On submit, `resolveLocationQuery` resolves the point, `applyUserLocation` (extended to accept an optional display label) calls `map.flyTo`, recomputes `nearbyDealers` via the existing `filterDealersNearby`/spatial-core `getNearbyCells`, and re-renders the layer. Unrecognized input surfaces an inline `.location-modal__error` message instead of closing the modal.
+- **8.4:** Added a floating `.map-locate-btn` (🎯, 48px, bottom-right of the map canvas, above the chat bar). Tap calls `navigator.geolocation.getCurrentPosition` directly, shows a disabled "⏳" busy state, and on success calls `applyUserLocation` (label derived via `describeCoordinates`). On missing `navigator.geolocation` or a denied/timed-out request, the location bar briefly shows an inline error message (auto-reverts after 3s) rather than crashing or silently doing nothing.
+- **8.5:** Styled `.map-location-bar`, `.map-locate-btn`, and `.location-modal` in `src/ui/styles.css`, matching the existing mobile-first `--spacing`/`--radius` tokens and z-index stacking. Also added `.modal-overlay[hidden] { display: none; }` — a real bug caught by the Playwright pass (see below): the location modal toggles visibility via the `hidden` attribute while staying in the DOM (unlike `renderProgressModal`, which is always removed/appended), and the pre-existing `.modal-overlay { display: flex }` author rule silently overrode the browser's default `[hidden]` behavior, leaving the modal invisible-but-still-intercepting-clicks. `.map-drawer` already had this exact override for the same reason; `.modal-overlay` needed the same fix.
+- **8.6:** New `tests/locationAdapter.test.js`: ZIP match, city-name match (case/whitespace-insensitive), `"City, ST"` match, unrecognized ZIP/city → `null`, empty/non-string input → `null`, `describeCoordinates` exact vs. `"Near"` captioning, and non-numeric-input fallback.
+- **8.7:** `npm test` → 175/175 passing (up from 167; +8 new tests), `locationAdapter.js` 100.00%/96.55%/100.00% line/branch/func coverage. Ran a headless Playwright pass (`npx serve .` on :8080; no `chromium-cli` in this environment, so drove Playwright's bundled Chromium directly via a scratch script, matching the UOW-07 fallback) against the live app with a mocked `geolocation` grant: navigated to `?brand=carboyz` → Map tab → confirmed the overlay read "📍 Leland, NC (25 mi)" by default → clicked 🎯 with geolocation mocked to a point near Wilmington, NC → map recentered and the overlay updated to "📍 Near Wilmington, NC (25 mi)" → opened the search modal, submitted "Denver, CO" → modal closed, map flew to Denver, overlay updated to "📍 Denver, CO (25 mi)" → reopened the modal, submitted "Nowhereville, ZZ" → inline error shown, modal stayed open. Zero browser console errors across all steps. This pass is what caught the `.modal-overlay[hidden]` bug fixed in 8.5 — the locate button was unclickable (blocked by the still-flexed, hidden-in-name-only modal) until the CSS fix landed.
+
+### Files added/modified
+- `src/adapters/locationAdapter.js` (new)
+- `src/ui/MapView.js` (modified — location bar, locate button, search modal, `FALLBACK_LOCATION`, `applyUserLocation` label param)
+- `src/ui/styles.css` (modified — `.map-location-bar`, `.map-locate-btn`, `.location-modal*`, `.modal-overlay[hidden]` fix)
+- `tests/locationAdapter.test.js` (new)
+- `ROADMAP.md`, `.hydrate/CURRENT_UOW.md` (UOW-08 checked off / logged)
+
+### Test output
+```
+ℹ tests 175
+ℹ suites 0
+ℹ pass 175
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```

@@ -291,6 +291,10 @@ body {
   z-index: 1000;
 }
 
+.modal-overlay[hidden] {
+  display: none;
+}
+
 .modal {
   background: var(--color-background);
   color: var(--color-text);
@@ -312,6 +316,358 @@ body {
   margin: 0;
   font-size: 0.9rem;
   color: var(--color-secondary);
+}
+
+.view--map {
+  padding: 0;
+  position: relative;
+  flex: 1;
+}
+
+.map-view__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.map-location-bar {
+  position: absolute;
+  top: var(--spacing);
+  left: var(--spacing);
+  right: var(--spacing);
+  z-index: 15;
+  display: block;
+  width: auto;
+  margin: 0 auto;
+  max-width: 280px;
+  padding: 8px 14px;
+  background: var(--color-background);
+  color: var(--color-text);
+  border: none;
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+
+.map-locate-btn {
+  position: absolute;
+  right: var(--spacing);
+  bottom: calc(var(--spacing) * 2 + 56px);
+  z-index: 15;
+  width: 48px;
+  height: 48px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-background);
+  color: var(--color-primary);
+  font-size: 1.3rem;
+  line-height: 1;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-locate-btn[disabled] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.location-modal {
+  text-align: left;
+}
+
+.location-modal__label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+  margin-bottom: 6px;
+}
+
+.location-modal__input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  font-size: 0.95rem;
+  margin-bottom: 10px;
+}
+
+.location-modal__error {
+  color: var(--color-overpriced);
+  font-size: 0.8rem;
+  margin: 0 0 10px;
+}
+
+.location-modal__error[hidden] {
+  display: none;
+}
+
+.location-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.map-drawer {
+  position: absolute;
+  left: var(--spacing);
+  right: var(--spacing);
+  bottom: var(--spacing);
+  background: var(--color-background);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
+}
+
+.map-drawer[hidden] {
+  display: none;
+}
+
+.map-drawer__close {
+  align-self: flex-end;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.map-synopsis {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-synopsis__title {
+  font-size: 1rem;
+}
+
+.map-synopsis__meta,
+.map-synopsis__dealer {
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+}
+
+.map-drawer__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-drawer__verdict {
+  align-self: flex-start;
+}
+
+.map-drawer__summary {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+}
+
+.map-drawer__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.map-drawer__inventory {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.map-drawer__vehicle-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-drawer__vehicle-card--highlight {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+.map-drawer__vehicle-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.map-drawer__vehicle-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.map-drawer__vehicle-meta {
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.map-drawer__vehicle-price {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.chat-discovery__bar {
+  position: absolute;
+  left: var(--spacing);
+  right: var(--spacing);
+  bottom: var(--spacing);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--color-background);
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.chat-discovery__input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.chat-discovery__submit {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-primary);
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-discovery__results {
+  position: absolute;
+  left: var(--spacing);
+  right: var(--spacing);
+  bottom: calc(var(--spacing) * 4 + 48px);
+  top: var(--spacing);
+  background: var(--color-background);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--spacing);
+  z-index: 20;
+  overflow: hidden;
+}
+
+.chat-discovery__results-summary {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+}
+
+.chat-discovery__results-summary[hidden] {
+  display: none;
+}
+
+.chat-discovery__results[hidden] {
+  display: none;
+}
+
+.chat-discovery__results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-discovery__results-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.chat-discovery__close {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.chat-discovery__results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.chat-discovery__card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--color-background);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-discovery__card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.chat-discovery__card-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.chat-discovery__card-meta {
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chat-discovery__card-price {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.chat-discovery__empty {
+  color: var(--color-secondary);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: var(--spacing);
 }
 
 @media (min-width: 600px) {

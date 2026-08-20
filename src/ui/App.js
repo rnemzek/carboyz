@@ -13,6 +13,7 @@ import { getBrandInitials } from './branding.js';
 import { discoveryStageLabel } from './discoveryProgress.js';
 import { DealerStudioController } from './DealerStudioController.js';
 import { BuyerSearchController } from './BuyerSearchController.js';
+import { renderMapView } from './MapView.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 
@@ -173,8 +174,16 @@ function renderTabs(activeTab, onSelect) {
     text: 'Buyer Search',
     onClick: () => onSelect('buyer'),
   });
-  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [dealerBtn, buyerBtn]);
-  return { nav, dealerBtn, buyerBtn };
+  const mapBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'map'),
+    text: 'Map',
+    onClick: () => onSelect('map'),
+  });
+  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [dealerBtn, buyerBtn, mapBtn]);
+  return { nav, dealerBtn, buyerBtn, mapBtn };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -428,6 +437,7 @@ export function mountApp(root) {
   const hapticsService = new HapticsService();
   const shareService = new ShareService();
   const tenantStateByTenantId = new Map();
+  const mapView = renderMapView();
 
   let activeTenantConfig = registry.resolveTenant({
     search: window.location.search,
@@ -533,19 +543,25 @@ export function mountApp(root) {
       runDiscovery,
     );
 
-    const { nav, dealerBtn, buyerBtn } = renderTabs(activeTab, (tab) => {
+    mapView.update(state.dealers, state.ingestService.getInventory());
+
+    const { nav, dealerBtn, buyerBtn, mapBtn } = renderTabs(activeTab, (tab) => {
       activeTab = tab;
-      const dealerActive = tab === 'dealer';
-      dealerView.hidden = !dealerActive;
-      buyerView.hidden = dealerActive;
-      dealerBtn.setAttribute('aria-selected', String(dealerActive));
-      buyerBtn.setAttribute('aria-selected', String(!dealerActive));
+      dealerView.hidden = tab !== 'dealer';
+      buyerView.hidden = tab !== 'buyer';
+      mapView.section.hidden = tab !== 'map';
+      dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
+      buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
+      mapBtn.setAttribute('aria-selected', String(tab === 'map'));
+      if (tab === 'map') mapView.mount();
     });
     dealerView.hidden = activeTab !== 'dealer';
     buyerView.hidden = activeTab !== 'buyer';
+    mapView.section.hidden = activeTab !== 'map';
 
-    const app = h('div', { class: 'app' }, [renderHeader(activeTenantConfig), nav, dealerView, buyerView]);
+    const app = h('div', { class: 'app' }, [renderHeader(activeTenantConfig), nav, dealerView, buyerView, mapView.section]);
     root.replaceChildren(app);
+    if (activeTab === 'map') mapView.mount();
   }
 
   render();

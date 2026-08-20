@@ -9,6 +9,7 @@ export class Vehicle {
     price,
     mileage,
     bodyStyle,
+    condition,
     lat,
     lng,
   }) {
@@ -34,6 +35,7 @@ export class Vehicle {
     this.price = price;
     this.mileage = mileage ?? null;
     this.bodyStyle = bodyStyle ?? null;
+    this.condition = condition ?? null;
     this.lat = lat ?? null;
     this.lng = lng ?? null;
   }

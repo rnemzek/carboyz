@@ -7,6 +7,26 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 });
 const mileageFormatter = new Intl.NumberFormat('en-US');
 
+/**
+ * Derives a display condition label when a vehicle has none set explicitly. Vehicles carry no
+ * condition field in the ingest pipeline today, so this is a deterministic mileage-based stand-in.
+ */
+export function deriveVehicleCondition(vehicle) {
+  if (vehicle.condition) {
+    return vehicle.condition;
+  }
+  if (typeof vehicle.mileage !== 'number') {
+    return 'Good';
+  }
+  if (vehicle.mileage <= 15000) {
+    return 'Certified Pre-Owned';
+  }
+  if (vehicle.mileage <= 40000) {
+    return 'Excellent';
+  }
+  return 'Good';
+}
+
 export function buildVehicleCardViewModel({ vehicle, distanceMiles = null, marketPosition = null }) {
   const title = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ');
   const mileageLabel =

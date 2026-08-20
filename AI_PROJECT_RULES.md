@@ -17,3 +17,19 @@
 - Focus ONLY on the scope defined in `.hydrate/CURRENT_UOW.md`.
 - Do NOT rewrite unrelated modules or introduce unrequested frameworks/dependencies.
 - Always log completed tasks, modified files, and test results to `docs/journals/dev-journal.md`.
+
+## Fast-Path Protocol & Micro-Tasks
+
+1. Auto-Commit Duty
+   - Upon completing and verifying a Unit of Work (all unit/E2E tests passing), the AI Lead Developer must automatically stage and commit the working tree:
+     git commit -m "<type>(<scope>): complete <UOW-ID> implementation and verification"
+   - Clean git state is required before concluding any session or proposing new tasks.
+
+2. Fast-Path Exception for Test Drive Polish (UOW-HOTFIX)
+   - Scope Threshold: Minor visual polish, UI layout tweaks, micro-bug fixes, or fallback adjustments (<50 lines, no breaking contract/schema changes) identified during live browser test drives do NOT require invoking `hydrate-architect` for a full re-planning cycle.
+   - Execution Rule: When the Product Owner requests a minor tweak during a test drive, append a concise `[UOW-HOTFIX]` bullet directly to `.hydrate/CURRENT_UOW.md`, implement immediately, verify with tests, and commit with `fix(ui):` or `refactor(ui):`.
+
+3. One-Shot Context Transition
+   - When transitioning between completed work and new requests, the AI lead developer should combine uncommitted tree cleanup, `CURRENT_UOW.md` logging, and task execution into a single seamless run without prompting through multi-step intermediate menus unless explicit ambiguity exists.
+
+

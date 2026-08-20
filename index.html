@@ -5,7 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0057d9" />
     <title>Carboyz</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="/src/ui/styles.css" />
+    <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@nemzilla/spatial-core": "/node_modules/@nemzilla/spatial-core/dist/index.js",
+          "zod": "/node_modules/@nemzilla/spatial-core/node_modules/zod/index.js",
+          "h3-js": "/node_modules/@nemzilla/spatial-core/node_modules/h3-js/dist/h3-js.es.js"
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="app-root"></div>
