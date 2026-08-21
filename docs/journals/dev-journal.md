@@ -604,3 +604,29 @@ carboyz:      180 pass / 0 fail
 ### Files added/modified
 - `src/ui/MapView.js` (modified — `CARTO_DARK_MATTER_STYLE_URL` default, `resolveMapStyleUrl()` runtime override)
 - `docs/journals/dev-journal.md` (logged)
+
+## [Fix] Runtime Config Injection for Static Serving + a Real Fetch Bug
+- **Date:** 2026-08-21
+- **Status:** Complete. `npm test` unchanged at 184/184 in carboyz; spatial-core at 41/41 (up from 24 — picks up geocoder/places/spatialCellIndex suites added since the last carboyz-side log).
+- **Report:** follow-up to the dark-basemap fix — an untracked `.env.local` with a real `GOOGLE_PLACES_API_KEY` existed on disk but was never reaching the browser (this app has no build step; nothing loaded `.env.local` into `window`), so `locationAdapter`'s Google-first geocoding path had never actually been exercised live.
+
+### Runtime config generator
+- Added `scripts/generate-runtime-config.js`: a small dependency-free Node script that parses `.env.local` (simple `KEY=VALUE`, skips blanks/comments) and writes a gitignored `runtime-config.js` at the repo root, setting `window.CARBOYZ_*` globals for any allowlisted key present (`GOOGLE_PLACES_API_KEY` → `CARBOYZ_GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY` → `CARBOYZ_ANTHROPIC_API_KEY`) — matches the window-global convention `chatFilterAdapter.js`/`locationAdapter.js` already read from. Wired as `prestart` in `package.json` so `npm start` regenerates it fresh every run.
+- `index.html` loads it via `<script src="/runtime-config.js" onerror="this.remove()">` before `App.js`'s module script. The `onerror` handler means a fresh checkout or a direct `npx serve .` (no `prestart` run) degrades silently — no console error, no broken page — and every adapter's existing no-key fallback takes over exactly as before.
+- `runtime-config.js` added to `.gitignore` (generated, contains a secret — never committed).
+
+### A real bug this surfaced: bare `fetch` reference → "Illegal invocation"
+- With the key now actually reaching the browser, a live Playwright pass against the location search modal showed **zero** network requests to `places.googleapis.com` despite a valid key being present — the Google path was silently resolving to `null` and falling through to the offline gazetteer every time, with no visible error.
+- Root cause, isolated via direct in-page evaluation: spatial-core's `GooglePlacesGeocoder` (`geocoder.ts`) and `GooglePlacesAdapter` (`places.ts`) both defaulted `fetchImpl` to a **bare** `fetch` reference — `fetchImpl ?? fetch`. Per the Fetch spec's "illegal invocation" branding check, calling a `fetch` reference detached from `window`/`globalThis` throws `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`. Every existing test in both repos always injects a mock `fetchImpl`, so the buggy default path had never actually been exercised — not by spatial-core's own geocoder/places test suites, and not by carboyz's UOW-09 tests either. It would have silently broken **any** live use of the default-`fetch` path, including `chatFilterAdapter.js`'s Anthropic LLM query parser (`parseChatQueryWithLLM`), which had the identical pattern (`fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : null)`) and had likewise never been exercised live with a real `ANTHROPIC_API_KEY` configured in any prior Playwright pass — every prior pass ran with no key configured, short-circuiting before `fetch` was ever called and masking the bug.
+- **Fix (spatial-core, `9dc63dd`'s follow-up commit):** `geocoder.ts` and `places.ts` now default to `fetch.bind(globalThis)` instead of the bare reference. Rebuilt `dist/`, `spatial-core` tests still 41/41.
+- **Fix (carboyz):** `chatFilterAdapter.js`'s `parseChatQueryWithLLM` given the same `fetch.bind(globalThis)` treatment.
+- **Verification:** with the fetch fix live-reloaded via `npm start`, the same location-search Playwright pass now shows a genuine outbound request to `https://places.googleapis.com/v1/places:searchText`. It currently returns `403` — a Google Cloud API-key configuration issue (Places API (New) enablement/billing/referrer restriction on the configured key), outside this codebase's control — and the adapter correctly treats that as "no match" and falls through to the offline gazetteer with no crash, confirmed by submitting "Denver, CO" and seeing the overlay update correctly with zero JS exceptions (one benign browser-logged `403` resource-load message, not a thrown error).
+- **Open item:** the Google Places (New) API key needs Google Cloud–side configuration (enable the API, confirm billing, check referrer/IP restrictions) before live geocoding will actually return results; the code path itself is now confirmed correct end-to-end.
+
+### Files added/modified
+- `scripts/generate-runtime-config.js` (new)
+- `package.json` (modified — `prestart` hook)
+- `index.html` (modified — optional `runtime-config.js` script tag)
+- `.gitignore` (modified — `runtime-config.js`)
+- `src/adapters/chatFilterAdapter.js` (modified — bound `fetch` reference)
+- spatial-core: `src/geocoder.ts`, `src/places.ts`, `dist/geocoder.js`, `dist/places.js` (modified — bound `fetch` reference)

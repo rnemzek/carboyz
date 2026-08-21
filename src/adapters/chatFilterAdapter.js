@@ -186,7 +186,9 @@ function sanitizeLlmQuery(raw) {
  */
 export async function parseChatQueryWithLLM(text = '', options = {}) {
   const apiKey = resolveApiKey(options);
-  const fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : null);
+  // A bare `fetch` reference throws "Illegal invocation" when called detached from `window`
+  // (the spec's branding check) — bind it so the default path works in a real browser.
+  const fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null);
   if (!apiKey || !fetchImpl || !text.trim()) return null;
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
