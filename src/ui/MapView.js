@@ -7,7 +7,21 @@ import { marketVerdictBadge } from './marketBadge.js';
 import { deriveVehicleCondition } from './vehicleCard.js';
 import { renderChatDiscovery } from './ChatDiscovery.js';
 
-const DEMO_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
+// Dark-matter basemap (per the "dark canvas" product spec) — independent of any geocoding API key.
+const CARTO_DARK_MATTER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+/**
+ * Resolves the MapLibre style URL to render. Checks `window.CARBOYZ_MAP_STYLE_URL` first (a runtime
+ * override for static serving with no build step, matching the `window.CARBOYZ_*` convention used for
+ * API keys elsewhere in this codebase), defaulting to the CARTO Dark Matter basemap otherwise.
+ */
+function resolveMapStyleUrl() {
+  if (typeof window !== 'undefined' && typeof window.CARBOYZ_MAP_STYLE_URL === 'string' && window.CARBOYZ_MAP_STYLE_URL) {
+    return window.CARBOYZ_MAP_STYLE_URL;
+  }
+  return CARTO_DARK_MATTER_STYLE_URL;
+}
+
 // Fallback origin (per product spec) when geolocation is unavailable or denied.
 const FALLBACK_LOCATION = { lat: 34.2388, lng: -78.0145 };
 const DEFAULT_ZOOM = 10;
@@ -359,7 +373,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
     if (map) return;
     map = new maplibregl.Map({
       container: mapContainer,
-      style: DEMO_STYLE_URL,
+      style: resolveMapStyleUrl(),
       center: [FALLBACK_LOCATION.lng, FALLBACK_LOCATION.lat],
       zoom: DEFAULT_ZOOM,
     });

@@ -586,3 +586,21 @@ carboyz:      180 pass / 0 fail
 ℹ skipped 0
 ℹ todo 0
 ```
+
+## [Fix] Dark Matter Basemap Default
+- **Date:** 2026-08-21
+- **Status:** Complete. `npm test` unchanged at 184/184 (no business-logic module touched; `MapView.js` has no unit test target per the existing convention).
+- **Report:** MapView was still rendering MapLibre's light-green demo tiles instead of the dark canvas the product spec calls for.
+
+### Root cause
+- `MapView.js`'s `ensureMap()` creates the `maplibregl.Map` instance directly (`DEMO_STYLE_URL = 'https://demotiles.maplibre.org/style.json'`, hardcoded). **spatial-core has no involvement in tile style at all** — per the Spatial Core / Domain Overlay Contract, spatial-core is headless and only operates on an already-created `SpatialMapInstance` (`renderTopicLayer`/`updateTopicLayer`); it never instantiates the base map or resolves a style URL. So "spatial-core defaults to dark tiles" isn't an applicable fix site — the style URL is purely a carboyz/`MapView.js` concern, and it was never coupled to `GOOGLE_PLACES_API_KEY` presence (that key only gates `locationAdapter`'s Google geocoding path, added in UOW-09, unrelated to the basemap).
+
+### Fix
+- Replaced the hardcoded `DEMO_STYLE_URL` default with `CARTO_DARK_MATTER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'`, resolved via a new `resolveMapStyleUrl()` in `MapView.js`.
+- Runtime override: `resolveMapStyleUrl()` checks `window.CARBOYZ_MAP_STYLE_URL` first, matching the existing `window.CARBOYZ_*` runtime-config convention (`chatFilterAdapter`'s `CARBOYZ_ANTHROPIC_API_KEY`, `locationAdapter`'s `CARBOYZ_GOOGLE_PLACES_API_KEY`) — no window-injection is required for the dark default itself (it's now hardcoded as the fallback), the global just gives static serving a way to swap basemaps without a build step if ever needed.
+- Audited `GOOGLE_PLACES_API_KEY` resolution while in there: `locationAdapter.resolveApiKey` already degrades correctly under static serve — `typeof process !== 'undefined'` is false in a vanilla browser (no bundler polyfill), so that branch is skipped with no error, and resolution falls through cleanly to `window.CARBOYZ_GOOGLE_PLACES_API_KEY`. No change needed there.
+- **Verification:** Headless Playwright pass against the live app confirmed `style.json`/tile/sprite/font requests now hit `basemaps.cartocdn.com`/`tiles.basemaps.cartocdn.com`, the map renders the dark basemap with street labels and carboyz's custom dart pins on top, and zero console errors.
+
+### Files added/modified
+- `src/ui/MapView.js` (modified — `CARTO_DARK_MATTER_STYLE_URL` default, `resolveMapStyleUrl()` runtime override)
+- `docs/journals/dev-journal.md` (logged)
