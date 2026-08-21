@@ -92,14 +92,14 @@ function buildVehicleCardElement(vehicle, { vehicles, dealers }) {
 /** Builds the "Enter ZIP Code or City..." search modal, hidden until `open()` is called. */
 function buildLocationModal({ onResolve }) {
   const inputId = 'map-location-search-input';
-  const label = el('label', 'location-modal__label', 'Search by ZIP code or city');
+  const label = el('label', 'location-modal__label', 'Search by address, ZIP code, or city');
   label.htmlFor = inputId;
 
   const input = document.createElement('input');
   input.id = inputId;
   input.type = 'text';
   input.className = 'location-modal__input';
-  input.placeholder = 'Enter ZIP Code or City...';
+  input.placeholder = 'Enter an address, ZIP code, or city...';
 
   const errorEl = el('p', 'location-modal__error', '');
   errorEl.hidden = true;
@@ -128,16 +128,22 @@ function buildLocationModal({ onResolve }) {
     if (event.target === overlay) close();
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const resolved = resolveLocationQuery(input.value);
-    if (!resolved) {
-      errorEl.textContent = `Couldn't find "${input.value.trim()}". Try a 5-digit ZIP or "City, ST".`;
-      errorEl.hidden = false;
-      return;
+    const query = input.value;
+    submitBtn.disabled = true;
+    try {
+      const resolved = await resolveLocationQuery(query);
+      if (!resolved) {
+        errorEl.textContent = `Couldn't find "${query.trim()}". Try a 5-digit ZIP, city, or address.`;
+        errorEl.hidden = false;
+        return;
+      }
+      close();
+      onResolve(resolved);
+    } finally {
+      submitBtn.disabled = false;
     }
-    close();
-    onResolve(resolved);
   });
 
   return {

@@ -557,3 +557,32 @@ or `npx serve .`. `file://` still won't work (ES module CORS restriction).
 spatial-core: 24 pass / 0 fail
 carboyz:      180 pass / 0 fail
 ```
+
+## [UOW-09] — Spatial Core / Domain Overlay Contract: Google Geocoding Wire-Up
+- **Date:** 2026-08-21
+- **Status:** Complete. `npm test` passing 184/184 (carboyz only — spatial-core untouched this pass). `locationAdapter.js` at 100.00% line / 84.09% branch coverage (quality gate: 80%).
+- **Scope:** Follow-up to the prior Spatial Core / Domain Overlay Contract Refactor. That pass wired pin rendering/interaction ownership to carboyz and built+tested spatial-core's `GooglePlacesGeocoder`/`geocodeAddress` (`geocoder.ts`), but never connected it to carboyz's UI — the location search modal (UOW-08) still resolved only against a static offline gazetteer. Requested as an explicit re-audit against the "spatial core owns geo mechanics / app owns UI+interaction" contract.
+
+### Summary
+- Audited the contract end-to-end first: confirmed no Leaflet exists anywhere in the repo (map canvas is already 100% MapLibre GL via spatial-core's `renderTopicLayer`/`updateTopicLayer`), and confirmed dealership pin appearance/click/hover was already fully carboyz-owned (`buildDartPinElement`, `onNodeClick`, `onNodeHover`/`onNodeLeave` in `carboyzAdapter.js`/`MapView.js`, per the prior refactor). The one real gap was geocoding routing.
+- `src/adapters/locationAdapter.js`: `resolveLocationQuery` is now `async` and Google-first — constructs spatial-core's `GooglePlacesGeocoder` (api key via `options.apiKey` → `process.env.GOOGLE_PLACES_API_KEY` → `window.CARBOYZ_GOOGLE_PLACES_API_KEY`, mirroring `chatFilterAdapter`'s existing LLM-key resolution convention) and calls spatial-core's `geocodeAddress()` first. Falls back to the pre-existing offline ZIP/city gazetteer (`resolveOffline`) whenever no API key is configured, the Google request fails, or it finds no match — never throws. `describeCoordinates` (GPS-fix captioning) is unchanged: Google Places Text Search is forward-geocoding only, so reverse-lookup captioning stays the local nearest-known-point heuristic.
+- `src/ui/MapView.js`: the location search modal's submit handler now `await`s `resolveLocationQuery`, disabling the Search button for the duration (mirroring `ChatDiscovery`'s existing async-submit pattern). Modal label/placeholder/error copy updated from "ZIP Code or City" to "address, ZIP code, or city" since free-form street addresses now resolve via Google.
+- **Verification:** `npm test` → 184/184 (up from 175; +9 new tests in `tests/locationAdapter.test.js` covering the Google-routes-first path with a mocked `fetchImpl`, the no-API-key/failed-request/no-match fallback paths, and the pre-existing offline-resolution cases re-asserted as async). Ran a headless Playwright pass (`npx serve .` on :8080, Playwright's bundled Chromium via the cached `npx` install — same fallback documented in prior UOW passes, no `chromium-cli` or `playwright` project dependency in this environment) against the live app with a mocked geolocation grant: confirmed 3 dart pins render at the default location with carboyz's custom SVG styling, clicking a pin opens the drawer with the correct dealer title, opened the location modal and submitted "Denver, CO" with no API key configured (confirming the offline-fallback path activates cleanly with no blocking network call), map flew to Denver and the overlay label updated. Zero browser console errors throughout.
+- **Note for a future pass:** no `GOOGLE_PLACES_API_KEY`/`window.CARBOYZ_GOOGLE_PLACES_API_KEY` is configured in this environment, so the Playwright pass exercised the offline-fallback path live; the Google-routing path itself is covered by the mocked-`fetchImpl` unit tests only. Worth a manual pass with a real key before shipping.
+
+### Files added/modified
+- `src/adapters/locationAdapter.js` (modified — async `resolveLocationQuery`, Google-first via spatial-core's `geocodeAddress`/`GooglePlacesGeocoder`, offline gazetteer as fallback)
+- `src/ui/MapView.js` (modified — async-aware location modal submit, updated copy)
+- `tests/locationAdapter.test.js` (modified — async assertions, Google-routing/fallback coverage)
+- `ROADMAP.md`, `.hydrate/CURRENT_UOW.md` (UOW-09 checked off / logged)
+
+### Test output
+```
+ℹ tests 184
+ℹ suites 0
+ℹ pass 184
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```

@@ -20,5 +20,26 @@
 - [x] **Task 8.6:** Unit tests for `locationAdapter.js` in `tests/locationAdapter.test.js` (ZIP hit, city hit, unrecognized input, `describeCoordinates` nearest-match) at ≥80% line/branch coverage. `MapView.js` itself has no existing unit test target (requires a DOM + `maplibregl` global) — keep the new resolution/labeling logic in the testable adapter rather than inline in `MapView.js`, matching how `chatFilterAdapter` is factored out of `MapView.js` today.
 - [x] **Task 8.7:** Run `npm test` (must stay green, new module ≥80% coverage) and a headless Playwright pass against `?brand=carboyz` → Map tab: confirm the overlay reads "Leland, NC" by default, click `🎯` with a mocked geolocation grant and confirm the map recenters + overlay updates, then open the search modal, submit a ZIP/city, and confirm `map.flyTo` fires and dealer pins re-render for the new location. Log results to `docs/journals/dev-journal.md`, check off tasks here, and update `ROADMAP.md`.
 
+## Completed: UOW-09 — Spatial Core / Domain Overlay Contract: Google Geocoding Wire-Up
+
+> Follow-up to the prior "Spatial Core / Domain Overlay Contract Refactor" (logged 2026-08-20), which
+> established spatial-core as the map-mechanics engine (pan/zoom/flyTo/H3/marker lifecycle) with carboyz
+> owning pin appearance and click/hover behavior via `OverlayConfig`. That pass left one contract item
+> incomplete: spatial-core's `geocoder.ts` (`GooglePlacesGeocoder`, `geocodeAddress`) was built and tested
+> but never wired into carboyz's UI — the location search modal (UOW-08) resolved only against a static
+> offline ZIP/city gazetteer, never routing through spatial-core's Google geocoding engine.
+
+- [x] **Task 9.1:** Audited the current state against the spatial-core/domain-overlay contract: confirmed no Leaflet exists anywhere in carboyz (map canvas is already 100% MapLibre GL via `@nemzilla/spatial-core`'s `renderTopicLayer`/`updateTopicLayer`), and confirmed pin rendering/click/hover ownership was already fully carboyz-side (`buildDartPinElement`, `onNodeClick`, `onNodeHover` in `carboyzAdapter.js`/`MapView.js`). The only gap: address/ZIP search wasn't routing through spatial-core's `GooglePlacesGeocoder`.
+- [x] **Task 9.2:** Made `resolveLocationQuery` in `src/adapters/locationAdapter.js` async and Google-first: constructs spatial-core's `GooglePlacesGeocoder` (api key via `options.apiKey` → `process.env.GOOGLE_PLACES_API_KEY` → `window.CARBOYZ_GOOGLE_PLACES_API_KEY`, mirroring `chatFilterAdapter`'s LLM-key resolution pattern) and calls spatial-core's `geocodeAddress()` first; falls back to the existing offline gazetteer (`resolveOffline`) whenever no API key is configured, the request fails, or Google finds no match. Never throws.
+- [x] **Task 9.3:** Updated `src/ui/MapView.js`'s location search modal to `await` the now-async `resolveLocationQuery`, disabling the submit button for the duration (mirroring `ChatDiscovery`'s async-submit pattern). Updated the modal's label/placeholder/error copy from "ZIP Code or City" to "address, ZIP code, or city" now that free-form addresses resolve via Google.
+- [x] **Task 9.4:** Updated `tests/locationAdapter.test.js` for the async signature: Google-routes-first with a mocked `fetchImpl` (network call made, response mapped to `{lat, lng, label}`), falls back to the offline gazetteer with no API key configured (no network call), falls back on a failed Google request, falls back when Google finds no match, plus the existing offline-resolution/unrecognized-input/blank-input cases re-asserted as async.
+- [x] **Task 9.5:** `npm test` → 184/184 passing (was 175; +9 new), `locationAdapter.js` at 100.00% line / 84.09% branch coverage (quality gate: 80%). Ran a headless Playwright pass (`npx serve .` on :8080, Playwright's bundled Chromium via the cached `npx` install — same fallback used in prior passes) against `?brand=carboyz` → Map tab: confirmed 3 dart pins render at the default (geolocation-mocked) location with carboyz custom SVG styling, clicking a pin opens the drawer with the correct dealer title ("CarBoyZ Motors HQ"), opened the location search modal and submitted "Denver, CO" with no API key configured → resolved via the offline-gazetteer fallback path (confirmed no unexpected network calls block the flow), map flew to Denver and the overlay label updated. Zero browser console errors throughout.
+
+### Files added/modified
+- `src/adapters/locationAdapter.js` (modified — async `resolveLocationQuery`, Google-first via spatial-core's `geocodeAddress`/`GooglePlacesGeocoder`, offline gazetteer as fallback)
+- `src/ui/MapView.js` (modified — async-aware location modal submit, updated copy)
+- `tests/locationAdapter.test.js` (modified — async assertions, Google-routing/fallback coverage)
+- `ROADMAP.md`, `.hydrate/CURRENT_UOW.md`, `docs/journals/dev-journal.md` (UOW-09 checked off / logged)
+
 # All UOWs are complete!
 Run 'hydrate prompt' when ready for next task.
