@@ -557,3 +557,25 @@ or `npx serve .`. `file://` still won't work (ES module CORS restriction).
 spatial-core: 24 pass / 0 fail
 carboyz:      180 pass / 0 fail
 ```
+
+## [UOW-09] — Dynamic Geospatial Search & Google Places Gap-Fill Hydration
+- **Date:** 2026-08-20
+- **Status:** Complete. Cross-repo, across `@nemzilla/spatial-core` and `carboyz`. `spatial-core` tests: 42/42 passing. `carboyz` tests: 191/191 passing. `locationAdapter.js` 100.00% line / 88.89% branch, `carboyzAdapter.js` 96.26% line / 90.70% branch (quality gate: 80%).
+- **Note on WIP found in `spatial-core`:** the checkout already had uncommitted work when this UOW started — `metadata`/`primaryType` tracking on `GooglePlacesAdapter.normalize` and TTL-based `SpatialCellIndex.isCellFresh`/`markCellHydrated`. That work is untouched/still uncommitted in the original `spatial-core` checkout; this UOW's isolated worktree branch reproduces it verbatim as a starting point (byte-for-byte, verified 31/31 passing before any new code was added) rather than disturbing the original.
+
+### Summary
+- **spatial-core** (`geocoder.ts`): Added `GooglePlacesGeocoder implements GeocoderResolver`, backed by the Google Places (New) `places:searchText` endpoint — resolves a free-form query ("Pensacola, FL", "32501", a street address) to `{ lat, lng, displayName, formattedAddress, boundingBox }`. `GeocodedPoint` extended with those three optional fields (non-breaking — `NullGeocoder` unaffected). Same dependency-injectable `apiKey`/`fetchImpl` + no-key-no-network-call pattern as `GooglePlacesAdapter`. Exported from `index.ts`. 11 new tests in `tests/geocoder.test.ts`.
+- **carboyz**: `locationAdapter.js` gained `geocodeLocationQuery(text, options)` — offline gazetteer first (unchanged, no network), live `GooglePlacesGeocoder` fallback for anything the gazetteer misses — and `resolveGooglePlacesApiKey()` (mirrors `chatFilterAdapter`'s apiKey/env/window-global resolution order, new env var `GOOGLE_PLACES_API_KEY` / global `window.CARBOYZ_GOOGLE_PLACES_API_KEY`). `MapView.js`'s search modal submit handler is now async against `geocodeLocationQuery` with a "Searching…" busy state. Added the dynamic H3 hydration trigger: a per-map-view `SpatialCellIndex` (10-min TTL) + `GooglePlacesAdapter` (`car_dealer`); `map.on('moveend'/'zoomend')` derives the H3 cell under the current center and, when stale, fires `discoverNearby()` (the "Look Far" gap-fill pipeline), merging discovered dealer nodes into the rendered pool via a new `dealerFromDiscoveredFeature()` helper in `carboyzAdapter.js`. A search-driven `flyTo` ends in `moveend`, so search and pan/zoom share one trigger.
+- **Bug found and fixed:** `GooglePlacesGeocoder`/`GooglePlacesAdapter` both stored native `fetch` as an instance property and called it as `this.fetchImpl(...)`. Real browsers throw `TypeError: Illegal invocation` for native `fetch` invoked as an unbound method call (it requires `this === window`) — this passed every Node unit test (which always inject a mock `fetchImpl`) but silently broke both the live geocoder and the gap-fill pipeline the moment a real API key was configured in an actual browser. Caught via the Playwright verification pass below, not by the test suite. Fixed by binding to `globalThis` unconditionally in both constructors: `(fetchImpl ?? fetch).bind(globalThis)`.
+- **Verification:** `npm test` green in both repos. Headless Playwright against the live app (`?brand=carboyz` → Map tab, three passes): (1) known offline ZIP `28451` still flies to Leland, NC with zero network calls (regression check); (2) `Pensacola, FL` with no Places API key configured shows the graceful inline error, not a crash (expected — Pensacola isn't in the offline gazetteer and there's no key to fall back to); (3) with a fake `window.CARBOYZ_GOOGLE_PLACES_API_KEY` and Playwright route mocks standing in for `places:searchText`/`places:searchNearby` (a real key isn't available in this environment), searching "Pensacola, FL" flies the map to `(30.4213, -87.2169)`, the location bar reads "Pensacola, Florida", and 2 real-shaped dealership pins render dynamically via the gap-fill pipeline — zero hardcoded coordinates, zero console/page errors.
+
+### Files added/modified
+- spatial-core: `src/geocoder.ts`, `src/index.ts`, `src/places.ts` (fetch-binding fix) (modified); `tests/geocoder.test.ts` (new)
+- carboyz: `src/adapters/locationAdapter.js`, `src/adapters/carboyzAdapter.js`, `src/ui/MapView.js` (modified); `tests/locationAdapter.test.js`, `tests/carboyzAdapter.test.js` (modified)
+- `ROADMAP.md`, `.hydrate/CURRENT_UOW.md` (UOW-09 checked off / logged)
+
+### Test output
+```
+spatial-core: 42 pass / 0 fail
+carboyz:      191 pass / 0 fail
+```

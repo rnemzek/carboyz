@@ -1,8 +1,18 @@
-import { normalizePayload, renderTopicLayer, updateTopicLayer, resolveHoverContent, getNearbyCells, latLngToCell } from '@nemzilla/spatial-core';
-import { buildDealerLayerConfig, buildDartPinElement } from '../adapters/carboyzAdapter.js';
+import {
+  normalizePayload,
+  renderTopicLayer,
+  updateTopicLayer,
+  resolveHoverContent,
+  getNearbyCells,
+  latLngToCell,
+  SpatialCellIndex,
+  GooglePlacesAdapter,
+  discoverNearby,
+} from '@nemzilla/spatial-core';
+import { buildDealerLayerConfig, buildDartPinElement, dealerFromDiscoveredFeature } from '../adapters/carboyzAdapter.js';
 import { evaluateVehicleMarketPosition } from '../adapters/marketEvaluationAdapter.js';
 import { resolveChatQuery, rankTopMatches } from '../adapters/chatFilterAdapter.js';
-import { resolveLocationQuery, describeCoordinates } from '../adapters/locationAdapter.js';
+import { geocodeLocationQuery, describeCoordinates, resolveGooglePlacesApiKey } from '../adapters/locationAdapter.js';
 import { marketVerdictBadge } from './marketBadge.js';
 import { deriveVehicleCondition } from './vehicleCard.js';
 import { renderChatDiscovery } from './ChatDiscovery.js';
@@ -15,6 +25,9 @@ const FOCUS_ZOOM = 13;
 // Default discovery radius: ~25 miles, expressed in km for the H3 grid-disk lookup.
 const NEARBY_RADIUS_KM = 40;
 const NEARBY_RADIUS_MILES = 25;
+// How long a hydrated H3 cell stays fresh before a "Look Far" gap-fill re-query is allowed.
+const CELL_HYDRATION_TTL_MS = 10 * 60 * 1000;
+const DISCOVERY_INCLUDED_TYPE = 'car_dealer';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -123,16 +136,26 @@ function buildLocationModal({ onResolve }) {
     input.value = '';
   }
 
+  function setBusy(busy) {
+    submitBtn.disabled = busy;
+    input.disabled = busy;
+    submitBtn.textContent = busy ? 'Searching…' : 'Search';
+  }
+
   cancelBtn.addEventListener('click', close);
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const resolved = resolveLocationQuery(input.value);
+    const query = input.value;
+    setBusy(true);
+    errorEl.hidden = true;
+    const resolved = await geocodeLocationQuery(query);
+    setBusy(false);
     if (!resolved) {
-      errorEl.textContent = `Couldn't find "${input.value.trim()}". Try a 5-digit ZIP or "City, ST".`;
+      errorEl.textContent = `Couldn't find "${query.trim()}". Try a ZIP code, city, or street address.`;
       errorEl.hidden = false;
       return;
     }
@@ -227,6 +250,13 @@ export function renderMapView({ onFeatureSelect } = {}) {
   let locationLabel = describeCoordinates(FALLBACK_LOCATION.lat, FALLBACK_LOCATION.lng);
   updateLocationBar();
 
+  // H3-indexed cache of Google Places "Look Far" gap-fill discoveries, so repeat visits to an
+  // already-hydrated area don't re-query. Keyed independently of the seeded/vendor dealer pool.
+  const spatialCellIndex = new SpatialCellIndex({ ttlMs: CELL_HYDRATION_TTL_MS });
+  const placesApiKey = resolveGooglePlacesApiKey();
+  const placesAdapter = new GooglePlacesAdapter({ apiKey: placesApiKey, topic: 'auto' });
+  const discoveredDealersById = new Map();
+
   function showDrawer(dealerFeature, { highlightVehicleId } = {}) {
     drawerBody.innerHTML = '';
 
@@ -285,8 +315,18 @@ export function renderMapView({ onFeatureSelect } = {}) {
     },
   };
 
+  /** Merges gap-fill-discovered dealer nodes into the currently relevant dealer pool, deduped by id. */
+  function dealersWithDiscovered() {
+    if (discoveredDealersById.size === 0) return nearbyDealers ?? dealers;
+    const merged = new Map((nearbyDealers ?? dealers).map((dealer) => [dealer.dealerId, dealer]));
+    for (const dealer of discoveredDealersById.values()) {
+      if (!merged.has(dealer.dealerId)) merged.set(dealer.dealerId, dealer);
+    }
+    return [...merged.values()];
+  }
+
   function renderLayer() {
-    const relevantDealers = nearbyDealers ?? dealers;
+    const relevantDealers = dealersWithDiscovered();
     const layerConfig = buildNormalizedDealerLayerConfig(relevantDealers, vehicles);
     featuresById = new Map(layerConfig.features.map((feature) => [feature.id, feature]));
 
@@ -295,6 +335,38 @@ export function renderMapView({ onFeatureSelect } = {}) {
     } else {
       updateTopicLayer(map, layerConfig, handle, renderOptions);
     }
+  }
+
+  /**
+   * The dynamic H3 cell hydration trigger: on viewport settle (moveend/zoomend, which also fires at
+   * the end of a search-driven flyTo) or a search location change, derives the H3 cell under `center`
+   * and — if it's unhydrated or stale — fires the Google Places "Look Far" gap-fill pipeline for
+   * `car_dealer` nodes, caching results in `spatialCellIndex` and merging any newly-discovered
+   * dealerships into the rendered layer. No-ops without a configured Places API key.
+   */
+  async function hydrateNearby(center) {
+    if (!placesApiKey || !center) return;
+    if (spatialCellIndex.isCellFresh(center.lat, center.lng)) return;
+    spatialCellIndex.markCellHydrated(center.lat, center.lng);
+
+    const discovered = await discoverNearby(center, NEARBY_RADIUS_KM, {
+      adapter: placesAdapter,
+      index: spatialCellIndex,
+      includedType: DISCOVERY_INCLUDED_TYPE,
+    });
+    if (discovered.length === 0) return;
+
+    for (const feature of discovered) {
+      const dealer = dealerFromDiscoveredFeature(feature);
+      if (dealer) discoveredDealersById.set(dealer.dealerId, dealer);
+    }
+    if (map?.isStyleLoaded()) renderLayer();
+  }
+
+  function handleViewportSettled() {
+    if (!map) return;
+    const { lat, lng } = map.getCenter();
+    hydrateNearby({ lat, lng });
   }
 
   function focusDealer(dealerId, vehicleId) {
@@ -359,6 +431,8 @@ export function renderMapView({ onFeatureSelect } = {}) {
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', renderLayer);
+    map.on('moveend', handleViewportSettled);
+    map.on('zoomend', handleViewportSettled);
   }
 
   function ensureUserLocation() {

@@ -137,6 +137,22 @@ export function buildDealerLayerConfig({ dealers = [], vehicles = [], layerId = 
 }
 
 /**
+ * Converts a spatial-core "Look Far" gap-fill discovery (a Google Places `car_dealer`/`auto_dealer`
+ * node with no known carboyz inventory yet) into carboyz's plain dealer shape, so it can be merged
+ * into the rendered dealer pool alongside seeded/vendor dealers. Returns null for a feature with no
+ * resolvable coordinates.
+ */
+export function dealerFromDiscoveredFeature(feature) {
+  if (!feature?.coordinates) return null;
+  return {
+    dealerId: feature.id,
+    name: feature.title,
+    lat: feature.coordinates.lat,
+    lng: feature.coordinates.lng,
+  };
+}
+
+/**
  * Inline SVG markup for the CarBoyZ dealership "dart" pin (a downward-pointing teardrop), colored via
  * CARBOYZ_MAP_STYLE.pinColor. Kept as a pure string builder, separate from DOM construction, so it's
  * unit-testable without a browser/DOM environment.

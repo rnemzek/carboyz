@@ -1,3 +1,4 @@
+import { GooglePlacesGeocoder } from '@nemzilla/spatial-core';
 import { haversineDistanceMiles } from '../utils/geo.js';
 
 /**
@@ -40,6 +41,48 @@ export function resolveLocationQuery(text) {
   if (!match) return null;
 
   return { lat: match.lat, lng: match.lng, label: match.label };
+}
+
+/** Reads a Google Places API key from explicit options, then the environment, then a browser global — never throws. */
+export function resolveGooglePlacesApiKey(options = {}) {
+  if (typeof options.apiKey === 'string' && options.apiKey) return options.apiKey;
+  if (typeof process !== 'undefined' && process.env?.GOOGLE_PLACES_API_KEY) return process.env.GOOGLE_PLACES_API_KEY;
+  if (typeof window !== 'undefined' && window.CARBOYZ_GOOGLE_PLACES_API_KEY) return window.CARBOYZ_GOOGLE_PLACES_API_KEY;
+  return null;
+}
+
+/**
+ * Resolves free-form location input (ZIP, city, "City, ST", street address) to a point + label.
+ * Tries the offline gazetteer first (fast, deterministic, no network); falls back to live Google
+ * Places geocoding for anything the gazetteer doesn't recognize (e.g. "Pensacola, FL"). Returns
+ * `null` (never throws) when nothing resolves — including when no API key is configured, matching
+ * this stack's existing LLM/geocoder pluggable-fallback pattern.
+ */
+export async function geocodeLocationQuery(text, options = {}) {
+  const offlineMatch = resolveLocationQuery(text);
+  if (offlineMatch) return offlineMatch;
+
+  if (typeof text !== 'string' || !text.trim()) return null;
+  const apiKey = resolveGooglePlacesApiKey(options);
+  const fetchImpl = options.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : null);
+  if (!apiKey || !fetchImpl) return null;
+
+  const geocoder = new GooglePlacesGeocoder({ apiKey, fetchImpl });
+  let resolved;
+  try {
+    resolved = await geocoder.resolve(text.trim());
+  } catch {
+    return null;
+  }
+  if (!resolved) return null;
+
+  return {
+    lat: resolved.lat,
+    lng: resolved.lng,
+    label: resolved.displayName ?? resolved.formattedAddress ?? text.trim(),
+    formattedAddress: resolved.formattedAddress,
+    boundingBox: resolved.boundingBox,
+  };
 }
 
 /** Captions a coordinate pair (e.g. a GPS fix) with the nearest known location's label. */

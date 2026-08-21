@@ -6,6 +6,7 @@ import {
   buildDealerFeatures,
   buildDealerLayerConfig,
   buildDartPinSvgMarkup,
+  dealerFromDiscoveredFeature,
   CARBOYZ_MAP_LAYER_ID,
   CARBOYZ_MAP_TOPIC,
   CARBOYZ_MAP_STYLE,
@@ -147,4 +148,25 @@ test('buildDartPinSvgMarkup renders an SVG using the given pin color', () => {
 test('buildDartPinSvgMarkup defaults to CARBOYZ_MAP_STYLE.pinColor', () => {
   const markup = buildDartPinSvgMarkup();
   assert.match(markup, new RegExp(`fill="${CARBOYZ_MAP_STYLE.pinColor}"`));
+});
+
+test('dealerFromDiscoveredFeature maps a spatial-core Places discovery into carboyz dealer shape', () => {
+  const feature = {
+    id: 'places-pensacola-auto',
+    title: 'Pensacola Auto Gallery',
+    topic: 'auto',
+    coordinates: { lat: 30.42, lng: -87.21 },
+    metadata: { googlePlaceId: 'places-pensacola-auto', primaryType: 'car_dealer' },
+  };
+  assert.deepEqual(dealerFromDiscoveredFeature(feature), {
+    dealerId: 'places-pensacola-auto',
+    name: 'Pensacola Auto Gallery',
+    lat: 30.42,
+    lng: -87.21,
+  });
+});
+
+test('dealerFromDiscoveredFeature returns null for a feature with no coordinates', () => {
+  assert.equal(dealerFromDiscoveredFeature({ id: 'x', title: 'No Coords' }), null);
+  assert.equal(dealerFromDiscoveredFeature(null), null);
 });
