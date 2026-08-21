@@ -1,9 +1,10 @@
+import { GooglePlacesGeocoder } from '@nemzilla/spatial-core';
 import { haversineDistanceMiles } from '../utils/geo.js';
 
 /**
- * Offline ZIP/city gazetteer used to resolve manual location search and to caption a GPS fix.
- * Shaped to match spatial-core's pluggable `GeocoderResolver` interface (`{ lat, lng }`), extended
- * with a display `label`. No network calls, so resolution stays deterministic for tests.
+ * Offline ZIP/city gazetteer used as the fast/deterministic first pass for manual location search and
+ * to caption a GPS fix. Anything it doesn't recognize (e.g. "Pensacola, FL", any street address) falls
+ * through to a live `GeocoderResolver` (see `resolveLocationQuery`) instead of failing closed.
  */
 const KNOWN_LOCATIONS = [
   { zip: '28451', city: 'leland', state: 'nc', label: 'Leland, NC', lat: 34.2388, lng: -78.0145 },
@@ -30,16 +31,45 @@ function matchByCity(query) {
   );
 }
 
-/** Resolves free-form ZIP or "City, ST" input to a known point, or `null` if unrecognized. */
-export function resolveLocationQuery(text) {
+/** Reads a Google Places API key from an explicit option, then env, then a browser global — same
+ *  pluggable-fallback shape chatFilterAdapter.js uses for its Anthropic key. */
+export function resolveGooglePlacesApiKey(options = {}) {
+  if (typeof options.apiKey === 'string' && options.apiKey) return options.apiKey;
+  if (typeof process !== 'undefined' && process.env?.GOOGLE_PLACES_API_KEY) return process.env.GOOGLE_PLACES_API_KEY;
+  if (typeof window !== 'undefined' && window.CARBOYZ_GOOGLE_PLACES_API_KEY) return window.CARBOYZ_GOOGLE_PLACES_API_KEY;
+  return undefined;
+}
+
+/** Builds the live geocoder `resolveLocationQuery` falls back to. No-key short-circuits to a no-op
+ *  resolver (via GooglePlacesGeocoder's own no-apiKey guard), so this is safe to construct unconditionally. */
+export function createDynamicGeocoder(options = {}) {
+  return new GooglePlacesGeocoder({ apiKey: resolveGooglePlacesApiKey(options), fetchImpl: options.fetchImpl });
+}
+
+/**
+ * Resolves free-form ZIP, "City, ST", street address, or landmark input to a point + label.
+ * Checks the offline gazetteer first (fast, deterministic, no network); anything unrecognized there
+ * falls through to `geocoder` (a spatial-core `GeocoderResolver`, defaulting to a live
+ * `GooglePlacesGeocoder`). Returns `null` if neither resolves the input.
+ */
+export async function resolveLocationQuery(text, { geocoder = createDynamicGeocoder() } = {}) {
   if (typeof text !== 'string') return null;
   const query = normalize(text);
   if (!query) return null;
 
-  const match = /^\d{5}$/.test(query) ? matchByZip(query) : matchByCity(query);
-  if (!match) return null;
+  const staticMatch = /^\d{5}$/.test(query) ? matchByZip(query) : matchByCity(query);
+  if (staticMatch) return { lat: staticMatch.lat, lng: staticMatch.lng, label: staticMatch.label };
 
-  return { lat: match.lat, lng: match.lng, label: match.label };
+  const geocoded = await geocoder.resolve(text.trim());
+  if (!geocoded) return null;
+
+  return {
+    lat: geocoded.lat,
+    lng: geocoded.lng,
+    label: geocoded.displayName ?? geocoded.formattedAddress ?? text.trim(),
+    formattedAddress: geocoded.formattedAddress ?? null,
+    boundingBox: geocoded.boundingBox ?? null,
+  };
 }
 
 /** Captions a coordinate pair (e.g. a GPS fix) with the nearest known location's label. */

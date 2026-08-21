@@ -1,8 +1,18 @@
-import { normalizePayload, renderTopicLayer, updateTopicLayer, resolveHoverContent, getNearbyCells, latLngToCell } from '@nemzilla/spatial-core';
+import {
+  normalizePayload,
+  renderTopicLayer,
+  updateTopicLayer,
+  resolveHoverContent,
+  getNearbyCells,
+  latLngToCell,
+  SpatialCellIndex,
+  GooglePlacesAdapter,
+  discoverNearby,
+} from '@nemzilla/spatial-core';
 import { buildDealerLayerConfig, buildDartPinElement } from '../adapters/carboyzAdapter.js';
 import { evaluateVehicleMarketPosition } from '../adapters/marketEvaluationAdapter.js';
 import { resolveChatQuery, rankTopMatches } from '../adapters/chatFilterAdapter.js';
-import { resolveLocationQuery, describeCoordinates } from '../adapters/locationAdapter.js';
+import { resolveLocationQuery, describeCoordinates, resolveGooglePlacesApiKey } from '../adapters/locationAdapter.js';
 import { marketVerdictBadge } from './marketBadge.js';
 import { deriveVehicleCondition } from './vehicleCard.js';
 import { renderChatDiscovery } from './ChatDiscovery.js';
@@ -15,6 +25,14 @@ const FOCUS_ZOOM = 13;
 // Default discovery radius: ~25 miles, expressed in km for the H3 grid-disk lookup.
 const NEARBY_RADIUS_KM = 40;
 const NEARBY_RADIUS_MILES = 25;
+// "Look Far" gap-fill: per-cell Places search radius and how long a cell's hydration stays fresh before
+// a repeat visit re-queries it. Deliberately smaller than NEARBY_RADIUS_KM — a single Places call already
+// covers a city-sized area, so hydrating from a few representative points (map center + viewport corners)
+// is enough without one call per fine H3 cell.
+const HYDRATION_RADIUS_KM = 24;
+const HYDRATION_CELL_TTL_MS = 1000 * 60 * 60 * 6;
+const HYDRATION_DEBOUNCE_MS = 600;
+const DEALER_PLACE_TYPE = 'car_dealer';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -128,16 +146,28 @@ function buildLocationModal({ onResolve }) {
     if (event.target === overlay) close();
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const resolved = resolveLocationQuery(input.value);
-    if (!resolved) {
-      errorEl.textContent = `Couldn't find "${input.value.trim()}". Try a 5-digit ZIP or "City, ST".`;
+    const query = input.value;
+    errorEl.hidden = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Searching…';
+    try {
+      const resolved = await resolveLocationQuery(query);
+      if (!resolved) {
+        errorEl.textContent = `Couldn't find "${query.trim()}". Try a ZIP code, city, or full address.`;
+        errorEl.hidden = false;
+        return;
+      }
+      close();
+      onResolve(resolved);
+    } catch {
+      errorEl.textContent = 'Something went wrong searching for that location. Please try again.';
       errorEl.hidden = false;
-      return;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Search';
     }
-    close();
-    onResolve(resolved);
   });
 
   return {
@@ -227,6 +257,82 @@ export function renderMapView({ onFeatureSelect } = {}) {
   let locationLabel = describeCoordinates(FALLBACK_LOCATION.lat, FALLBACK_LOCATION.lng);
   updateLocationBar();
 
+  // "Look Far" gap-fill state: dealers discovered dynamically via Places, and the H3 cell-hydration
+  // cache that keeps repeat visits to an already-covered area from re-querying it.
+  const cellIndex = new SpatialCellIndex({ ttlMs: HYDRATION_CELL_TTL_MS });
+  const placesAdapter = new GooglePlacesAdapter({ apiKey: resolveGooglePlacesApiKey(), topic: 'auto' });
+  let discoveredDealers = [];
+  const discoveredDealerIds = new Set();
+  let hydrationTimer = null;
+
+  /** The full render/filter pool: seeded dealers plus anything the gap-fill pipeline has discovered. */
+  function allDealers() {
+    return discoveredDealers.length ? dealers.concat(discoveredDealers) : dealers;
+  }
+
+  /**
+   * Derives a small set of representative points covering the current viewport (its center plus the
+   * NE/SW corners), fires a "Look Far" Places gap-fill discovery for any whose H3 cell isn't already
+   * fresh in `cellIndex`, and merges newly-discovered dealers into the render pool.
+   */
+  async function hydrateVisibleArea(center) {
+    if (!map || !center) return;
+
+    const bounds = map.getBounds?.();
+    const candidatePoints = bounds
+      ? [center, bounds.getNorthEast(), bounds.getSouthWest()]
+      : [center];
+
+    const checkedCells = new Set();
+    let discovered = false;
+
+    for (const point of candidatePoints) {
+      const lat = point.lat;
+      const lng = point.lng;
+      if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+
+      const cell = latLngToCell(lat, lng);
+      if (checkedCells.has(cell)) continue;
+      checkedCells.add(cell);
+      if (cellIndex.isCellFresh(lat, lng)) continue;
+
+      try {
+        const newFeatures = await discoverNearby(
+          { lat, lng },
+          HYDRATION_RADIUS_KM,
+          { adapter: placesAdapter, index: cellIndex, includedType: DEALER_PLACE_TYPE },
+        );
+        cellIndex.markCellHydrated(lat, lng);
+
+        for (const feature of newFeatures) {
+          if (!feature.coordinates || discoveredDealerIds.has(feature.id)) continue;
+          discoveredDealerIds.add(feature.id);
+          discoveredDealers.push({
+            dealerId: feature.id,
+            name: feature.title,
+            lat: feature.coordinates.lat,
+            lng: feature.coordinates.lng,
+          });
+          discovered = true;
+        }
+      } catch {
+        // Network/Places failure for this cell: leave it un-hydrated so a later pass can retry.
+      }
+    }
+
+    if (discovered) {
+      if (userLocation) nearbyDealers = filterDealersNearby(allDealers(), userLocation, NEARBY_RADIUS_KM);
+      if (map.isStyleLoaded()) renderLayer();
+    }
+  }
+
+  function scheduleHydration(center) {
+    clearTimeout(hydrationTimer);
+    hydrationTimer = setTimeout(() => {
+      hydrateVisibleArea(center);
+    }, HYDRATION_DEBOUNCE_MS);
+  }
+
   function showDrawer(dealerFeature, { highlightVehicleId } = {}) {
     drawerBody.innerHTML = '';
 
@@ -286,7 +392,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
   };
 
   function renderLayer() {
-    const relevantDealers = nearbyDealers ?? dealers;
+    const relevantDealers = nearbyDealers ?? allDealers();
     const layerConfig = buildNormalizedDealerLayerConfig(relevantDealers, vehicles);
     featuresById = new Map(layerConfig.features.map((feature) => [feature.id, feature]));
 
@@ -312,9 +418,10 @@ export function renderMapView({ onFeatureSelect } = {}) {
     userLocation = location;
     locationLabel = label ?? describeCoordinates(location.lat, location.lng);
     updateLocationBar();
-    nearbyDealers = filterDealersNearby(dealers, location, NEARBY_RADIUS_KM);
+    nearbyDealers = filterDealersNearby(allDealers(), location, NEARBY_RADIUS_KM);
     map.flyTo({ center: [location.lng, location.lat], zoom: DEFAULT_ZOOM });
     if (map.isStyleLoaded()) renderLayer();
+    hydrateVisibleArea(location);
   }
 
   function setLocateBtnBusy(busy) {
@@ -359,6 +466,8 @@ export function renderMapView({ onFeatureSelect } = {}) {
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', renderLayer);
+    map.on('moveend', () => scheduleHydration(map.getCenter()));
+    map.on('zoomend', () => scheduleHydration(map.getCenter()));
   }
 
   function ensureUserLocation() {
@@ -383,7 +492,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
     update(nextDealers, nextVehicles) {
       dealers = nextDealers ?? [];
       vehicles = nextVehicles ?? [];
-      if (userLocation) nearbyDealers = filterDealersNearby(dealers, userLocation, NEARBY_RADIUS_KM);
+      if (userLocation) nearbyDealers = filterDealersNearby(allDealers(), userLocation, NEARBY_RADIUS_KM);
       if (map?.isStyleLoaded()) renderLayer();
     },
   };

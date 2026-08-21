@@ -20,5 +20,16 @@
 - [x] **Task 8.6:** Unit tests for `locationAdapter.js` in `tests/locationAdapter.test.js` (ZIP hit, city hit, unrecognized input, `describeCoordinates` nearest-match) at ≥80% line/branch coverage. `MapView.js` itself has no existing unit test target (requires a DOM + `maplibregl` global) — keep the new resolution/labeling logic in the testable adapter rather than inline in `MapView.js`, matching how `chatFilterAdapter` is factored out of `MapView.js` today.
 - [x] **Task 8.7:** Run `npm test` (must stay green, new module ≥80% coverage) and a headless Playwright pass against `?brand=carboyz` → Map tab: confirm the overlay reads "Leland, NC" by default, click `🎯` with a mocked geolocation grant and confirm the map recenters + overlay updates, then open the search modal, submit a ZIP/city, and confirm `map.flyTo` fires and dealer pins re-render for the new location. Log results to `docs/journals/dev-journal.md`, check off tasks here, and update `ROADMAP.md`.
 
+## Completed: UOW-09 — Dynamic Geocoding Search & H3 Cell Hydration (Google Places)
+
+> Motivated by direct user request: replace UOW-08's static 7-entry ZIP/city gazetteer with real geocoding (any ZIP/address/city, e.g. "Pensacola, FL" or "32501"), and wire spatial-core's "Look Far" gap-fill pipeline (built library-only in the prior refactor, never called from carboyz) into MapView so map movement and location search dynamically hydrate dealership pins via Google Places instead of relying solely on seed data.
+
+- [x] **Task 9.1:** Added `GooglePlacesGeocoder` to `@nemzilla/spatial-core`'s `src/geocoder.ts` (Places API New Text Search, `GeocoderResolver`-conformant, returns `{lat,lng,displayName,formattedAddress,boundingBox}`), exported from `index.ts`, with new `tests/geocoder.test.ts`.
+- [x] **Task 9.2:** `locationAdapter.js`'s `resolveLocationQuery` is now async and two-tier: offline gazetteer first, then falls through to an injected `GeocoderResolver` (default `createDynamicGeocoder()`) for anything unrecognized. `resolveGooglePlacesApiKey` follows chatFilterAdapter's options→env→window key-resolution pattern.
+- [x] **Task 9.3:** `MapView.js`'s location search modal submit handler is async with a loading state and a distinct network-failure message.
+- [x] **Task 9.4:** `MapView.js` now hydrates visible H3 cells via a `SpatialCellIndex` + `GooglePlacesAdapter` (`car_dealer`), triggered from `moveend`/`zoomend` (debounced) and from `applyUserLocation`; newly-discovered dealers merge into the render/filter pool alongside seeded dealers.
+- [x] **Task 9.5:** Rewrote `tests/locationAdapter.test.js` for the async API + dynamic-geocoder fallback coverage (185/185 passing, `locationAdapter.js` 100%/80.49% line/branch).
+- [x] **Task 9.6:** `npm test` green in both repos (spatial-core 41/41, carboyz 185/185). Headless Playwright pass against the live app with a mocked Google Places `fetch` confirmed: searching "Pensacola, FL" geocodes to real coordinates (30.4213, -87.2169), flies the map, and renders a dynamically-discovered dealer pin ("Pensacola Bay Auto Mall") while correctly dropping the out-of-range NC-seeded dealers. Logged to `docs/journals/dev-journal.md`, `ROADMAP.md` updated.
+
 # All UOWs are complete!
 Run 'hydrate prompt' when ready for next task.
