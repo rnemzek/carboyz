@@ -656,3 +656,31 @@ carboyz:      180 pass / 0 fail
 - `tests/carboyzAdapter.test.js`, `tests/tenantRegistry.test.js` (modified — updated hardcoded color expectations)
 - `tests/seedInventory.test.js` (modified — dense-layer id-uniqueness/count check + new radius sanity test)
 - `docs/journals/dev-journal.md` (logged)
+
+## [Feature] OpenStreetMap Geocoder Bridge + Dual-Mode Map Centering
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test`: spatial-core 51/51 (+10), carboyz 190/190 (+5). Verified live against real `nominatim.openstreetmap.org` and `places.googleapis.com` endpoints via a headless Playwright pass — no mocks — confirming the Google→OSM bridge and the GPS "Use My Location" flow both actually recenter the map.
+- **Report:** Added `OpenStreetMapGeocoder` (Nominatim) to spatial-core as a zero-cost, no-API-key alternative/bridge tier between `GooglePlacesGeocoder` and carboyz's offline gazetteer, gated behind an explicit opt-in flag (Option B) rather than always-on, to preserve the existing "no API key configured means no network call" test guarantee in `locationAdapter.test.js`.
+
+### spatial-core: `OpenStreetMapGeocoder`
+- `src/geocoder.ts` — new class implementing the same `GeocoderResolver`/`GeocodedPlace` contract as `GooglePlacesGeocoder`, hitting Nominatim's `/search` endpoint (`format=jsonv2`, no key required). Two response-shape quirks it normalizes away that a naive copy of the Google mapping would get wrong: Nominatim returns `lat`/`lon` as **strings** (needs `Number()` coercion, with a `NaN` guard returning `null` rather than poisoning coordinates), and its `boundingbox` field is ordered `[south, north, west, east]` — a different order than Google's `{north,south,east,west}` object, easy to transpose. `fetchImpl` defaults to `fetch.bind(globalThis)`, not a bare reference — reusing the exact fix from the 2026-08-21 "Illegal invocation" bug rather than reintroducing it. Optional `userAgent`/`baseUrl` constructor fields: Nominatim's usage policy wants a custom User-Agent identifying the calling app (1 req/sec, no bulk use), but browser `fetch` forbids scripts from setting that header, so it's documented as a no-op in-browser and only effective for server-side callers.
+- `src/index.ts` — exported alongside `GooglePlacesGeocoder`.
+- `tests/geocoder.test.ts` — 10 new tests mirroring `GooglePlacesGeocoder`'s existing matrix (query params sent, string→number + bounding-box-order parsing, non-ok/unparseable/no-results/blank-input → `null`), plus one confirming it fires unconditionally with no key gate (the point of "zero-cost").
+
+### carboyz: opt-in bridge tier + runtime flag
+- `src/adapters/locationAdapter.js` — `resolveLocationQuery` now tries Google first (unchanged), and only when `resolveOsmEnabled(options)` is true — `options.enableOsm === true` or `window.CARBOYZ_ENABLE_OSM === 'true'` — bridges through `OpenStreetMapGeocoder` before falling through to the offline gazetteer. With the flag unset (the default), behavior and the "no API key ⇒ no network call" guarantee are byte-for-byte unchanged; verified with a dedicated test asserting zero `fetchImpl` calls in that state.
+- `scripts/generate-runtime-config.js` — added `CARBOYZ_ENABLE_OSM` to the `.env.local` → `window.CARBOYZ_*` allowlist. Unlike the two existing keys, this one is already `CARBOYZ_`-prefixed in `.env.local` (it's a feature flag, not a secret pulled from a bare env var name), so it maps to itself rather than gaining a second prefix.
+- `tests/locationAdapter.test.js` — 5 new tests: OSM tier silent by default, bridges when Google has no key, bridges when Google finds no match, falls through to the gazetteer when OSM also misses, and returns `null` end-to-end when nothing matches.
+
+### carboyz: dual-mode map centering
+- `src/ui/MapView.js`'s `buildLocationModal` now calls `resolveLocationQuery(query, { enableOsm: true })` — the search-by-address/ZIP/city path always opts into the OSM bridge, independent of the (currently unset) global runtime flag.
+- The GPS "Use My Location" button already existed (`locateBtn`/🎯, wired to `navigator.geolocation.getCurrentPosition` via `handleLocateMeClick`, calling the same `applyUserLocation` → `map.flyTo` path the search modal uses) — relabeled its `aria-label`/added a `title` from "Locate me" to "Use My Location" rather than adding a duplicate button, since one already covered the requested behavior end-to-end.
+- **Live verification** (temporarily set `CARBOYZ_ENABLE_OSM=true` in `.env.local` for the test run, reverted after): searching "Castle Hayne, NC" fired a real request to `places.googleapis.com` (403, the pre-existing Cloud API-key config issue logged 2026-08-21), bridged to a real `nominatim.openstreetmap.org` request, resolved successfully, and `map.flyTo` recentered the view — confirmed via screenshot and the location chip reading "📍 Castle Hayne (25 mi) · 13 dealers". Clicking "Use My Location" with a mocked geolocation fix recentered the map to the mocked coordinate and updated the chip to "📍 Near Wilmington, NC (25 mi) · 13 dealers" (nearest-known-point caption from the existing small offline gazetteer — expected, unrelated to this change).
+
+### Files added/modified
+- spatial-core: `src/geocoder.ts`, `src/index.ts`, `tests/geocoder.test.ts`, `dist/geocoder.js`, `dist/geocoder.d.ts`, `dist/index.js`, `dist/index.d.ts` (rebuilt)
+- `src/adapters/locationAdapter.js` (modified — `resolveOsmEnabled`, OSM bridge tier in `resolveLocationQuery`)
+- `scripts/generate-runtime-config.js` (modified — `CARBOYZ_ENABLE_OSM` mapping)
+- `src/ui/MapView.js` (modified — `enableOsm: true` on the search modal's `resolveLocationQuery` call, locate button relabeled)
+- `tests/locationAdapter.test.js` (modified — 5 new OSM-bridge tests)
+- `docs/journals/dev-journal.md` (logged)

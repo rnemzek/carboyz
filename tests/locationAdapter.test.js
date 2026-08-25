@@ -54,6 +54,66 @@ test('resolveLocationQuery falls back to the offline gazetteer when Google finds
   assert.equal(result.label, 'Leland, NC');
 });
 
+function fakeNominatimResponse(overrides = null) {
+  return {
+    ok: true,
+    json: async () =>
+      overrides ?? [
+        { lat: '30.4213', lon: '-87.2169', name: 'Pensacola', display_name: 'Pensacola, FL, USA' },
+      ],
+  };
+}
+
+test('resolveLocationQuery does not touch the OpenStreetMap tier when enableOsm is not set (no API key, no network call)', async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return fakeNominatimResponse();
+  };
+  const result = await resolveLocationQuery('123 Main St, Pensacola, FL', { fetchImpl });
+  assert.equal(called, false);
+  assert.equal(result, null);
+});
+
+test('resolveLocationQuery bridges through OpenStreetMap when enableOsm is true and Google has no key configured', async () => {
+  const fetchImpl = async () => fakeNominatimResponse();
+  const result = await resolveLocationQuery('123 Main St, Pensacola, FL', { enableOsm: true, fetchImpl });
+  assert.deepEqual(result, { lat: 30.4213, lng: -87.2169, label: 'Pensacola' });
+});
+
+test('resolveLocationQuery bridges through OpenStreetMap when enableOsm is true and Google finds no match', async () => {
+  let googleCalled = false;
+  let osmCalled = false;
+  const fetchImpl = async (url) => {
+    if (typeof url === 'string' && url.includes('googleapis.com')) {
+      googleCalled = true;
+      return { ok: true, json: async () => ({ places: [] }) };
+    }
+    osmCalled = true;
+    return fakeNominatimResponse();
+  };
+  const result = await resolveLocationQuery('123 Main St, Pensacola, FL', {
+    apiKey: 'test-key',
+    enableOsm: true,
+    fetchImpl,
+  });
+  assert.equal(googleCalled, true);
+  assert.equal(osmCalled, true);
+  assert.deepEqual(result, { lat: 30.4213, lng: -87.2169, label: 'Pensacola' });
+});
+
+test('resolveLocationQuery falls back to the offline gazetteer when enableOsm is true but OpenStreetMap also finds no match', async () => {
+  const fetchImpl = async () => fakeNominatimResponse([]);
+  const result = await resolveLocationQuery('Leland', { enableOsm: true, fetchImpl });
+  assert.equal(result.label, 'Leland, NC');
+});
+
+test('resolveLocationQuery returns null when enableOsm is true but neither geocoder nor the gazetteer finds a match', async () => {
+  const fetchImpl = async () => fakeNominatimResponse([]);
+  const result = await resolveLocationQuery('Nowhereville, ZZ', { enableOsm: true, fetchImpl });
+  assert.equal(result, null);
+});
+
 test('resolveLocationQuery resolves a known 5-digit ZIP via the offline gazetteer with no API key', async () => {
   const result = await resolveLocationQuery('28451');
   assert.deepEqual(result, { lat: 34.2388, lng: -78.0145, label: 'Leland, NC' });

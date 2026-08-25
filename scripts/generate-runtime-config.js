@@ -11,6 +11,8 @@ const outPath = join(rootDir, 'runtime-config.js');
 const ENV_TO_WINDOW_GLOBAL = {
   ANTHROPIC_API_KEY: 'CARBOYZ_ANTHROPIC_API_KEY',
   GOOGLE_PLACES_API_KEY: 'CARBOYZ_GOOGLE_PLACES_API_KEY',
+  // Already CARBOYZ_-prefixed in .env.local (it's a feature flag, not a secret), so it maps to itself.
+  CARBOYZ_ENABLE_OSM: 'CARBOYZ_ENABLE_OSM',
 };
 
 /** Minimal KEY=VALUE parser: skips blank lines and lines starting with '#', trims surrounding quotes. */

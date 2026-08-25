@@ -1,4 +1,4 @@
-import { geocodeAddress, GooglePlacesGeocoder } from '@nemzilla/spatial-core';
+import { geocodeAddress, GooglePlacesGeocoder, OpenStreetMapGeocoder } from '@nemzilla/spatial-core';
 import { haversineDistanceMiles } from '../utils/geo.js';
 
 /**
@@ -41,6 +41,19 @@ function resolveApiKey(options = {}) {
   return null;
 }
 
+/**
+ * Whether the OpenStreetMap (Nominatim) tier should be tried. Opt-in only, from explicit
+ * `options.enableOsm` or the `window.CARBOYZ_ENABLE_OSM` runtime flag (set from `.env.local`'s
+ * `CARBOYZ_ENABLE_OSM=true` by scripts/generate-runtime-config.js) — unlike Google, OSM needs no API
+ * key, so without this gate it would fire a network call on every miss, breaking the "no key
+ * configured means no network call" guarantee the offline-gazetteer fallback tests rely on.
+ */
+function resolveOsmEnabled(options = {}) {
+  if (options.enableOsm === true) return true;
+  if (typeof window !== 'undefined' && window.CARBOYZ_ENABLE_OSM === 'true') return true;
+  return false;
+}
+
 function resolveOffline(text) {
   const query = normalize(text);
   if (!query) return null;
@@ -51,8 +64,9 @@ function resolveOffline(text) {
 
 /**
  * Resolves free-form address/ZIP/city input to a point via spatial-core's Google Places geocoder,
- * falling back to the offline gazetteer whenever no API key is configured, the request fails, or
- * Google finds no match. Never throws.
+ * optionally bridging through the zero-cost OpenStreetMap (Nominatim) geocoder when `options.enableOsm`
+ * (or the `CARBOYZ_ENABLE_OSM` runtime flag) is set, and finally falling back to the offline gazetteer
+ * whenever no API key is configured, a request fails, or nothing finds a match. Never throws.
  */
 export async function resolveLocationQuery(text, options = {}) {
   if (typeof text !== 'string' || !text.trim()) return null;
@@ -65,6 +79,18 @@ export async function resolveLocationQuery(text, options = {}) {
       lng: googlePlace.lng,
       label: googlePlace.displayName ?? googlePlace.formattedAddress ?? text.trim(),
     };
+  }
+
+  if (resolveOsmEnabled(options)) {
+    const osmGeocoder = new OpenStreetMapGeocoder({ fetchImpl: options.fetchImpl, userAgent: options.osmUserAgent });
+    const osmPlace = await geocodeAddress(text, osmGeocoder).catch(() => null);
+    if (osmPlace) {
+      return {
+        lat: osmPlace.lat,
+        lng: osmPlace.lng,
+        label: osmPlace.displayName ?? osmPlace.formattedAddress ?? text.trim(),
+      };
+    }
   }
 
   return resolveOffline(text);

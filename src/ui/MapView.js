@@ -147,7 +147,7 @@ function buildLocationModal({ onResolve }) {
     const query = input.value;
     submitBtn.disabled = true;
     try {
-      const resolved = await resolveLocationQuery(query);
+      const resolved = await resolveLocationQuery(query, { enableOsm: true });
       if (!resolved) {
         errorEl.textContent = `Couldn't find "${query.trim()}". Try a 5-digit ZIP, city, or address.`;
         errorEl.hidden = false;
@@ -221,7 +221,8 @@ export function renderMapView({ onFeatureSelect } = {}) {
   const locateBtn = document.createElement('button');
   locateBtn.type = 'button';
   locateBtn.className = 'map-locate-btn';
-  locateBtn.setAttribute('aria-label', 'Locate me');
+  locateBtn.setAttribute('aria-label', 'Use My Location');
+  locateBtn.title = 'Use My Location';
   locateBtn.textContent = '🎯';
 
   const locationModal = buildLocationModal({
