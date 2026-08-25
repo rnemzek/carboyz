@@ -104,7 +104,7 @@ test('TenantRegistry.resolveTenant falls back to a bare default TenantConfig whe
 test('CARBOYZ_FLAGSHIP_PRESET carries the flagship name, tagline, dark amber/gold theme, and CB fallback initials', () => {
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.tenantId, CARBOYZ_TENANT_ID);
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.name, 'CarBoyZ Motors');
-  assert.equal(CARBOYZ_FLAGSHIP_PRESET.tagline, 'Raw Muscle, Badass Trucks & whatever wimps want');
+  assert.equal(CARBOYZ_FLAGSHIP_PRESET.tagline, 'Raw Muscle, Badass Trucks, Boss Jeeps & whatever wimps want');
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.logoUrl, '');
   assert.equal(getBrandInitials(CARBOYZ_FLAGSHIP_PRESET.name), 'CB');
 });

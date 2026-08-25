@@ -718,3 +718,19 @@ carboyz:      180 pass / 0 fail
 - `src/config/TenantRegistry.js` (modified — tagline)
 - `tests/tenantRegistry.test.js` (modified — updated tagline assertion)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-HOTFIX] Pin Contrast, Tagline, Recenter Zoom
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test` 190/190. Verified live: cropped screenshot of a rendered pin confirms the dark outline/dot, and a full map screenshot at the new zoom shows street/town labels (Leland, Navassa, Wilmington) that weren't visible at the old zoom.
+- **Report:** Three small, mostly-confirmatory changes; the location-search recenter/dealer-recalc/location-bar-sync flow this UOW asked to "wire up" was already fully in place from the 2026-08-25 OpenStreetMap-bridge work, so the only real gap was the zoom level.
+
+1. **Pin contrast** — `buildDartPinSvgMarkup()`'s stroke and center dot were white (`#ffffff`), low-contrast against the gold fill. Changed both to `#0F172A`. `CARBOYZ_MAP_STYLE.pinColor` was already `#FBBF24` from the earlier repaint — no change needed there.
+2. **Tagline** — updated to "Raw Muscle, Badass Trucks, Boss Jeeps & whatever wimps want"; updated the one test asserting the exact string.
+3. **Recenter zoom** — `resolveLocationQuery(query, { enableOsm: true })` on search submit, `map.flyTo`, nearby-dealer recalculation, and the location bar's "📍 [Location] (25 mi) · X dealers" text were all already wired (`MapView.js`'s `applyUserLocation`, shared by both the search modal and the GPS locate button). `App.js` doesn't participate in this flow at all — `MapView.js` is fully self-contained (`renderMapView()` returns `{ section, mount, update }`; `App.js` only calls `update()`/`mount()`), so despite the ticket naming it as a file to touch, there was nothing there to wire. The one actual gap: `DEFAULT_ZOOM` was `10`, not the requested `11` — bumped it, which affects the initial map load and both recentering paths uniformly (they already intentionally shared one zoom level; no reason to fork it into a search-only value).
+
+### Files added/modified
+- `src/adapters/carboyzAdapter.js` (modified — pin stroke/dot color)
+- `src/config/TenantRegistry.js` (modified — tagline)
+- `tests/tenantRegistry.test.js` (modified — updated tagline assertion)
+- `src/ui/MapView.js` (modified — `DEFAULT_ZOOM` 10 → 11)
+- `docs/journals/dev-journal.md` (logged)

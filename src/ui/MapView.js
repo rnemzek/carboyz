@@ -24,7 +24,7 @@ function resolveMapStyleUrl() {
 
 // Fallback origin (per product spec) when geolocation is unavailable or denied.
 const FALLBACK_LOCATION = { lat: 34.2388, lng: -78.0145 };
-const DEFAULT_ZOOM = 10;
+const DEFAULT_ZOOM = 11;
 const FOCUS_ZOOM = 13;
 // Default discovery radius: ~25 miles, expressed in km for the H3 grid-disk lookup.
 const NEARBY_RADIUS_KM = 40;
