@@ -3,6 +3,9 @@ const CSS_VARIABLE_BY_COLOR_KEY = {
   secondary: '--color-secondary',
   background: '--color-background',
   text: '--color-text',
+  surface: '--color-surface',
+  border: '--color-border',
+  onPrimary: '--color-on-primary',
 };
 
 export function themeToCssVariables(themeColors = {}) {

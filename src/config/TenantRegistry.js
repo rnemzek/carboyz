@@ -9,12 +9,15 @@ export const CARBOYZ_FLAGSHIP_PRESET = Object.freeze({
   tagline: 'Raw Muscle, Local Trucks & Saturday Project Builds',
   logoUrl: '',
   themeColors: Object.freeze({
-    // Deeper amber-600 (vs. a lighter amber-500) so white header/button text
-    // stays readable against it, while still reading unmistakably as amber.
-    primary: '#D97706',
-    secondary: '#B91C1C',
-    background: '#161311',
-    text: '#F5EAE0',
+    // StreamZilla dark/gold system: amber-400 gold reads too light for white
+    // text, so onPrimary flips header/button text to a near-black slate.
+    primary: '#FBBF24',
+    secondary: '#334155',
+    background: '#020617',
+    text: '#F1F5F9',
+    surface: '#0F172A',
+    border: '#334155',
+    onPrimary: '#0F172A',
   }),
   contact: Object.freeze({ phone: '(910) 555-0128', email: 'hello@carboyzmotors.example' }),
 });

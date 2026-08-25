@@ -91,7 +91,7 @@ test('buildCarboyzLayerConfig sets the auto topic and CarBoyZ pin style', () => 
   assert.equal(layerConfig.layerId, CARBOYZ_MAP_LAYER_ID);
   assert.equal(layerConfig.topic, 'auto');
   assert.deepEqual(layerConfig.style, CARBOYZ_MAP_STYLE);
-  assert.deepEqual(layerConfig.style, { pinColor: '#3B82F6', icon: 'car' });
+  assert.deepEqual(layerConfig.style, { pinColor: '#FBBF24', icon: 'car' });
   assert.equal(layerConfig.features.length, 1);
 });
 

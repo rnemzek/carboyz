@@ -630,3 +630,29 @@ carboyz:      180 pass / 0 fail
 - `.gitignore` (modified — `runtime-config.js`)
 - `src/adapters/chatFilterAdapter.js` (modified — bound `fetch` reference)
 - spatial-core: `src/geocoder.ts`, `src/places.ts`, `dist/geocoder.js`, `dist/places.js` (modified — bound `fetch` reference)
+
+## [UOW] UI Repaint & Dense Dealer Layer
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test` 185/185 (+2: a radius sanity check on the expanded local layer, an id-uniqueness check on `LOCAL_DEALERS`). Verified live via `npm start` + a headless Playwright pass (no `chromium-cli` in this environment, so drove it directly with the `playwright` package — screenshots + computed-style + console-error checks).
+- **Report:** Product Owner proposed aligning carboyz's theme with `../streaming-service-search-engine` (StreamZilla)'s dark/gold system and densifying the local Leland/Wilmington dealer layer. The proposal named files that don't exist in this repo (`global.css`, `Header.js`, `SearchView.js`) and guessed StreamZilla's hex values (`#FFBB00`/`#FFC107`); traced the real target files and pulled StreamZilla's actual tokens (Tailwind `amber-400` `#fbbf24` on `slate-950/900/800/700`) from its `tailwind-input.css`/`index.html` before touching anything. Plan reviewed and approved via `EnterPlanMode`/`ExitPlanMode` before implementation.
+
+### Theming plumbing (the actual unlock)
+- `CARBOYZ_FLAGSHIP_PRESET.themeColors` (`src/config/TenantRegistry.js`) already ran a deliberate amber-on-dark theme (`#D97706` primary, white header text) — a prior comment explained amber-600 was chosen specifically so *white* text stayed legible. Going full StreamZilla gold (`#fbbf24`, much lighter) required flipping to dark text, so `theme.js`'s tenant→CSS-variable map gained a new `onPrimary` key (`--color-on-primary`), plus previously-unthemeable `surface`/`border` keys — the Dealer Studio intake form was rendering as a light-gray box on carboyz's dark background because `--color-surface`/`--color-border` were never wired through `applyTenantTheme`. All three default to their pre-existing light-mode values in `styles.css :root`, so `summit-auto`/`harbor-motors` (which don't set them) are unaffected.
+- `CARBOYZ_FLAGSHIP_PRESET.themeColors` updated to the gold set (`primary #FBBF24`, `background #020617`, `surface #0F172A`, `border #334155`, `onPrimary #0F172A`).
+- `styles.css`: header/button/tagline/chat-submit text now read `var(--color-on-primary)` instead of hardcoded `#ffffff`; `.button`/`.chat-discovery__submit` are full pill radius; added `:focus`/`:focus-within` gold-accent borders on form inputs and the chat bar, matching StreamZilla's `focus:border-amber-400`.
+- `CARBOYZ_MAP_STYLE.pinColor` (`src/adapters/carboyzAdapter.js`) → `#FBBF24`; pin SVG's white stroke/dot kept as-is for contrast on the dark basemap.
+
+### Dense dealer layer
+- `LOCAL_DEALERS`/`LOCAL_DEALER_INVENTORY` (`src/utils/seedInventory.js`) expanded from 2 to 12 real Leland/Wilmington-area towns (Castle Hayne, Hampstead, Carolina Beach, Wrightsville Beach, Porters Neck, downtown Wilmington, Leland Riverside, Ogden, Monkey Junction, Brunswick Forest), each within `MapView.js`'s default 25mi search radius — verified with a new `haversineDistanceMiles`-based test rather than by eyeballing coordinates. Deliberately left `DIRECT_INVENTORY`/`VENDOR_FEEDS` untouched — an existing test locks their 30%/70% split, and `LOCAL_DEALER_INVENTORY` was already excluded from that ratio.
+- `MapView.js`'s location chip (`.map-location-bar`) now appends a live dealer count (`📍 Leland, NC (25 mi) · 13 dealers`), sourced from the same `nearbyDealers ?? dealers` set the layer itself renders from — fixed a latent ordering bug in `applyUserLocation()` where the chip text was written *before* `nearbyDealers` was recomputed, so it always showed the previous count; also wired `update()` to refresh the chip so it stays in sync after a discovery scan changes the dealer set, not just on relocation.
+
+### Files added/modified
+- `src/ui/theme.js` (modified — `surface`/`border`/`onPrimary` in the CSS-variable map)
+- `src/config/TenantRegistry.js` (modified — `CARBOYZ_FLAGSHIP_PRESET.themeColors` → StreamZilla gold set)
+- `src/ui/styles.css` (modified — `--color-on-primary` token, on-primary text swaps, pill buttons, focus states)
+- `src/adapters/carboyzAdapter.js` (modified — `CARBOYZ_MAP_STYLE.pinColor`)
+- `src/utils/seedInventory.js` (modified — 10 new `LOCAL_DEALERS`/`LOCAL_DEALER_INVENTORY` entries)
+- `src/ui/MapView.js` (modified — dealer count in the location chip, `applyUserLocation` ordering fix, `update()` chip refresh)
+- `tests/carboyzAdapter.test.js`, `tests/tenantRegistry.test.js` (modified — updated hardcoded color expectations)
+- `tests/seedInventory.test.js` (modified — dense-layer id-uniqueness/count check + new radius sanity test)
+- `docs/journals/dev-journal.md` (logged)

@@ -101,7 +101,7 @@ test('TenantRegistry.resolveTenant falls back to a bare default TenantConfig whe
   assert.equal(resolved.tenantId, 'default');
 });
 
-test('CARBOYZ_FLAGSHIP_PRESET carries the flagship name, tagline, dark amber/red theme, and CB fallback initials', () => {
+test('CARBOYZ_FLAGSHIP_PRESET carries the flagship name, tagline, dark amber/gold theme, and CB fallback initials', () => {
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.tenantId, CARBOYZ_TENANT_ID);
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.name, 'CarBoyZ Motors');
   assert.equal(CARBOYZ_FLAGSHIP_PRESET.tagline, 'Raw Muscle, Local Trucks & Saturday Project Builds');
@@ -118,8 +118,11 @@ test('registering CARBOYZ_FLAGSHIP_PRESET resolves it via ?brand=carboyz', () =>
   });
   assert.equal(resolved.tenantId, CARBOYZ_TENANT_ID);
   assert.equal(resolved.name, 'CarBoyZ Motors');
-  assert.equal(resolved.themeColors.primary, '#D97706');
-  assert.equal(resolved.themeColors.secondary, '#B91C1C');
-  assert.equal(resolved.themeColors.background, '#161311');
-  assert.equal(resolved.themeColors.text, '#F5EAE0');
+  assert.equal(resolved.themeColors.primary, '#FBBF24');
+  assert.equal(resolved.themeColors.secondary, '#334155');
+  assert.equal(resolved.themeColors.background, '#020617');
+  assert.equal(resolved.themeColors.text, '#F1F5F9');
+  assert.equal(resolved.themeColors.surface, '#0F172A');
+  assert.equal(resolved.themeColors.border, '#334155');
+  assert.equal(resolved.themeColors.onPrimary, '#0F172A');
 });

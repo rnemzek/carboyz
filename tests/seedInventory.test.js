@@ -84,14 +84,24 @@ test('every simulated vendor lot is within a 50-mile radius of the ZIP 28451 see
   }
 });
 
-test('LOCAL_DEALERS defines Leland and Wilmington NC default local dealer nodes', () => {
-  assert.equal(LOCAL_DEALERS.length, 2);
+test('LOCAL_DEALERS defines a dense Leland/Wilmington NC local dealer layer', () => {
+  assert.ok(LOCAL_DEALERS.length >= 10, `expected a dense local layer, got ${LOCAL_DEALERS.length} dealers`);
   const ids = LOCAL_DEALERS.map((d) => d.dealerId);
   assert.ok(ids.includes(LELAND_DEALER_ID));
   assert.ok(ids.includes(WILMINGTON_DEALER_ID));
+  assert.equal(new Set(ids).size, ids.length, 'LOCAL_DEALERS ids must be unique');
   for (const localDealer of LOCAL_DEALERS) {
     assert.equal(typeof localDealer.lat, 'number');
     assert.equal(typeof localDealer.lng, 'number');
+  }
+});
+
+test('every LOCAL_DEALERS node falls within the map default 25-mile search radius of the Leland fallback location', () => {
+  const FALLBACK_LOCATION = { lat: 34.2388, lng: -78.0145 };
+  const NEARBY_RADIUS_MILES = 25;
+  for (const localDealer of LOCAL_DEALERS) {
+    const distance = haversineDistanceMiles(FALLBACK_LOCATION, localDealer);
+    assert.ok(distance <= NEARBY_RADIUS_MILES, `${localDealer.name} is ${distance.toFixed(1)}mi away`);
   }
 });
 

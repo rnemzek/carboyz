@@ -5,6 +5,7 @@
   --color-text: #111318;
   --color-surface: #f4f5f7;
   --color-border: #e1e4e9;
+  --color-on-primary: #ffffff;
   --color-underpriced: #1b8a4b;
   --color-fair: #b07a05;
   --color-overpriced: #c02f2f;
@@ -43,7 +44,7 @@ body {
   gap: var(--spacing);
   padding: var(--spacing);
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
 }
 
 .app__logo {
@@ -81,7 +82,7 @@ body {
 .app__tagline {
   font-size: 0.8rem;
   margin: 0;
-  color: rgba(255, 255, 255, 0.85);
+  color: color-mix(in srgb, var(--color-on-primary) 85%, transparent);
 }
 
 .brand-switcher {
@@ -184,12 +185,18 @@ body {
   color: var(--color-text);
 }
 
+.form input:focus,
+.form select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
 .button {
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: 999px;
   border: none;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -546,9 +553,14 @@ body {
   gap: 8px;
   padding: 8px;
   background: var(--color-background);
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   z-index: 20;
+}
+
+.chat-discovery__bar:focus-within {
+  border-color: var(--color-primary);
 }
 
 .chat-discovery__input {
@@ -566,7 +578,7 @@ body {
   border-radius: 999px;
   border: none;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;

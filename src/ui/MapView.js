@@ -324,15 +324,20 @@ export function renderMapView({ onFeatureSelect } = {}) {
     showDrawer(feature, { highlightVehicleId: vehicleId });
   }
 
+  function currentDealerCount() {
+    return (nearbyDealers ?? dealers).length;
+  }
+
   function updateLocationBar() {
-    locationBar.textContent = `📍 ${locationLabel} (${NEARBY_RADIUS_MILES} mi)`;
+    const count = currentDealerCount();
+    locationBar.textContent = `📍 ${locationLabel} (${NEARBY_RADIUS_MILES} mi) · ${count} dealer${count === 1 ? '' : 's'}`;
   }
 
   function applyUserLocation(location, label) {
     userLocation = location;
     locationLabel = label ?? describeCoordinates(location.lat, location.lng);
-    updateLocationBar();
     nearbyDealers = filterDealersNearby(dealers, location, NEARBY_RADIUS_KM);
+    updateLocationBar();
     map.flyTo({ center: [location.lng, location.lat], zoom: DEFAULT_ZOOM });
     if (map.isStyleLoaded()) renderLayer();
   }
@@ -404,6 +409,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
       dealers = nextDealers ?? [];
       vehicles = nextVehicles ?? [];
       if (userLocation) nearbyDealers = filterDealersNearby(dealers, userLocation, NEARBY_RADIUS_KM);
+      updateLocationBar();
       if (map?.isStyleLoaded()) renderLayer();
     },
   };

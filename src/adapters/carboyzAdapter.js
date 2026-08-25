@@ -7,7 +7,7 @@ const mileageFormatter = new Intl.NumberFormat('en-US');
 
 export const CARBOYZ_MAP_LAYER_ID = 'carboyz-inventory';
 export const CARBOYZ_MAP_TOPIC = 'auto';
-export const CARBOYZ_MAP_STYLE = { pinColor: '#3B82F6', icon: 'car' };
+export const CARBOYZ_MAP_STYLE = { pinColor: '#FBBF24', icon: 'car' };
 
 function buildSynopsisCardHtml({ vehicle, dealer, title }) {
   const priceLabel = currencyFormatter.format(vehicle.price);
