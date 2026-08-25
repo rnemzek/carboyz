@@ -161,6 +161,10 @@ body {
   gap: 4px;
 }
 
+.form__row[hidden] {
+  display: none;
+}
+
 .form__row--split {
   flex-direction: row;
   gap: var(--spacing);
@@ -207,6 +211,62 @@ body {
   background: var(--color-surface);
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
+}
+
+.view__subtitle {
+  margin: 0 0 var(--spacing);
+  color: var(--color-secondary);
+}
+
+.form--mobile {
+  gap: var(--spacing);
+}
+
+.input--large {
+  min-height: 44px;
+  font-size: 1.05rem;
+}
+
+.button--large {
+  min-height: 48px;
+  font-size: 1.05rem;
+}
+
+.dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: var(--spacing);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-background);
+  color: var(--color-secondary);
+  text-align: center;
+  cursor: pointer;
+}
+
+.dropzone--active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.dropzone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.form__status {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--color-underpriced);
+}
+
+.form__status--error {
+  color: var(--color-overpriced);
 }
 
 .card-list {

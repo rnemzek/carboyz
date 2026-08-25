@@ -805,3 +805,33 @@ carboyz:      180 pass / 0 fail
 - `docs/journals/dev-journal.md` (logged)
 
 **Follow-up fix, same session:** the vendor filter's `.ts` exclusion pattern (`/\.ts$/`) didn't match `.cts`/`.d.cts` (different suffix, same intent) — zod ships CJS-flavored `.cts` declaration/build files alongside its `.ts` source tree, and both slipped into the first commit despite this app only ever resolving ESM `.js`. Widened to `/\.(d\.)?[cm]?ts$/` (catches `.ts`/`.mts`/`.cts` and their `.d.*` declaration variants) and added a `.cjs`/`src` exclusion. Re-vendored: 6.7MB → 4.1MB, 246 → 141 files. Re-verified the same way (node_modules/@nemzilla fully hidden) — still zero 404s, zero console errors, full render.
+
+## [UOW-10] — Mobile-First Seller Submission Engine
+- **Date:** 8/25/2026
+- **Status:** Complete. `npm test` 225/225 (+16 new: `submission.test.js`, `submissionService.test.js`, `ui.sellerSubmissionController.test.js`). `node --test --experimental-test-coverage` on the three new modules: `Submission.js` 100%/100%, `SubmissionService.js` 93.33%/90.00%, `SellerSubmissionController.js` 100%/100% (line/branch) — clears the repo's 80% standard; uncovered lines are the storage read/write failure catch blocks. Verified live with a headless Playwright script (`npx serve .` + Chromium): default tab loads as "Sell Your Car", selecting "Other" reveals/hides the Competitor Dealer Name field correctly, a full submission (with and without an attached file) succeeds with a visible confirmation, the form resets, `localStorage['carboyz:submissions:carboyz']` holds the persisted JSON (including the file as a `data:image/...;base64,...` string), and a reload + other-tab clicks show no regressions. Zero console errors throughout.
+- **Report:** Went through `EnterPlanMode` given the real scope — new data model, new persistence layer, new UI surface, and a change to the app's default landing tab (confirmed with the Product Owner via `AskUserQuestion` before implementing: "Sell Your Car" replaces Map as default, per the ticket's "primary user flow" framing). No backend exists in this repo, so "local state persistence" and the "Base64/File Blob reference" spec line both resolve to the same mechanism: `localStorage` plus a client-side `FileReader.readAsDataURL` encode — consistent with this app's no-bundler, no-server architecture.
+- **A real bug caught during live verification, not by unit tests:** the conditional Competitor Dealer Name row (`hidden` attribute on a `.form__row` div) silently never hid — `.form__row { display: flex; ... }` in `styles.css` overrides the browser's default `[hidden] { display: none; }` UA rule at equal specificity, because author-origin CSS always wins over user-agent-origin CSS regardless of specificity. This is the exact problem `.view[hidden] { display: none; }` (styles.css) already exists to solve for tab sections — just not yet extended to `.form__row`. Fixed by adding the equivalent `.form__row[hidden] { display: none; }` rule. Unit tests (DOM-free, `node:test`) had no way to catch this; only the live browser pass did.
+- **Also caught during verification, environmental not a bug:** `npx serve . -p 8099` silently bound to a different port (52616) because port 8099 was already held by an unrelated, 5-day-old stale `serve` process left running from a different git worktree (`.claude/worktrees/geospatial-search-v2`, started 8/20). Not cleaned up — flagged to the Product Owner rather than killed unprompted, since it predates this session and wasn't blocking the task.
+
+### `src/models/Submission.js` (new)
+Constructor-validated class mirroring `Vehicle.js`'s style: required-field throws (`vin`, `year`, `make`, `model`, `mileage`, `zipCode`), a `competitor` enum check (`CarMax`/`Carvana`/`KBB`/`GiveMeTheVin`/`Other`), a conditional `competitorDealerName` requirement only when `competitor === 'Other'` (and the field is force-nulled otherwise, so stale data from a prior "Other" selection can't leak through if the form value changes), a non-negative numeric `competitorOfferAmount` guard, and a `status` enum (`NEW`/`IN_REVIEW`/`OFFER_BEATEN`/`DECLINED`, default `NEW`). `id`/`timestamp` are accepted as inputs (stamped by the service), matching how `Vehicle` accepts rather than generates `vehicleId`.
+
+### `src/services/SubmissionService.js` (new)
+DI'd `{ tenantId, storage }`, combining `IngestService`'s id/sequence pattern with `tenantResolution.js`'s try/catch storage pattern, under key `carboyz:submissions:<tenantId>`. Rehydrates the full array and continues the id sequence from storage on construction — verified with two service instances sharing one fake storage object. `updateStatus` re-validates through the `Submission` constructor itself rather than duplicating the enum list.
+
+### `src/ui/SellerSubmissionController.js` / `src/ui/SellerSubmissionView.js` (new)
+Controller mirrors `DealerStudioController`: haptics fire only on a successful `submit()`, never on a thrown validation error (verified explicitly — a rejected submission left the haptics spy at zero calls). View is a new mobile-first single-page form built with `App.js`'s existing `h()` DOM helper (exported for reuse — the one shared-code change, previously module-private); large tap targets via new `.input--large`/`.button--large` classes, and a drop-zone `<input type="file" accept="image/*,application/pdf" capture="environment">` with drag/drop support, reading the selected file through `FileReader` before calling the controller.
+
+### `App.js` / `styles.css`
+New "Sell Your Car" tab, now first in the tab order and the default `activeTab` (was `'map'`). `getTenantState()` gained a tenant-scoped `SubmissionService`. Styling additions reuse existing `--color-*`/`--spacing`/`--radius` tokens — no new palette.
+
+### Files added/modified
+- `src/models/Submission.js` (new)
+- `src/services/SubmissionService.js` (new)
+- `src/ui/SellerSubmissionController.js` (new)
+- `src/ui/SellerSubmissionView.js` (new)
+- `src/ui/App.js` (modified — `h` exported, new tab, service/controller/view wiring, default tab)
+- `src/ui/styles.css` (modified — `.form__row[hidden]`, `.input--large`/`.button--large`, `.dropzone*`, `.form__status*`, `.view__subtitle`)
+- `tests/submission.test.js`, `tests/submissionService.test.js`, `tests/ui.sellerSubmissionController.test.js` (new)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-10 scope and architecture)
+- `docs/journals/dev-journal.md` (logged)

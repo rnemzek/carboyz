@@ -48,7 +48,36 @@ match, STOP and alert the Product Owner instead of proceeding.
 
 
 ## Target Task Scope & Active Sprint
-All UOWs are complete!
+
+### UOW-10 — Mobile-First Seller Submission Engine
+Convert primary user flow into a Mobile-First Seller Submission Engine.
+
+**Submission Data Model**
+- `id`, `timestamp`, `vin`, `year`, `make`, `model`, `trim`, `mileage`, `zipCode`
+- `competitor` (enum: `CarMax`, `Carvana`, `KBB`, `GiveMeTheVin`, `Other`)
+- `competitorDealerName` (string, required only when `competitor === 'Other'`)
+- `competitorOfferAmount` (non-negative number)
+- `offerDocument` (Base64 data-URL string, from camera photo or PDF — no backend in this repo, so client-side encode is the only option)
+- `status` (enum: `NEW`, `IN_REVIEW`, `OFFER_BEATEN`, `DECLINED`; defaults to `NEW`)
+
+**Mobile Intake Canvas UI**
+- Single-page, mobile-first form; large tap-friendly inputs (44px+ targets).
+- File drop-zone: `<input type="file" accept="image/*,application/pdf" capture="environment">` for direct camera capture or PDF drop.
+- `navigator.vibrate` haptic on successful submission (existing `HapticsService`).
+
+**Test Coverage**
+- Schema validation (required fields, enum values, conditional `competitorDealerName`, numeric guards).
+- Local state persistence (localStorage-backed service: save, rehydrate on reload, id sequencing, status transitions).
+- Must hold the repo's 80% line/branch coverage standard on new modules.
+
+### Architecture (Lead Architect step — matches existing repo conventions)
+- `src/models/Submission.js` — plain class, constructor-time validation, same shape as `src/models/Vehicle.js` (throws on missing/invalid required fields; enum + conditional field checks for `competitor`/`competitorDealerName`/`competitorOfferAmount`).
+- `src/services/SubmissionService.js` — DI'd `{ tenantId, storage }`, mirrors `IngestService` (id/sequence generation) + `tenantResolution.js` (try/catch localStorage read/write under key `carboyz:submissions:<tenantId>`, silent no-op fallback when storage is unavailable). Methods: `submit(data)`, `getSubmissions()`, `updateStatus(id, status)`. Rehydrates from storage on construction.
+- `src/ui/SellerSubmissionController.js` — thin controller pairing `SubmissionService` + `HapticsService`, mirrors `DealerStudioController` (`submitSubmission()` calls service then `hapticsService.vibrate()` on success only).
+- `src/ui/SellerSubmissionView.js` — new view module (pattern: exports a render function returning a DOM section), built with the existing `h()` DOM-builder convention already used in `App.js`. Handles the file input → `FileReader.readAsDataURL` → base64 → passed into `submitSubmission`.
+- `App.js` wiring: new tab entry, label "Sell Your Car". **Decided (Product Owner, 2026-08-25): becomes the default `activeTab`**, replacing `'map'` as the app's entry point.
+- Styling: mobile-first additions to `src/ui/styles.css` (large inputs/buttons, drop-zone affordance), reusing existing `--color-*`/`--spacing`/`--radius` tokens — no new design system.
+- Tests: `tests/submission.test.js` (schema/model), `tests/submissionService.test.js` (persistence/rehydration/status transitions), `tests/ui.sellerSubmissionController.test.js` (controller wiring + haptics-on-success), following existing `node:test` + `assert/strict` style.
 
 ## Execution Instruction
-Read this payload and stand by. Do not execute destructive file edits until instructed by the Product Owner.
+Architecture staged above. Lead Developer (Claude Code) to confirm the default-tab question with the Product Owner, then proceed via `EnterPlanMode` before touching files, per repo precedent for materially new scope (new data model + new UI surface, not a wiring task).
