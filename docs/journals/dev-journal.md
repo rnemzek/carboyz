@@ -803,3 +803,5 @@ carboyz:      180 pass / 0 fail
 - `package.json` (modified — `prestart` chains the new vendor script)
 - `index.html` (modified — import map points at `/vendor/...`)
 - `docs/journals/dev-journal.md` (logged)
+
+**Follow-up fix, same session:** the vendor filter's `.ts` exclusion pattern (`/\.ts$/`) didn't match `.cts`/`.d.cts` (different suffix, same intent) — zod ships CJS-flavored `.cts` declaration/build files alongside its `.ts` source tree, and both slipped into the first commit despite this app only ever resolving ESM `.js`. Widened to `/\.(d\.)?[cm]?ts$/` (catches `.ts`/`.mts`/`.cts` and their `.d.*` declaration variants) and added a `.cjs`/`src` exclusion. Re-vendored: 6.7MB → 4.1MB, 246 → 141 files. Re-verified the same way (node_modules/@nemzilla fully hidden) — still zero 404s, zero console errors, full render.
