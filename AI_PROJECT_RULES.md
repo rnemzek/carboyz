@@ -29,7 +29,7 @@
    - Scope Threshold: Minor visual polish, UI layout tweaks, micro-bug fixes, or fallback adjustments (<50 lines, no breaking contract/schema changes) identified during live browser test drives do NOT require invoking `hydrate-architect` for a full re-planning cycle.
    - Execution Rule: When the Product Owner requests a minor tweak during a test drive, append a concise `[UOW-HOTFIX]` bullet directly to `.hydrate/CURRENT_UOW.md`, implement immediately, verify with tests, and commit with `fix(ui):` or `refactor(ui):`.
 
-3. One-Shot Context Transition
+3. One-Shot Context Transition & Autonomous Plan Execution
    - When transitioning between completed work and new requests, the AI lead developer should combine uncommitted tree cleanup, `CURRENT_UOW.md` logging, and task execution into a single seamless run without prompting through multi-step intermediate menus unless explicit ambiguity exists.
-
+   - When executing plan mode for a validated UOW, proceed immediately with implementation and verification without holding for secondary plan approvals if the spec in `.hydrate/CURRENT_UOW.md` fully defines the acceptance criteria.
 
