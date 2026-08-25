@@ -8,12 +8,15 @@
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="/src/ui/styles.css" />
     <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+    <!-- Points at vendor/ (committed to git), not node_modules/ — @nemzilla/spatial-core is a
+         `file:../spatial-core` dependency pointing outside this repo, which only resolves on a
+         developer machine where that sibling checkout exists. See scripts/vendor-spatial-core.js. -->
     <script type="importmap">
       {
         "imports": {
-          "@nemzilla/spatial-core": "/node_modules/@nemzilla/spatial-core/dist/index.js",
-          "zod": "/node_modules/@nemzilla/spatial-core/node_modules/zod/index.js",
-          "h3-js": "/node_modules/@nemzilla/spatial-core/node_modules/h3-js/dist/h3-js.es.js"
+          "@nemzilla/spatial-core": "/vendor/spatial-core/dist/index.js",
+          "zod": "/vendor/zod/index.js",
+          "h3-js": "/vendor/h3-js/dist/h3-js.es.js"
         }
       }
     </script>

@@ -782,3 +782,24 @@ carboyz:      180 pass / 0 fail
 - `tests/generateRegionalDealers.test.js` (new)
 - `src/ui/MapView.js` (modified — generated-data state, `ensureRegionalCoverage`, `handleViewportSettled`/`moveend`, `currentDealers()`/`currentVehicles()` swapped in at the render/drawer/chat/chip call sites)
 - `docs/journals/dev-journal.md` (logged)
+
+## [Fix] Production 404 on @nemzilla/spatial-core — Vendored, Not Vite
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test` unchanged at 209/209 (no application logic touched). Verified live by fully hiding `node_modules/@nemzilla` (exactly simulating a Railway build, which only ever clones this repo) and confirming the app still renders completely — header, tagline, 13 real dealer pins — with zero 404s and zero console errors in a real headless Chromium pass.
+- **Report:** Original ticket asked for a `vite.config.js` fix (`optimizeDeps`, `commonjsOptions`, etc.) — this repo has no Vite anywhere (no config, no dependency, no `build`/`preview` scripts) and is deliberately bundler-free by design (`index.html` resolves bare specifiers via a native `<script type="importmap">`). Flagged this before touching anything; turned out to be describing a different sibling project (`nemzilla-studio`/`todoz`/`portfolio` all use Vite). Re-scoped by the Product Owner to fix the real root cause while explicitly keeping the no-bundler architecture.
+
+### Root cause
+`@nemzilla/spatial-core` is declared as `"file:../spatial-core"` — a dependency pointing at a sibling directory *outside* this git repo, present only on a developer's machine. Locally, `npm install` symlinks `node_modules/@nemzilla/spatial-core` straight to that sibling checkout, which resolves fine — including its own nested `node_modules/{zod,h3-js}`, both referenced directly in `index.html`'s import map. On Railway (or any fresh clone), that sibling directory never exists, so `npm install` can't resolve the dependency at all, and every import-map entry pointing into `node_modules/@nemzilla/spatial-core/...` 404s. Nothing about `serve`'s configuration was ever the problem.
+
+### Fix: vendor a committed snapshot, not a build step
+- `scripts/vendor-spatial-core.js` (new) copies `node_modules/@nemzilla/spatial-core/dist` → `vendor/spatial-core/dist`, and its nested `zod`/`h3-js` → `vendor/zod`/`vendor/h3-js` — filtering out `.map`/`.d.ts`/docs/tests/benchmarks (safe: never fetched by a browser; not an attempt at real tree-shaking, which would need a bundler or fragile hand-tracing of zod's actual reachable module graph — out of scope, and the full package's runtime `.js` files are the safe fallback). Cut the vendored snapshot from 14MB to 6.7MB this way.
+- Critically, this is **not** a dynamic "copy at deploy time" step (the ticket's original phrasing suggested this, and it fundamentally can't work: the source — `../spatial-core` — never exists on Railway either, only what's committed to *this* repo does). `vendor/` is committed to git; the script is a *local convenience* that refreshes it from `node_modules` whenever the sibling repo happens to be resolved (wired into `prestart`, same as `generate-runtime-config.js`), and no-ops gracefully otherwise — same graceful-degradation shape already established for the gitignored `runtime-config.js`, but inverted: that file must never be committed (secrets, regenerable everywhere); this one must always be committed (nothing regenerates it in production).
+- `index.html`'s import map now points at `/vendor/spatial-core/dist/index.js`, `/vendor/zod/index.js`, `/vendor/h3-js/dist/h3-js.es.js` instead of `/node_modules/...`.
+- **Known tradeoff, not silently glossed over**: `vendor/` can drift from the sibling `spatial-core` repo if someone changes it without re-running `npm start` locally (which refreshes the vendor snapshot) before committing. This mirrors exactly the coordination this session already did manually across both repos for prior UOWs (OSM geocoder, `resolveMany`, etc.) — nothing new, just now something to remember to do before pushing carboyz after a spatial-core change.
+
+### Files added/modified
+- `scripts/vendor-spatial-core.js` (new)
+- `vendor/` (new, committed — `spatial-core/dist`, `zod`, `h3-js`)
+- `package.json` (modified — `prestart` chains the new vendor script)
+- `index.html` (modified — import map points at `/vendor/...`)
+- `docs/journals/dev-journal.md` (logged)
