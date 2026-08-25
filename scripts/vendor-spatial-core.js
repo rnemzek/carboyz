@@ -6,13 +6,15 @@ const rootDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const spatialCorePkgDir = join(rootDir, 'node_modules', '@nemzilla', 'spatial-core');
 const vendorDir = join(rootDir, 'vendor');
 
-// Runtime JS only — .map/.d.ts/docs/tests/benchmarks are never fetched by the browser but would
-// otherwise bloat this committed vendor snapshot considerably (whole-package copies pull in a lot
-// that's irrelevant here). Doesn't attempt to trace which specific files within a package are
-// actually reachable from its entry point — that needs a bundler (explicitly out of scope) or
-// fragile manual tracing; keeping every runtime .js file is the safe tradeoff.
-const SKIP_NAME_PATTERNS = [/\.map$/, /\.d\.ts$/, /\.d\.cts$/, /\.md$/i, /^(LICENSE|NOTICE|CHANGELOG|CONTRIBUTING|RELEASE)/i];
-const SKIP_DIR_NAMES = new Set(['test', 'tests', 'benchmark', 'benchmarks', '.github']);
+// Runtime ESM .js only. Everything below is categorically inapplicable to a browser importmap in
+// this "type": "module" app, not an attempt at tracing which specific files a package's entry point
+// actually reaches (that needs a bundler, explicitly out of scope, or fragile manual tracing):
+//  - .map/.ts/.d.ts/.cts/.d.cts/.mts/.d.mts: never fetched/executed by a browser (source maps, TS
+//    source and declarations in every TS extension flavor — .cts/.mts don't end in plain ".ts")
+//  - .cjs: this app never resolves a CommonJS build, only ESM
+//  - docs/tests/benchmarks: not code at all
+const SKIP_NAME_PATTERNS = [/\.map$/, /\.(d\.)?[cm]?ts$/, /\.cjs$/, /\.md$/i, /^(LICENSE|NOTICE|CHANGELOG|CONTRIBUTING|RELEASE)/i];
+const SKIP_DIR_NAMES = new Set(['test', 'tests', 'benchmark', 'benchmarks', '.github', 'src']);
 
 function vendorFilter(source) {
   const name = basename(source);
