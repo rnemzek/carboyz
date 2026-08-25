@@ -6,7 +6,7 @@ export const CARBOYZ_TENANT_ID = 'carboyz';
 export const CARBOYZ_FLAGSHIP_PRESET = Object.freeze({
   tenantId: CARBOYZ_TENANT_ID,
   name: 'CarBoyZ Motors',
-  tagline: 'Raw Muscle, Badass Trucks, Boss Jeeps & whatever wimps want',
+  tagline: 'Raw Muscle, Badass Trucks, Boss Jeeps & whatever chicks want',
   logoUrl: '',
   themeColors: Object.freeze({
     // StreamZilla dark/gold system: amber-400 gold reads too light for white
