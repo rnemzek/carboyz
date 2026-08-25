@@ -342,6 +342,22 @@ body {
   background: var(--color-secondary);
 }
 
+.badge--greenlight {
+  background: var(--color-underpriced);
+}
+
+.badge--marginal {
+  background: var(--color-fair);
+}
+
+.badge--pass {
+  background: var(--color-overpriced);
+}
+
+.badge--no-data {
+  background: var(--color-secondary);
+}
+
 .empty-state {
   color: var(--color-secondary);
   font-size: 0.9rem;
@@ -385,6 +401,19 @@ body {
   margin: 0;
   font-size: 0.9rem;
   color: var(--color-secondary);
+}
+
+.modal--doc {
+  max-width: 480px;
+}
+
+.modal__doc-content {
+  margin-bottom: var(--spacing);
+}
+
+.modal__doc-image {
+  max-width: 100%;
+  border-radius: var(--radius);
 }
 
 .view--map {

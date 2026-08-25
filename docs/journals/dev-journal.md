@@ -835,3 +835,33 @@ New "Sell Your Car" tab, now first in the tab order and the default `activeTab` 
 - `tests/submission.test.js`, `tests/submissionService.test.js`, `tests/ui.sellerSubmissionController.test.js` (new)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-10 scope and architecture)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-11] — Offer Beater Spread Engine & Lead Inbox View
+- **Date:** 8/25/2026
+- **Status:** Complete. `npm test` 238/241 (+15 new: `spreadService.test.js` 10, `ui.leadInboxController.test.js` 5). The 3 failures are pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes — confirmed still failing identically on `main` before this change (`git stash` + rerun). `node --test --experimental-test-coverage` on the two new modules: `SpreadService.js` 100%/100%/100%, `LeadInboxController.js` 100%/100%/100% (line/branch/func) — clears the repo's 80% standard.
+- **FMV data source decision:** No VIN-decode/external pricing API exists in this repo. Reused `TelemetryService.getMarketStats()` (the same call `DealerStudioController` already uses for inventory comp averages) against the tenant's current inventory, keyed by the submission's make/model/year, as the Fair Market Value input to `SpreadService`. When no comps exist, `SpreadService` returns a `NO_DATA` status rather than fabricating a number — Recommended Counter Offer still computes since it only depends on the competitor offer.
+- **Scope decision — extend, not replace:** The ticket said "Replace or extend the Dealer Studio / Buyer Search views." Replacing either would have broken `tests/ui.dealerStudioController.test.js` / `tests/ui.buyerSearchController.test.js` and violated the repo's "npm test clean across 225+ existing tests" regression gate — so a 5th "Lead Inbox" tab was added alongside the existing four, mirroring how the "Sell" tab was added in UOW-10. Default tab stays `'sell'` (unchanged from UOW-10's Product Owner decision).
+- **A real bug caught during live verification, not by unit tests:** views in this app (`sellView`, `dealerView`, etc.) are built once per `render()` call; tab-button clicks only toggle `hidden`/`aria-selected` in a closure — they don't re-invoke `render()`. `renderLeadInboxView()` originally rendered its card list once at construction time, so a lead submitted via the "Sell Your Car" tab never appeared in "Lead Inbox" without a full re-render (e.g. a tenant switch). Caught with a live Playwright pass (submit a lead → switch tabs → empty state persisted). Fixed by having `renderLeadInboxView()` return `{ section, refresh }` instead of just the section, and calling `refresh()` on tab-select — the same shape `mapView` already uses (`{ section, mount, update }`) for its own on-select refresh (`mapView.mount()`).
+- **Verified live with headless Playwright** (`npx serve .` + cached Chromium, no `chromium-cli` available in this environment so drove `playwright` directly per the run skill's fallback): submitted a Jeep Wrangler 2021 lead against seeded inventory comps (avg $30,500) with a $15,000 competitor offer → card showed `Greenlight` badge, spread math correct ($30,500 × 0.88 − $15,000 = $11,840 ≥ $1,000), Recommended Counter $15,300 ($15,000 + $300); a make/model/year with no comps correctly showed `No Market Data`; clicking "Mark In Review" disabled that action button and persisted through re-render. Zero console errors throughout.
+
+### `src/services/SpreadService.js` (new)
+Pure functions, no DI — no state to hold. `calculateSpread({ fairMarketValue, competitorOfferAmount, counterOfferOffset = 300 })` throws on an invalid `competitorOfferAmount` (mirrors the guard already in `Submission.js`), always computes `recommendedCounterOffer` independent of FMV availability, and returns `NO_DATA` (nulled `estimatedWholesaleValue`/`spread`) when `fairMarketValue` isn't a positive number. Boundaries: spread ≥ $1,000 → `GREENLIGHT`, ≥ $300 → `MARGINAL`, else `PASS` (covers negative spreads too).
+
+### `src/ui/LeadInboxController.js` (new)
+Mirrors `DealerStudioController`'s DI/throw pattern (`submissionService`, `telemetryService`, `ingestService`). `buildLeadViewModels()` resolves FMV per submission via the inventory comp average, calls `SpreadService`, and formats the competitor label (`Other (Hendrick Motors)` when applicable). `updateStatus()` delegates straight to `submissionService.updateStatus`.
+
+### `src/ui/LeadInboxView.js` (new)
+`renderLeadInboxView(controller)` → `{ section, refresh }`. Card list (empty-state pattern reused from `renderDealerStudioView`), spread badge, competitor-offer-vs-counter line (`Intl.NumberFormat` pattern from `vehicleCard.js`), a document-view modal reusing the `.modal-overlay`/`.modal` CSS already defined for the discovery-scan progress modal (renders an `<img>` for image data URLs, a link for `application/pdf` ones), and three status-action buttons that call `controller.updateStatus` then re-render.
+
+### `App.js` / `styles.css`
+New "Lead Inbox" 5th tab, wired the same way as the other four; `refreshLeadsView()` called on tab-select (see bug note above). `.badge--greenlight`/`--marginal`/`--pass`/`--no-data` added next to the existing badge block, reusing existing `--color-underpriced`/`--color-fair`/`--color-overpriced`/`--color-secondary` tokens — no new palette. `.modal--doc`/`.modal__doc-content`/`.modal__doc-image` added for the document-view modal.
+
+### Files added/modified
+- `src/services/SpreadService.js` (new)
+- `src/ui/LeadInboxController.js` (new)
+- `src/ui/LeadInboxView.js` (new)
+- `src/ui/App.js` (modified — 5th tab, controller/view wiring, tab-select refresh)
+- `src/ui/styles.css` (modified — badge variants, doc-modal styling)
+- `tests/spreadService.test.js`, `tests/ui.leadInboxController.test.js` (new)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-11 scope and architecture; UOW-10's prior content archived to `.hydrate/archive/UOW-10.md`)
+- `docs/journals/dev-journal.md` (logged)

@@ -10,6 +10,8 @@ import { DiscoveryService } from '../services/DiscoveryService.js';
 import { SubmissionService } from '../services/SubmissionService.js';
 import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
+import { LeadInboxController } from './LeadInboxController.js';
+import { renderLeadInboxView } from './LeadInboxView.js';
 import {
   SEED_ANCHOR,
   CARBOYZ_HQ_DEALER_ID,
@@ -203,8 +205,16 @@ function renderTabs(activeTab, onSelect) {
     text: 'Map',
     onClick: () => onSelect('map'),
   });
-  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [sellBtn, dealerBtn, buyerBtn, mapBtn]);
-  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn };
+  const leadsBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'leads'),
+    text: 'Lead Inbox',
+    onClick: () => onSelect('leads'),
+  });
+  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn]);
+  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -559,10 +569,16 @@ export function mountApp(root) {
       submissionService: state.submissionService,
       hapticsService,
     });
+    const leadInboxController = new LeadInboxController({
+      submissionService: state.submissionService,
+      telemetryService: state.telemetryService,
+      ingestService: state.ingestService,
+    });
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
     const sellView = renderSellerSubmissionView(sellerController);
+    const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController);
     const dealerView = renderDealerStudioView(
       dealerController,
       state.dealers,
@@ -579,22 +595,26 @@ export function mountApp(root) {
 
     mapView.update(state.dealers, state.ingestService.getInventory());
 
-    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn } = renderTabs(activeTab, (tab) => {
+    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn } = renderTabs(activeTab, (tab) => {
       activeTab = tab;
       sellView.hidden = tab !== 'sell';
       dealerView.hidden = tab !== 'dealer';
       buyerView.hidden = tab !== 'buyer';
       mapView.section.hidden = tab !== 'map';
+      leadsView.hidden = tab !== 'leads';
       sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
       dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
       buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
       mapBtn.setAttribute('aria-selected', String(tab === 'map'));
+      leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
       if (tab === 'map') mapView.mount();
+      if (tab === 'leads') refreshLeadsView();
     });
     sellView.hidden = activeTab !== 'sell';
     dealerView.hidden = activeTab !== 'dealer';
     buyerView.hidden = activeTab !== 'buyer';
     mapView.section.hidden = activeTab !== 'map';
+    leadsView.hidden = activeTab !== 'leads';
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
@@ -603,6 +623,7 @@ export function mountApp(root) {
       dealerView,
       buyerView,
       mapView.section,
+      leadsView,
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();

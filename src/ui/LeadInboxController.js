@@ -1,0 +1,64 @@
+import { calculateSpread } from '../services/SpreadService.js';
+
+function competitorLabel(submission) {
+  if (submission.competitor === 'Other' && submission.competitorDealerName) {
+    return `Other (${submission.competitorDealerName})`;
+  }
+  return submission.competitor;
+}
+
+export class LeadInboxController {
+  constructor({ submissionService, telemetryService, ingestService } = {}) {
+    if (!submissionService) {
+      throw new Error('LeadInboxController requires a submissionService');
+    }
+    if (!telemetryService) {
+      throw new Error('LeadInboxController requires a telemetryService');
+    }
+    if (!ingestService) {
+      throw new Error('LeadInboxController requires an ingestService');
+    }
+
+    this.submissionService = submissionService;
+    this.telemetryService = telemetryService;
+    this.ingestService = ingestService;
+  }
+
+  resolveFairMarketValue(submission) {
+    const inventory = this.ingestService.getInventory();
+    const marketStats = this.telemetryService.getMarketStats(inventory, {
+      make: submission.make,
+      model: submission.model,
+      year: submission.year,
+    });
+    return marketStats.average;
+  }
+
+  buildLeadViewModels() {
+    return this.submissionService.getSubmissions().map((submission) => {
+      const fairMarketValue = this.resolveFairMarketValue(submission);
+      const spreadResult = calculateSpread({
+        fairMarketValue,
+        competitorOfferAmount: submission.competitorOfferAmount,
+      });
+
+      return {
+        id: submission.id,
+        vehicleTitle: [submission.year, submission.make, submission.model, submission.trim]
+          .filter(Boolean)
+          .join(' '),
+        mileage: submission.mileage,
+        zipCode: submission.zipCode,
+        competitorLabel: competitorLabel(submission),
+        competitorOfferAmount: submission.competitorOfferAmount,
+        offerDocument: submission.offerDocument,
+        status: submission.status,
+        spreadResult,
+      };
+    });
+  }
+
+  updateStatus(id, status) {
+    return this.submissionService.updateStatus(id, status);
+  }
+}
