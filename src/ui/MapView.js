@@ -6,6 +6,8 @@ import { resolveLocationQuery, searchLocationSuggestions, describeCoordinates } 
 import { marketVerdictBadge } from './marketBadge.js';
 import { deriveVehicleCondition } from './vehicleCard.js';
 import { renderChatDiscovery } from './ChatDiscovery.js';
+import { generateRegionalDealers } from '../utils/generateRegionalDealers.js';
+import { haversineDistanceMiles } from '../utils/geo.js';
 
 // Dark-matter basemap (per the "dark canvas" product spec) — independent of any geocoding API key.
 const CARTO_DARK_MATTER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -31,6 +33,8 @@ const NEARBY_RADIUS_KM = 40;
 const NEARBY_RADIUS_MILES = 25;
 const LOCATION_SUGGEST_DEBOUNCE_MS = 300;
 const LOCATION_SUGGEST_LIMIT = 5;
+// How many procedural dealers to fill in when a resolved location has zero real coverage.
+const GENERATED_DEALER_COUNT = 10;
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -271,9 +275,9 @@ export function renderMapView({ onFeatureSelect } = {}) {
   const chatDiscovery = renderChatDiscovery({
     onSubmit: async (text) => {
       const query = await resolveChatQuery(text);
-      const localDealers = nearbyDealers ?? dealers;
+      const localDealers = currentDealers();
       const localDealerIds = new Set(localDealers.map((dealer) => dealer.dealerId));
-      const localVehicles = vehicles.filter((vehicle) => localDealerIds.has(vehicle.dealerId));
+      const localVehicles = currentVehicles().filter((vehicle) => localDealerIds.has(vehicle.dealerId));
       const matches = rankTopMatches(localVehicles, localDealers, query, { topN: 5 });
       chatDiscovery.showResults(matches, query.intentSummary);
     },
@@ -316,12 +320,60 @@ export function renderMapView({ onFeatureSelect } = {}) {
   let userLocation = null;
   let locationRequested = false;
   let locationLabel = describeCoordinates(FALLBACK_LOCATION.lat, FALLBACK_LOCATION.lng);
+  // Procedural filler for regions with zero real dealer coverage — kept entirely local to this view
+  // (never fed back into App.js's tenant inventory/IngestService), merged in only for map rendering.
+  let generatedDealers = [];
+  let generatedVehicles = [];
+  let generatedRegionCenter = null;
   updateLocationBar();
+
+  function currentDealers() {
+    return (nearbyDealers ?? dealers).concat(generatedDealers);
+  }
+
+  function currentVehicles() {
+    return vehicles.concat(generatedVehicles);
+  }
+
+  /**
+   * Ensures the given center has *some* dealer coverage: clears any stale generated filler once real
+   * dealers are found nearby, reuses existing filler if the center hasn't moved far from where it was
+   * generated (avoids regenerating/jittering pins on every small pan), and otherwise generates a fresh
+   * regional cluster via `generateRegionalDealers`. Returns whether generated state actually changed.
+   */
+  function ensureRegionalCoverage(center, label, realNearbyDealers) {
+    if (realNearbyDealers.length > 0) {
+      if (generatedDealers.length === 0) return false;
+      generatedDealers = [];
+      generatedVehicles = [];
+      generatedRegionCenter = null;
+      return true;
+    }
+
+    if (generatedRegionCenter && haversineDistanceMiles(generatedRegionCenter, center) <= NEARBY_RADIUS_MILES) {
+      return false;
+    }
+
+    const generated = generateRegionalDealers(center.lat, center.lng, label, GENERATED_DEALER_COUNT);
+    generatedDealers = generated.dealers;
+    generatedVehicles = generated.vehicles;
+    generatedRegionCenter = center;
+    return true;
+  }
+
+  function handleViewportSettled() {
+    if (!map) return;
+    const center = map.getCenter();
+    const point = { lat: center.lat, lng: center.lng };
+    const realNearby = filterDealersNearby(dealers, point, NEARBY_RADIUS_KM);
+    const changed = ensureRegionalCoverage(point, describeCoordinates(point.lat, point.lng), realNearby);
+    if (changed) renderLayer();
+  }
 
   function showDrawer(dealerFeature, { highlightVehicleId } = {}) {
     drawerBody.innerHTML = '';
 
-    const dealerVehicles = vehicles.filter((vehicle) => vehicle.dealerId === dealerFeature.id);
+    const dealerVehicles = currentVehicles().filter((vehicle) => vehicle.dealerId === dealerFeature.id);
 
     drawerBody.append(el('h3', 'map-drawer__title', dealerFeature.title));
 
@@ -331,7 +383,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
       const inventoryList = el(
         'div',
         'map-drawer__inventory',
-        dealerVehicles.map((vehicle) => buildVehicleCardElement(vehicle, { vehicles, dealers })),
+        dealerVehicles.map((vehicle) => buildVehicleCardElement(vehicle, { vehicles: currentVehicles(), dealers: currentDealers() })),
       );
       drawerBody.append(inventoryList);
 
@@ -382,8 +434,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
   };
 
   function renderLayer() {
-    const relevantDealers = nearbyDealers ?? dealers;
-    const layerConfig = buildNormalizedDealerLayerConfig(relevantDealers, vehicles);
+    const layerConfig = buildNormalizedDealerLayerConfig(currentDealers(), currentVehicles());
     featuresById = new Map(layerConfig.features.map((feature) => [feature.id, feature]));
 
     if (!handle) {
@@ -401,7 +452,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
   }
 
   function currentDealerCount() {
-    return (nearbyDealers ?? dealers).length;
+    return currentDealers().length;
   }
 
   function updateLocationBar() {
@@ -413,6 +464,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
     userLocation = location;
     locationLabel = label ?? describeCoordinates(location.lat, location.lng);
     nearbyDealers = filterDealersNearby(dealers, location, NEARBY_RADIUS_KM);
+    ensureRegionalCoverage(location, locationLabel, nearbyDealers);
     updateLocationBar();
     map.flyTo({ center: [location.lng, location.lat], zoom: DEFAULT_ZOOM });
     if (map.isStyleLoaded()) renderLayer();
@@ -460,6 +512,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', renderLayer);
+    map.on('moveend', handleViewportSettled);
   }
 
   function ensureUserLocation() {
@@ -484,7 +537,10 @@ export function renderMapView({ onFeatureSelect } = {}) {
     update(nextDealers, nextVehicles) {
       dealers = nextDealers ?? [];
       vehicles = nextVehicles ?? [];
-      if (userLocation) nearbyDealers = filterDealersNearby(dealers, userLocation, NEARBY_RADIUS_KM);
+      if (userLocation) {
+        nearbyDealers = filterDealersNearby(dealers, userLocation, NEARBY_RADIUS_KM);
+        ensureRegionalCoverage(userLocation, locationLabel, nearbyDealers);
+      }
       updateLocationBar();
       if (map?.isStyleLoaded()) renderLayer();
     },

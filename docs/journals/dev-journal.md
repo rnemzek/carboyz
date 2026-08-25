@@ -761,3 +761,24 @@ carboyz:      180 pass / 0 fail
 - `src/ui/MapView.js` (modified — debounced suggestions dropdown in `buildLocationModal`)
 - `src/ui/styles.css` (modified — `.location-modal__suggestions`/`__suggestion`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [Feature] Procedural Regional Dealer Seeding
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test` 209/209 (+10, new `generateRegionalDealers.test.js`). Verified live: searched "Miami, FL" via the auto-suggest modal, confirmed `flyTo`, exactly 10 pins, a readable dark-themed popup with real generated data, and the chip reading "📍 Miami (25 mi) · 10 dealers"; opened a generated dealer's drawer and confirmed real market-verdict badges (Overpriced/Underpriced) computed against the generated comp pool; panned within the generated region and confirmed the existing pins stayed stable rather than jittering/regenerating.
+- **Report:** Went through `EnterPlanMode` given the real scope. Two gaps between the ticket and current architecture, traced before writing anything: (1) the ticket asked for the generator to live in `MapView.js`/`carboyzAdapter.js`, but neither owns dealer/vehicle *data* — `App.js` owns the tenant-scoped inventory, `carboyzAdapter.js` is a pure spatial-core formatter — so a `src/utils/` module (alongside `seedInventory.js`/`geo.js`) was the correct home; (2) there was no `map.on('moveend', …)` handler anywhere in this codebase before this UOW — the "or a viewport pan completes" trigger required new plumbing, not a wire-up.
+
+### `src/utils/generateRegionalDealers.js` (new)
+- `generateRegionalDealers(centerLat, centerLng, locationLabel, count = 10, { random = Math.random } = {})` — injectable `random`, matching this codebase's existing DI convention (`fetchImpl`, `apiKey`), so scatter/pricing is deterministic and testable with a seeded PRNG rather than flaky on real randomness.
+- Scatters dealers within ~0.15° of center; derives a clean short place name from a (often verbose) geocoder label by splitting on the first comma; cycles 7 name templates ("{loc} Motors", "{loc} Truck Hub", "Coastal {loc} Auto", ...) so a default `count=10` doesn't repeat until the 8th; seeds 2-5 vehicles per dealer from a make/model/bodyStyle pool matching the flavor already established in `seedInventory.js`.
+- Returns **plain objects**, not `Dealer`/`Vehicle` class instances — those classes require a `tenantId` (throw without one), and `MapView.js` doesn't know the active tenant (that's `App.js`-level state, threaded in only as already-tenant-scoped `dealers`/`vehicles` arrays via `update()`). Confirmed before designing this that the entire render path (`buildInventoryFeatures`, `evaluateVehicleMarketPosition`/`buildCompPool`, `buildVehicleCardElement`) is duck-typed with no `instanceof`/`tenantId` checks, so plain objects are the correct, simpler choice — not a shortcut.
+
+### `MapView.js`: local-only generated state, never fed into the real inventory
+- New closure state (`generatedDealers`, `generatedVehicles`, `generatedRegionCenter`) stays entirely inside `MapView.js` — deliberately never written back to `App.js`'s `state.dealers`/`IngestService`, so Dealer Studio and Buyer Search never see synthetic data. `currentDealers()`/`currentVehicles()` merge real + generated only at the points that actually render (layer config, drawer, chat discovery, dealer-count chip) — four call sites, same mechanical swap at each.
+- `ensureRegionalCoverage(center, label, realNearbyDealers)`: the one shared decision point. Real dealers found → clear any stale generated filler (real data always wins, e.g. after a Discovery Scan later adds real vendor dealers to a previously-empty area — also re-checked inside `update()` now, not just on location resolution). Zero real dealers, but the existing generated cluster's center is still within the search radius → no-op, so pins don't jitter/regenerate on every small pan. Otherwise → generate a fresh cluster.
+- Two triggers, both routed through `ensureRegionalCoverage`: `applyUserLocation()` (search modal + GPS locate — also bumps the chip's dealer count to include generated ones) and a new `map.on('moveend', ...)` handler reading `map.getCenter()`. The pan handler deliberately does **not** touch `locationLabel`/the chip text — panning is a distinct concern from an explicit search/GPS resolution, confirmed live (chip stayed "Miami" while panning to an adjacent empty area).
+
+### Files added/modified
+- `src/utils/generateRegionalDealers.js` (new)
+- `tests/generateRegionalDealers.test.js` (new)
+- `src/ui/MapView.js` (modified — generated-data state, `ensureRegionalCoverage`, `handleViewportSettled`/`moveend`, `currentDealers()`/`currentVehicles()` swapped in at the render/drawer/chat/chip call sites)
+- `docs/journals/dev-journal.md` (logged)
