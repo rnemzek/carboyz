@@ -17,7 +17,7 @@ function buildSynopsisCardHtml({ vehicle, dealer, title }) {
   return [
     `<div class="map-synopsis">`,
     `<strong class="map-synopsis__title">${title}</strong>`,
-    `<div class="map-synopsis__meta">${priceLabel} · ${mileageLabel}${vehicle.bodyStyle ? ` · ${vehicle.bodyStyle}` : ''}</div>`,
+    `<div class="map-synopsis__meta"><span class="map-synopsis__price">${priceLabel}</span> · ${mileageLabel}${vehicle.bodyStyle ? ` · ${vehicle.bodyStyle}` : ''}</div>`,
     dealer ? `<div class="map-synopsis__dealer">${dealer.name}</div>` : '',
     `</div>`,
   ].join('');
@@ -93,7 +93,7 @@ function buildDealerSynopsisCardHtml({ dealer, dealerVehicles }) {
   return [
     `<div class="map-synopsis">`,
     `<strong class="map-synopsis__title">${dealer.name}</strong>`,
-    `<div class="map-synopsis__meta">${inventoryLabel} · ${priceRangeLabel}</div>`,
+    `<div class="map-synopsis__meta">${inventoryLabel} · <span class="map-synopsis__price">${priceRangeLabel}</span></div>`,
     `</div>`,
   ].join('');
 }

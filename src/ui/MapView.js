@@ -196,6 +196,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
   drawer.append(drawerBody, drawerClose);
   drawerClose.addEventListener('click', () => {
     drawer.hidden = true;
+    locateBtn.hidden = false;
   });
 
   const chatDiscovery = renderChatDiscovery({
@@ -275,6 +276,10 @@ export function renderMapView({ onFeatureSelect } = {}) {
     }
 
     drawer.hidden = false;
+    // The drawer is a bottom sheet that can grow tall enough to sit under the floating locate
+    // button (same right-edge anchor) — hide the button rather than let it overlap the vehicle
+    // badges while the drawer is open.
+    locateBtn.hidden = true;
   }
 
   const renderOptions = {
@@ -300,6 +305,7 @@ export function renderMapView({ onFeatureSelect } = {}) {
       },
       onMapBackgroundClick: () => {
         drawer.hidden = true;
+        locateBtn.hidden = false;
         popup?.remove();
         popup = null;
       },

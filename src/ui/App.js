@@ -454,7 +454,7 @@ export function mountApp(root) {
     storage: window.localStorage,
     defaultTenantId: DEFAULT_TENANT_ID,
   });
-  let activeTab = 'dealer';
+  let activeTab = 'map';
 
   function getTenantState(tenantId) {
     if (!tenantStateByTenantId.has(tenantId)) {

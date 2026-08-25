@@ -684,3 +684,37 @@ carboyz:      180 pass / 0 fail
 - `src/ui/MapView.js` (modified — `enableOsm: true` on the search modal's `resolveLocationQuery` call, locate button relabeled)
 - `tests/locationAdapter.test.js` (modified — 5 new OSM-bridge tests)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-HOTFIX] Surgical UI Polish: Brand Badge, Popup Theming, Default Map Tab, Drawer Overlap, Tagline
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test` 190/190 unchanged (no test-covered surface touched besides the tagline assertion). Verified live via Playwright — including one bug caught only by actually driving the app, not by unit tests.
+- **Report:** Five requested polish items, all implemented; one of them (badge/drawer overlap) surfaced a real, unrelated functional bug along the way that needed fixing to actually satisfy the request.
+
+### 1. Brand icon (`app__logo--fallback`)
+- Was gold text (`var(--color-primary)`) on a hardcoded white background — didn't read as branded at all. Now `background: var(--color-primary)` / `color: var(--color-on-primary)`, reusing the token pair from the 2026-08-25 repaint UOW rather than hardcoding new hex values — resolves to gold-fill/dark-text for the carboyz tenant automatically, and stays theme-consistent for any other tenant.
+
+### 2. Map popup readability
+- MapLibre's own stylesheet (loaded from unpkg, no theming hook) was rendering `.maplibregl-popup-content` as a plain white browser-default card — confirmed live before touching anything. Forced dark-slate styling (`#0F172A` bg, capped `max-width: 240px` so it can't run off narrow viewports) is intentionally hardcoded rather than tenant-tokenized, matching the existing precedent that the map surface itself (CARTO Dark Matter) is always dark regardless of active tenant.
+- `.map-synopsis__title` → gold `#FBBF24`, `.map-synopsis__meta`/`__dealer` → white `#F1F5F9`, new `.map-synopsis__price` → green `#22C55E`. `carboyzAdapter.js`'s two synopsis-card builders (`buildSynopsisCardHtml`, `buildDealerSynopsisCardHtml`) now wrap the price/price-range in its own `<span class="map-synopsis__price">` so it can be colored independently of the rest of the meta line — existing tests use `assert.match` regex, not exact-string equality, so this didn't need test changes.
+- Live-verified via a forced `mouseenter` dispatch (Playwright's synthetic `.hover()` was unreliable against MapLibre's transformed marker elements in headless mode — dispatching the event directly, which is exactly what spatial-core's `map.ts` listens for, sidesteps that) — confirmed `POPUP_BG: rgb(15,23,42)`, title `rgb(251,191,36)`, price `rgb(34,197,94)`, meta `rgb(241,245,249)`.
+
+### 3. Default tab → Map
+- `App.js`: `let activeTab = 'dealer'` → `'map'`. One-line change — the render/mount logic already branched correctly on `activeTab === 'map'` for the initial paint (it had to, to support deep-linking-style state already), so nothing else needed touching.
+
+### 4. Badge/bottom-overlay collision — plus a real bug this surfaced
+- The requested `.badge-container` class doesn't exist in this codebase, and the `gap: 8px` the ticket asked for was already present on both `.card__top` and `.map-drawer__vehicle-top`. The actual overlap risk: the map's floating locate button (`.map-locate-btn`, bottom-right) and the map inventory drawer (`.map-drawer`, a bottom sheet) share the same right-edge anchor, and the drawer routinely grows tall enough (title + several vehicle cards) to occupy the same screen region as the button. Fixed by hiding the locate button whenever the drawer is open (`showDrawer()`, the drawer-close click handler, and `onMapBackgroundClick` in `MapView.js`) and adding `flex-shrink: 0` to `.badge` so a long dealer/vehicle title can't squeeze a badge into wrapping.
+- **A real, separate bug found live, not by the ticket:** driving the app to verify the above, the drawer's own "Close" button turned out to be unclickable — Playwright's error showed `.chat-discovery__submit` "intercepts pointer events" on top of it. Root cause: `.map-drawer` had `z-index: 10` while `.chat-discovery__bar` (the floating chat input) sits at `z-index: 20` in the same bottom region — the chat bar was silently eating clicks meant for the drawer underneath it. Fixed by raising `.map-drawer` to `z-index: 25`, above both the chat bar and the locate button, so the drawer always renders on top and stays clickable while open.
+- **A second real bug found live:** the locate-button-hide fix above didn't work on the first Playwright pass (`LOCATE_BTN_VISIBLE_WHILE_DRAWER_OPEN: true` despite `locateBtn.hidden = true` executing). Cause: `.map-locate-btn`'s own `display: flex` rule (author stylesheet) beats the browser's default `[hidden] { display: none }` UA rule at equal specificity, because author-origin CSS always wins over user-agent-origin CSS regardless of selector specificity. Every other absolutely-positioned/toggled element in this codebase (`.map-drawer[hidden]`, `.view[hidden]`, `.modal-overlay[hidden]`, `.chat-discovery__results[hidden]`) already has this companion reset rule — `.map-locate-btn` just never needed it before now. Added `.map-locate-btn[hidden] { display: none; }` to match the established pattern.
+- Re-verified after both fixes: `LOCATE_BTN_VISIBLE_WHILE_DRAWER_OPEN: false`, drawer's Close button clicks successfully, `DRAWER_HIDDEN_AFTER_CLOSE: true`, `LOCATE_BTN_VISIBLE_AFTER_CLOSE: true`.
+
+### 5. Tagline
+- `CARBOYZ_FLAGSHIP_PRESET.tagline` → `"Raw Muscle, Badass Trucks & whatever wimps want"`. Updated the one test asserting the exact string (`tests/tenantRegistry.test.js`); no other hardcoded references exist (it's read dynamically everywhere else via `tenantConfig.tagline`).
+
+### Files added/modified
+- `src/ui/styles.css` (modified — logo fallback colors, popup theming, `.map-synopsis__price`, `.badge` flex-shrink, `.map-drawer` z-index, `.map-locate-btn[hidden]`)
+- `src/adapters/carboyzAdapter.js` (modified — price wrapped in `.map-synopsis__price` span, both synopsis builders)
+- `src/ui/App.js` (modified — default `activeTab`)
+- `src/ui/MapView.js` (modified — locate button hidden while the drawer is open, in all three code paths that show/hide it)
+- `src/config/TenantRegistry.js` (modified — tagline)
+- `tests/tenantRegistry.test.js` (modified — updated tagline assertion)
+- `docs/journals/dev-journal.md` (logged)
