@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveLocationQuery, describeCoordinates } from '../src/adapters/locationAdapter.js';
+import { resolveLocationQuery, searchLocationSuggestions, describeCoordinates } from '../src/adapters/locationAdapter.js';
 
 function fakeGooglePlacesResponse(overrides = {}) {
   return {
@@ -144,6 +144,105 @@ test('resolveLocationQuery returns null for empty or non-string input (no networ
   assert.equal(await resolveLocationQuery('   ', { apiKey: 'test-key', fetchImpl }), null);
   assert.equal(await resolveLocationQuery(undefined, { apiKey: 'test-key', fetchImpl }), null);
   assert.equal(called, false);
+});
+
+function fakeMultiGooglePlacesResponse() {
+  return {
+    ok: true,
+    json: async () => ({
+      places: [
+        { location: { latitude: 30.4213, longitude: -87.2169 }, displayName: { text: 'Pensacola, FL' } },
+        { location: { latitude: 30.5, longitude: -87.3 }, displayName: { text: 'Pensacola Beach, FL' } },
+      ],
+    }),
+  };
+}
+
+function fakeMultiNominatimResponse() {
+  return {
+    ok: true,
+    json: async () => [
+      { lat: '30.4213', lon: '-87.2169', name: 'Pensacola' },
+      { lat: '30.5', lon: '-87.3', name: 'Pensacola Beach' },
+    ],
+  };
+}
+
+test('searchLocationSuggestions returns up to `limit` Google candidates when an API key is configured', async () => {
+  const fetchImpl = async () => fakeMultiGooglePlacesResponse();
+  const results = await searchLocationSuggestions('Pensacola', { apiKey: 'test-key', fetchImpl });
+  assert.deepEqual(results, [
+    { lat: 30.4213, lng: -87.2169, label: 'Pensacola, FL' },
+    { lat: 30.5, lng: -87.3, label: 'Pensacola Beach, FL' },
+  ]);
+});
+
+test('searchLocationSuggestions bridges to OpenStreetMap when enableOsm is true and no API key is configured', async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return fakeMultiNominatimResponse();
+  };
+  const results = await searchLocationSuggestions('Pensacola', { enableOsm: true, fetchImpl });
+  assert.equal(called, true);
+  assert.deepEqual(results, [
+    { lat: 30.4213, lng: -87.2169, label: 'Pensacola' },
+    { lat: 30.5, lng: -87.3, label: 'Pensacola Beach' },
+  ]);
+});
+
+test('searchLocationSuggestions falls back to offline prefix matches with no key/flag configured (no network call)', async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return fakeMultiGooglePlacesResponse();
+  };
+  const results = await searchLocationSuggestions('wil', { fetchImpl });
+  assert.equal(called, false);
+  assert.deepEqual(results, [{ lat: 34.2257, lng: -77.9447, label: 'Wilmington, NC' }]);
+});
+
+test('searchLocationSuggestions offline prefix match also matches on ZIP prefix for numeric input, including multiple matches', async () => {
+  // Both 28451 (Leland) and 28401 (Wilmington) start with "284".
+  const results = await searchLocationSuggestions('284');
+  assert.deepEqual(results, [
+    { lat: 34.2388, lng: -78.0145, label: 'Leland, NC' },
+    { lat: 34.2257, lng: -77.9447, label: 'Wilmington, NC' },
+  ]);
+});
+
+test('searchLocationSuggestions falls back to offline prefix matches when Google finds nothing', async () => {
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ places: [] }) });
+  const results = await searchLocationSuggestions('leland', { apiKey: 'test-key', fetchImpl });
+  assert.deepEqual(results, [{ lat: 34.2388, lng: -78.0145, label: 'Leland, NC' }]);
+});
+
+test('searchLocationSuggestions returns [] for unrecognized input with nothing configured', async () => {
+  assert.deepEqual(await searchLocationSuggestions('zzzzzz'), []);
+});
+
+test('searchLocationSuggestions returns [] for empty or non-string input (no network call)', async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    return fakeMultiGooglePlacesResponse();
+  };
+  assert.deepEqual(await searchLocationSuggestions('', { apiKey: 'test-key', fetchImpl }), []);
+  assert.deepEqual(await searchLocationSuggestions('   ', { apiKey: 'test-key', fetchImpl }), []);
+  assert.deepEqual(await searchLocationSuggestions(undefined, { apiKey: 'test-key', fetchImpl }), []);
+  assert.equal(called, false);
+});
+
+test('searchLocationSuggestions falls back to the raw query as the label when Google finds a coordinate with no display name', async () => {
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ places: [{ location: { latitude: 1, longitude: 2 } }] }) });
+  const results = await searchLocationSuggestions('Wilming', { apiKey: 'test-key', fetchImpl });
+  assert.deepEqual(results, [{ lat: 1, lng: 2, label: 'Wilming' }]);
+});
+
+test('searchLocationSuggestions respects an explicit limit option', async () => {
+  const fetchImpl = async () => fakeMultiGooglePlacesResponse();
+  const results = await searchLocationSuggestions('Pensacola', { apiKey: 'test-key', fetchImpl, limit: 1 });
+  assert.equal(results.length, 1);
 });
 
 test('describeCoordinates returns the exact label for a known location', () => {

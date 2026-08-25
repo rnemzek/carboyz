@@ -418,6 +418,43 @@ body {
   margin-bottom: 10px;
 }
 
+.location-modal__suggestions {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.location-modal__suggestions[hidden] {
+  display: none;
+}
+
+.location-modal__suggestion {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.location-modal__suggestion:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.location-modal__suggestion:hover,
+.location-modal__suggestion:focus-visible {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
 .location-modal__error {
   color: var(--color-overpriced);
   font-size: 0.8rem;

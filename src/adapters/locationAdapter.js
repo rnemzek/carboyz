@@ -62,6 +62,17 @@ function resolveOffline(text) {
   return match ? { lat: match.lat, lng: match.lng, label: match.label } : null;
 }
 
+/** Offline prefix suggestions (city name or ZIP starts-with) — the autosuggest fallback when neither online geocoder has anything to offer. */
+function suggestOffline(text, limit) {
+  const query = normalize(text);
+  if (!query) return [];
+
+  const isNumeric = /^\d+$/.test(query);
+  return KNOWN_LOCATIONS.filter((entry) => (isNumeric ? entry.zip.startsWith(query) : entry.city.startsWith(query)))
+    .slice(0, limit)
+    .map((entry) => ({ lat: entry.lat, lng: entry.lng, label: entry.label }));
+}
+
 /**
  * Resolves free-form address/ZIP/city input to a point via spatial-core's Google Places geocoder,
  * optionally bridging through the zero-cost OpenStreetMap (Nominatim) geocoder when `options.enableOsm`
@@ -94,6 +105,49 @@ export async function resolveLocationQuery(text, options = {}) {
   }
 
   return resolveOffline(text);
+}
+
+const SUGGESTION_LIMIT = 5;
+
+function toSuggestions(places, rawText) {
+  return places.map((place) => ({
+    lat: place.lat,
+    lng: place.lng,
+    label: place.displayName ?? place.formattedAddress ?? rawText.trim(),
+  }));
+}
+
+/**
+ * Resolves free-form input to up to `limit` candidate matches, for a live autosuggest dropdown —
+ * unlike `resolveLocationQuery`, which resolves to a single best match for a submitted search. Tries
+ * Google (if a key resolves), then OpenStreetMap (if enabled), then an offline prefix match against
+ * the same gazetteer `resolveLocationQuery` falls back to, so typing still suggests something with no
+ * key/flag configured. Never throws.
+ *
+ * Note: for a short/partial query, a live geocoder can occasionally match a real coordinate with no
+ * display name, which falls back to echoing the raw query text as the label (same fallback
+ * `resolveLocationQuery` already uses). This isn't filtered out — a naive "label equals query" check
+ * would also wrongly drop the extremely common, entirely legitimate case of a suggestion whose real
+ * name simply matches what was typed (e.g. typing "Pensacola" and getting "Pensacola" back).
+ */
+export async function searchLocationSuggestions(text, options = {}) {
+  if (typeof text !== 'string' || !text.trim()) return [];
+  const limit = options.limit ?? SUGGESTION_LIMIT;
+
+  const apiKey = resolveApiKey(options);
+  if (apiKey) {
+    const geocoder = new GooglePlacesGeocoder({ apiKey, fetchImpl: options.fetchImpl });
+    const places = await geocoder.resolveMany(text, limit).catch(() => []);
+    if (places.length > 0) return toSuggestions(places, text);
+  }
+
+  if (resolveOsmEnabled(options)) {
+    const osmGeocoder = new OpenStreetMapGeocoder({ fetchImpl: options.fetchImpl, userAgent: options.osmUserAgent });
+    const places = await osmGeocoder.resolveMany(text, limit).catch(() => []);
+    if (places.length > 0) return toSuggestions(places, text);
+  }
+
+  return suggestOffline(text, limit);
 }
 
 /** Captions a coordinate pair (e.g. a GPS fix) with the nearest known location's label. */

@@ -734,3 +734,30 @@ carboyz:      180 pass / 0 fail
 - `tests/tenantRegistry.test.js` (modified — updated tagline assertion)
 - `src/ui/MapView.js` (modified — `DEFAULT_ZOOM` 10 → 11)
 - `docs/journals/dev-journal.md` (logged)
+
+## [Feature] Auto-Suggest Location Picker
+- **Date:** 2026-08-25
+- **Status:** Complete. `npm test`: spatial-core 60/60 (+9), carboyz 199/199 (+9, net of one added/one removed during a design correction below). Verified live end-to-end against real `googleapis.com`/`nominatim.openstreetmap.org` — typed with per-keystroke Playwright input (not `.fill()`), confirmed the 300ms debounce doesn't fire early, dropdown renders in the dark-slate style, click closes the modal, `flyTo` recenters, and the location chip updates with the new label and live dealer count.
+- **Report:** The request assumed `resolveLocationQuery` already supported multi-result autosuggest ("render up to 5 suggested matches") — it only ever returns one best match, and both underlying geocoders hardcoded a single result (`GooglePlacesGeocoder` read `places[0]`; `OpenStreetMapGeocoder` sent `limit=1`). Went through `EnterPlanMode` given the real scope: a new spatial-core capability plus a new adapter function plus a materially new UI component, not a wiring task.
+
+### spatial-core: `resolveMany`
+- `GooglePlacesGeocoder`/`OpenStreetMapGeocoder` (`src/geocoder.ts`) each gained `resolveMany(address, limit = 5): Promise<GeocodedPlace[]>`, refactored out of the existing fetch/parse logic; `resolve()` becomes `(await this.resolveMany(address, 1))[0] ?? null`, so the `GeocoderResolver` contract and every existing test are untouched. Google's Text Search response already returns multiple `places` in one call (previously just sliced to `[0]`) — no request change needed. OSM's hardcoded `limit=1` became the requested `limit`.
+- **A real gap this surfaced:** `OpenStreetMapGeocoder.resolveMany` initially trusted the server to honor `limit` and didn't cap client-side, unlike the Google version (which has no server-side limit param to rely on at all). A test using a fixed-size mock response caught the inconsistency immediately. Fixed by slicing client-side in both, matching defensive posture.
+
+### carboyz: `searchLocationSuggestions`
+- New function in `locationAdapter.js`, sibling to `resolveLocationQuery` (left completely unchanged — other callers depend on its single-result contract). Tries Google (`resolveMany`) if a key resolves, then OpenStreetMap if enabled, then a new offline prefix match against the same `KNOWN_LOCATIONS` gazetteer `resolveLocationQuery` already falls back to (city-name or ZIP `startsWith`), so typing still suggests something with no key/flag configured.
+- **A design mistake made and reverted during this UOW, worth recording:** live-tested a partial query ("Wilming") and found a suggestion whose label was literally the raw typed text — traced to a live geocoder matching a real coordinate with no display-name field, which spatial-core's existing `?? query` fallback (unrelated to this change, already used by `resolveLocationQuery`) renders as the query text itself. First fix attempt filtered any suggestion whose label matched the raw query string — but re-running the full test suite immediately showed this also silently discards the extremely common, entirely legitimate case of typing an exact name and getting that exact name back (e.g. "Pensacola" → "Pensacola"), which is normal, correct autosuggest behavior, not a bug. There is no reliable way to distinguish "genuine exact-name match" from "synthetic echo fallback" once both are just strings at the adapter layer. Reverted the filter; the rare echo-label edge case is accepted as-is (still resolves to a real coordinate on click, matches `resolveLocationQuery`'s pre-existing behavior for the identical scenario) rather than fixed with a heuristic proven to break the common case.
+
+### carboyz: debounced dropdown in the existing search modal
+- Extended `buildLocationModal()` in `MapView.js` (not a new modal — `.map-location-bar` already opened this one) with a `<ul class="location-modal__suggestions" role="listbox">`, styled via the existing theme tokens (`--color-surface`/`--color-border`/`--color-text`, which already resolve to the requested `#0F172A` dark-slate for the carboyz tenant — no new hardcoded hex needed).
+- `input` event → 300ms debounce → `searchLocationSuggestions(value, { enableOsm: true, limit: 5 })`, guarded against out-of-order responses with a monotonic request-token check. Selecting a suggestion calls the same `onResolve` callback the existing submit flow already uses, so `applyUserLocation()` (flyTo at `DEFAULT_ZOOM`=11, nearby-dealer recalculation, location-bar text/count sync) handles centering with zero new code. The type-and-press-Search path is untouched and still works as a fallback.
+- **Known, accepted tradeoff, not silently glossed over:** a 300ms debounce on fast typing can exceed Nominatim's documented "≤1 req/sec" usage policy for the shared public instance. Matches the requested debounce value exactly; not addressed here.
+- **A test-tooling bug caught (not an app bug):** an early live-verification script asserted `waitForSelector('.modal-overlay[hidden]', { state: 'visible' })` — self-contradictory, since a `[hidden]` element can never be "visible." The actual app behavior (modal closes correctly, chip updates correctly) was confirmed once the assertion was fixed to check `isHidden()`.
+
+### Files added/modified
+- spatial-core: `src/geocoder.ts`, `tests/geocoder.test.ts` (+ rebuilt `dist/`)
+- `src/adapters/locationAdapter.js` (modified — `searchLocationSuggestions`, `suggestOffline`)
+- `tests/locationAdapter.test.js` (modified — new suggestion-tier tests)
+- `src/ui/MapView.js` (modified — debounced suggestions dropdown in `buildLocationModal`)
+- `src/ui/styles.css` (modified — `.location-modal__suggestions`/`__suggestion`)
+- `docs/journals/dev-journal.md` (logged)

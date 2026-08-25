@@ -2,7 +2,7 @@ import { normalizePayload, renderTopicLayer, updateTopicLayer, resolveHoverConte
 import { buildDealerLayerConfig, buildDartPinElement } from '../adapters/carboyzAdapter.js';
 import { evaluateVehicleMarketPosition } from '../adapters/marketEvaluationAdapter.js';
 import { resolveChatQuery, rankTopMatches } from '../adapters/chatFilterAdapter.js';
-import { resolveLocationQuery, describeCoordinates } from '../adapters/locationAdapter.js';
+import { resolveLocationQuery, searchLocationSuggestions, describeCoordinates } from '../adapters/locationAdapter.js';
 import { marketVerdictBadge } from './marketBadge.js';
 import { deriveVehicleCondition } from './vehicleCard.js';
 import { renderChatDiscovery } from './ChatDiscovery.js';
@@ -29,6 +29,8 @@ const FOCUS_ZOOM = 13;
 // Default discovery radius: ~25 miles, expressed in km for the H3 grid-disk lookup.
 const NEARBY_RADIUS_KM = 40;
 const NEARBY_RADIUS_MILES = 25;
+const LOCATION_SUGGEST_DEBOUNCE_MS = 300;
+const LOCATION_SUGGEST_LIMIT = 5;
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -103,7 +105,7 @@ function buildVehicleCardElement(vehicle, { vehicles, dealers }) {
   return card;
 }
 
-/** Builds the "Enter ZIP Code or City..." search modal, hidden until `open()` is called. */
+/** Builds the "Enter ZIP Code or City..." search modal, hidden until `open()` is called, with a debounced autosuggest dropdown. */
 function buildLocationModal({ onResolve }) {
   const inputId = 'map-location-search-input';
   const label = el('label', 'location-modal__label', 'Search by address, ZIP code, or city');
@@ -114,6 +116,14 @@ function buildLocationModal({ onResolve }) {
   input.type = 'text';
   input.className = 'location-modal__input';
   input.placeholder = 'Enter an address, ZIP code, or city...';
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-autocomplete', 'list');
+
+  const suggestionsList = document.createElement('ul');
+  suggestionsList.className = 'location-modal__suggestions';
+  suggestionsList.setAttribute('role', 'listbox');
+  suggestionsList.hidden = true;
 
   const errorEl = el('p', 'location-modal__error', '');
   errorEl.hidden = true;
@@ -125,16 +135,55 @@ function buildLocationModal({ onResolve }) {
 
   const form = document.createElement('form');
   form.className = 'location-modal';
-  form.append(label, input, errorEl, el('div', 'location-modal__actions', [cancelBtn, submitBtn]));
+  form.append(label, input, suggestionsList, errorEl, el('div', 'location-modal__actions', [cancelBtn, submitBtn]));
 
   const modal = el('div', 'modal', [form]);
   const overlay = el('div', 'modal-overlay', [modal]);
   overlay.hidden = true;
 
+  let debounceTimer = null;
+  // Bumped on every new input/close so a slow, stale suggestion request can't clobber a later one.
+  let requestToken = 0;
+
+  function clearSuggestions() {
+    suggestionsList.replaceChildren();
+    suggestionsList.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+  }
+
+  function selectSuggestion(match) {
+    close();
+    onResolve(match);
+  }
+
+  function renderSuggestions(matches) {
+    suggestionsList.replaceChildren();
+    if (matches.length === 0) {
+      clearSuggestions();
+      return;
+    }
+    matches.forEach((match) => {
+      const item = document.createElement('li');
+      item.setAttribute('role', 'option');
+      const suggestionBtn = document.createElement('button');
+      suggestionBtn.type = 'button';
+      suggestionBtn.className = 'location-modal__suggestion';
+      suggestionBtn.textContent = match.label;
+      suggestionBtn.addEventListener('click', () => selectSuggestion(match));
+      item.append(suggestionBtn);
+      suggestionsList.append(item);
+    });
+    suggestionsList.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  }
+
   function close() {
     overlay.hidden = true;
     errorEl.hidden = true;
     input.value = '';
+    if (debounceTimer) clearTimeout(debounceTimer);
+    requestToken += 1;
+    clearSuggestions();
   }
 
   cancelBtn.addEventListener('click', close);
@@ -142,9 +191,29 @@ function buildLocationModal({ onResolve }) {
     if (event.target === overlay) close();
   });
 
+  input.addEventListener('input', () => {
+    errorEl.hidden = true;
+    if (debounceTimer) clearTimeout(debounceTimer);
+
+    const query = input.value;
+    if (!query.trim()) {
+      requestToken += 1;
+      clearSuggestions();
+      return;
+    }
+
+    const token = (requestToken += 1);
+    debounceTimer = setTimeout(async () => {
+      const matches = await searchLocationSuggestions(query, { enableOsm: true, limit: LOCATION_SUGGEST_LIMIT });
+      if (token !== requestToken) return;
+      renderSuggestions(matches);
+    }, LOCATION_SUGGEST_DEBOUNCE_MS);
+  });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const query = input.value;
+    clearSuggestions();
     submitBtn.disabled = true;
     try {
       const resolved = await resolveLocationQuery(query, { enableOsm: true });
