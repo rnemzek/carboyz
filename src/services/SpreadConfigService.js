@@ -7,9 +7,9 @@ export const TIER_STRATEGIES = Object.freeze({
 });
 
 export const DEFAULT_TIERS = Object.freeze([
-  Object.freeze({ minPrice: 0, maxPrice: 15000, flatAmount: 300, percent: 0.02, strategy: TIER_STRATEGIES.MAX }),
-  Object.freeze({ minPrice: 15000, maxPrice: 30000, flatAmount: 500, percent: 0.02, strategy: TIER_STRATEGIES.MAX }),
-  Object.freeze({ minPrice: 30000, maxPrice: null, flatAmount: 750, percent: 0.015, strategy: TIER_STRATEGIES.MAX }),
+  Object.freeze({ minPrice: 0, maxPrice: 15000, flatAmount: 300, percent: 0.02, strategy: TIER_STRATEGIES.MAX, autoApprove: true }),
+  Object.freeze({ minPrice: 15000, maxPrice: 30000, flatAmount: 500, percent: 0.02, strategy: TIER_STRATEGIES.MAX, autoApprove: true }),
+  Object.freeze({ minPrice: 30000, maxPrice: null, flatAmount: 750, percent: 0.015, strategy: TIER_STRATEGIES.MAX, autoApprove: false }),
 ]);
 
 function cloneTiers(tiers) {
@@ -41,6 +41,9 @@ function validateTier(tier, competitor, index) {
   if (tier.strategy !== undefined && !Object.values(TIER_STRATEGIES).includes(tier.strategy)) {
     throw new Error(`${label}.strategy must be one of: ${Object.values(TIER_STRATEGIES).join(', ')}`);
   }
+  if (tier.autoApprove !== undefined && typeof tier.autoApprove !== 'boolean') {
+    throw new Error(`${label}.autoApprove must be a boolean`);
+  }
 }
 
 export function validateConfig(config) {
@@ -57,6 +60,7 @@ export function validateConfig(config) {
     tiersByCompetitor[competitor] = tiers.map((tier) => ({
       ...tier,
       strategy: tier.strategy ?? TIER_STRATEGIES.MAX,
+      autoApprove: tier.autoApprove ?? false,
     }));
   }
 

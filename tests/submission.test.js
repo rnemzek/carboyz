@@ -62,6 +62,11 @@ test('Submission defaults status to NEW and rejects invalid statuses', () => {
   assert.doesNotThrow(() => new Submission(baseData({ status: 'OFFER_BEATEN' })));
 });
 
+test('Submission accepts PENDING_APPROVAL and AUTO_COUNTER_SENT statuses', () => {
+  assert.doesNotThrow(() => new Submission(baseData({ status: 'PENDING_APPROVAL' })));
+  assert.doesNotThrow(() => new Submission(baseData({ status: 'AUTO_COUNTER_SENT' })));
+});
+
 test('Submission defaults trim and offerDocument to null when omitted', () => {
   const submission = new Submission(baseData());
   assert.equal(submission.trim, null);

@@ -52,3 +52,22 @@ test('submitSubmission does not trigger haptics when the submission is invalid',
   assert.throws(() => controller.submitSubmission(baseData({ competitor: 'NotReal' })));
   assert.equal(haptics.calls.length, 0);
 });
+
+test('submitSubmission dispatches the created submission when a dispatchService is configured', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const calls = [];
+  const dispatchService = { dispatch: (submission) => calls.push(submission) };
+  const controller = new SellerSubmissionController({ submissionService, dispatchService });
+
+  const submission = controller.submitSubmission(baseData());
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].id, submission.id);
+});
+
+test('submitSubmission works without a dispatchService configured', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const controller = new SellerSubmissionController({ submissionService });
+
+  assert.doesNotThrow(() => controller.submitSubmission(baseData()));
+});

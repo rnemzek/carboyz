@@ -20,6 +20,11 @@ const BADGE_LABELS = {
   NO_DATA: 'No Market Data',
 };
 
+const DISPATCH_BADGES = {
+  PENDING_APPROVAL: { label: 'Pending Sign-off', className: 'badge badge--pending-approval' },
+  AUTO_COUNTER_SENT: { label: 'Auto-Countered', className: 'badge badge--auto-countered' },
+};
+
 function spreadBadge(status) {
   const className = `badge badge--${status.toLowerCase().replace('_', '-')}`;
   return { label: BADGE_LABELS[status] ?? BADGE_LABELS.NO_DATA, className };
@@ -58,12 +63,14 @@ function renderDocumentModal() {
   return { overlay, open };
 }
 
-function renderLeadCard(lead, { onStatusChange, onViewDocument }) {
+function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter }) {
   const badge = spreadBadge(lead.spreadResult.status);
+  const dispatchBadge = DISPATCH_BADGES[lead.status];
 
   const top = h('div', { class: 'card__top' }, [
     h('h3', { class: 'card__title', text: lead.vehicleTitle }),
     h('span', { class: badge.className, text: badge.label }),
+    dispatchBadge ? h('span', { class: dispatchBadge.className, text: dispatchBadge.label }) : null,
   ]);
 
   const meta = h('div', { class: 'card__meta' }, [
@@ -86,23 +93,53 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument }) {
     viewBtn.addEventListener('click', () => onViewDocument(lead.offerDocument));
     actions.appendChild(viewBtn);
   }
-  STATUS_ACTIONS.forEach(({ status, label }) => {
-    const btn = h('button', {
-      class: 'button button--secondary',
-      type: 'button',
-      text: label,
-      disabled: lead.status === status ? '' : undefined,
+
+  if (lead.status === 'PENDING_APPROVAL') {
+    const counterInput = h('input', {
+      type: 'number',
+      min: '0',
+      class: 'card__counter-input',
+      value: String(Math.round(lead.spreadResult.recommendedCounterOffer)),
     });
-    btn.addEventListener('click', () => onStatusChange(lead.id, status));
-    actions.appendChild(btn);
-  });
+    const modifyBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Modify Counter' });
+    modifyBtn.addEventListener('click', () => {
+      counterInput.focus();
+      counterInput.select();
+    });
+    const approveBtn = h('button', { class: 'button', type: 'button', text: 'Approve & Send' });
+    approveBtn.addEventListener('click', () => onApproveAndSend(lead.id, Number(counterInput.value)));
+    actions.appendChild(counterInput);
+    actions.appendChild(modifyBtn);
+    actions.appendChild(approveBtn);
+  } else if (lead.status === 'AUTO_COUNTER_SENT') {
+    const sendBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Send Counter' });
+    sendBtn.addEventListener('click', async () => {
+      sendBtn.disabled = true;
+      const result = await onSendCounter(lead.counterMessage);
+      sendBtn.disabled = false;
+      sendBtn.textContent = result?.shared ? 'Shared!' : 'Send Counter';
+    });
+    actions.appendChild(sendBtn);
+  } else {
+    STATUS_ACTIONS.forEach(({ status, label }) => {
+      const btn = h('button', {
+        class: 'button button--secondary',
+        type: 'button',
+        text: label,
+        disabled: lead.status === status ? '' : undefined,
+      });
+      btn.addEventListener('click', () => onStatusChange(lead.id, status));
+      actions.appendChild(btn);
+    });
+  }
 
   return h('article', { class: 'card' }, [top, meta, offers, actions]);
 }
 
-export function renderLeadInboxView(controller) {
+export function renderLeadInboxView(controller, { onSendCounter } = {}) {
   const list = h('div', { class: 'card-list' });
   const { overlay: documentModal, open: openDocumentModal } = renderDocumentModal();
+  const sentMessageOverrides = new Map();
 
   function renderList() {
     list.replaceChildren();
@@ -119,13 +156,20 @@ export function renderLeadInboxView(controller) {
     }
 
     leads.forEach((lead) => {
+      const overrideMessage = sentMessageOverrides.get(lead.id);
       list.appendChild(
-        renderLeadCard(lead, {
+        renderLeadCard(overrideMessage ? { ...lead, counterMessage: overrideMessage } : lead, {
           onStatusChange: (id, status) => {
             controller.updateStatus(id, status);
             renderList();
           },
           onViewDocument: openDocumentModal,
+          onApproveAndSend: (id, counterOfferAmount) => {
+            const { message } = controller.approveAndSend(id, counterOfferAmount);
+            sentMessageOverrides.set(id, message);
+            renderList();
+          },
+          onSendCounter: onSendCounter ?? (() => Promise.resolve({ shared: false })),
         }),
       );
     });

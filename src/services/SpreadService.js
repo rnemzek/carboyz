@@ -38,9 +38,9 @@ function evaluateTierOffset(tier, competitorOfferAmount) {
 function resolveCounterOfferOffset({ competitorOfferAmount, tierConfig, fallbackOffset }) {
   const tier = matchTier(tierConfig, competitorOfferAmount);
   if (!tier) {
-    return fallbackOffset;
+    return { counterOffset: fallbackOffset, matchedTier: null };
   }
-  return evaluateTierOffset(tier, competitorOfferAmount);
+  return { counterOffset: evaluateTierOffset(tier, competitorOfferAmount), matchedTier: tier };
 }
 
 export function calculateSpread({
@@ -53,7 +53,7 @@ export function calculateSpread({
     throw new Error('calculateSpread requires a non-negative numeric competitorOfferAmount');
   }
 
-  const counterOffset = resolveCounterOfferOffset({
+  const { counterOffset, matchedTier } = resolveCounterOfferOffset({
     competitorOfferAmount,
     tierConfig,
     fallbackOffset: counterOfferOffset,
@@ -66,6 +66,7 @@ export function calculateSpread({
       spread: null,
       recommendedCounterOffer,
       status: DealScoreStatus.NO_DATA,
+      matchedTier,
     };
   }
 
@@ -77,5 +78,6 @@ export function calculateSpread({
     spread,
     recommendedCounterOffer,
     status: scoreSpread(spread),
+    matchedTier,
   };
 }

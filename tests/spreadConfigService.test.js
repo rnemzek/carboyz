@@ -33,7 +33,7 @@ test('saveConfig persists and a fresh instance sharing storage picks it up', () 
   const storage = fakeStorage();
   const service = new SpreadConfigService({ tenantId: 't1', storage });
 
-  const customTiers = [{ minPrice: 0, maxPrice: null, flatAmount: 999, percent: 0.05, strategy: 'MAX' }];
+  const customTiers = [{ minPrice: 0, maxPrice: null, flatAmount: 999, percent: 0.05, strategy: 'MAX', autoApprove: false }];
   service.saveConfig({ tiersByCompetitor: { CarMax: customTiers } });
 
   const reloaded = new SpreadConfigService({ tenantId: 't1', storage });
@@ -94,6 +94,29 @@ test('a tier omitting strategy defaults to MAX', () => {
   const service = new SpreadConfigService({ tenantId: 't1' });
   const saved = service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0 }] } });
   assert.equal(saved.tiersByCompetitor.CarMax[0].strategy, TIER_STRATEGIES.MAX);
+});
+
+test('DEFAULT_TIERS auto-approves the two low-dollar brackets and requires sign-off on the $30k+ bracket', () => {
+  assert.equal(DEFAULT_TIERS[0].autoApprove, true);
+  assert.equal(DEFAULT_TIERS[1].autoApprove, true);
+  assert.equal(DEFAULT_TIERS[2].autoApprove, false);
+});
+
+test('saveConfig throws when autoApprove is present but not a boolean', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.throws(
+    () =>
+      service.saveConfig({
+        tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0, autoApprove: 'yes' }] },
+      }),
+    /autoApprove/,
+  );
+});
+
+test('a tier omitting autoApprove defaults to false', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  const saved = service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0 }] } });
+  assert.equal(saved.tiersByCompetitor.CarMax[0].autoApprove, false);
 });
 
 test('resetToDefault restores the built-in ladder after a custom save', () => {

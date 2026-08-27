@@ -136,3 +136,27 @@ test('an empty tierConfig array falls back to the flat counterOfferOffset', () =
   const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig: [] });
   assert.equal(result.recommendedCounterOffer, 15300);
 });
+
+test('matchedTier is null when no tierConfig is provided', () => {
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000 });
+  assert.equal(result.matchedTier, null);
+});
+
+test('matchedTier is null when tierConfig has no bracket covering the offer amount', () => {
+  const tierConfig = [{ minPrice: 20000, maxPrice: null, flatAmount: 999, percent: 0, strategy: 'FLAT_ONLY' }];
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig });
+  assert.equal(result.matchedTier, null);
+});
+
+test('matchedTier is the matched tier object, including autoApprove, when a bracket matches', () => {
+  const tier = { minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: true };
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig: [tier] });
+  assert.deepEqual(result.matchedTier, tier);
+});
+
+test('matchedTier is populated even when fairMarketValue is missing (NO_DATA)', () => {
+  const tier = { minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: false };
+  const result = calculateSpread({ competitorOfferAmount: 15000, tierConfig: [tier] });
+  assert.equal(result.status, DealScoreStatus.NO_DATA);
+  assert.deepEqual(result.matchedTier, tier);
+});

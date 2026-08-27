@@ -9,6 +9,7 @@ import { ShareService } from '../services/ShareService.js';
 import { DiscoveryService } from '../services/DiscoveryService.js';
 import { SubmissionService } from '../services/SubmissionService.js';
 import { SpreadConfigService } from '../services/SpreadConfigService.js';
+import { DispatchService } from '../services/DispatchService.js';
 import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
@@ -31,6 +32,20 @@ import { BuyerSearchController } from './BuyerSearchController.js';
 import { renderMapView } from './MapView.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
+
+function createDistroNotifier() {
+  return {
+    notify(notification) {
+      console.info(`[${notification.target}] ${notification.title}`, notification.body);
+      if (typeof Notification !== 'function') {
+        return;
+      }
+      if (Notification.permission === 'granted') {
+        new Notification(notification.title, { body: notification.body });
+      }
+    },
+  };
+}
 
 const TENANT_PRESETS = [
   {
@@ -503,6 +518,13 @@ export function mountApp(root) {
       const searchService = new SearchService({ dealers });
       const submissionService = new SubmissionService({ tenantId, storage: window.localStorage });
       const spreadConfigService = new SpreadConfigService({ tenantId, storage: window.localStorage });
+      const dispatchService = new DispatchService({
+        submissionService,
+        spreadConfigService,
+        telemetryService,
+        ingestService,
+        notifier: createDistroNotifier(),
+      });
       tenantStateByTenantId.set(tenantId, {
         dealers,
         telemetryService,
@@ -510,6 +532,7 @@ export function mountApp(root) {
         searchService,
         submissionService,
         spreadConfigService,
+        dispatchService,
       });
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
@@ -588,6 +611,7 @@ export function mountApp(root) {
     const sellerController = new SellerSubmissionController({
       submissionService: state.submissionService,
       hapticsService,
+      dispatchService: state.dispatchService,
     });
     const leadInboxController = new LeadInboxController({
       submissionService: state.submissionService,
@@ -600,7 +624,9 @@ export function mountApp(root) {
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
     const sellView = renderSellerSubmissionView(sellerController);
-    const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController);
+    const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController, {
+      onSendCounter: (text) => shareService.share({ title: 'Counter Offer', text }),
+    });
     const adminView = renderSpreadConfigView(spreadConfigController);
     const dealerView = renderDealerStudioView(
       dealerController,

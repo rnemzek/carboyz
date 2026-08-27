@@ -84,6 +84,30 @@ test('updateStatus delegates to submissionService and is reflected in the next v
   assert.equal(lead.status, 'IN_REVIEW');
 });
 
+test('buildLeadViewModels includes a formatted counterMessage for each lead', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const [lead] = controller.buildLeadViewModels();
+  assert.match(lead.counterMessage, /Car Offer Beaters/);
+  assert.match(lead.counterMessage, /\$15,300/);
+});
+
+test('approveAndSend marks the submission AUTO_COUNTER_SENT and formats the message with the given amount', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const { submission, message } = controller.approveAndSend(created.id, 16000);
+
+  assert.equal(submission.status, 'AUTO_COUNTER_SENT');
+  assert.match(message, /\$16,000/);
+
+  const [lead] = controller.buildLeadViewModels();
+  assert.equal(lead.status, 'AUTO_COUNTER_SENT');
+});
+
 test('buildLeadViewModels applies a custom tier config from an injected spreadConfigService', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });

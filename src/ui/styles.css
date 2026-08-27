@@ -358,6 +358,29 @@ body {
   background: var(--color-secondary);
 }
 
+.badge--pending-approval {
+  background: var(--color-overpriced);
+}
+
+.badge--auto-countered {
+  background: var(--color-underpriced);
+}
+
+.card__counter-input {
+  font-size: 1rem;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text);
+  width: 120px;
+}
+
+.card__counter-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
 .tier-section {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);

@@ -40,6 +40,9 @@ function renderTierRow(tier, { onRemove }) {
   );
   strategySelect.value = tier.strategy ?? TIER_STRATEGIES.MAX;
 
+  const autoApproveInput = h('input', { type: 'checkbox' });
+  autoApproveInput.checked = tier.autoApprove ?? false;
+
   const removeBtn = h('button', {
     class: 'button button--secondary tier-row__remove',
     type: 'button',
@@ -52,6 +55,7 @@ function renderTierRow(tier, { onRemove }) {
     h('div', { class: 'tier-row__field' }, [h('label', { text: 'Flat $' }), flatInput]),
     h('div', { class: 'tier-row__field' }, [h('label', { text: 'Percent %' }), percentInput]),
     h('div', { class: 'tier-row__field' }, [h('label', { text: 'Strategy' }), strategySelect]),
+    h('div', { class: 'tier-row__field' }, [h('label', { text: 'Auto-Dispatch Counter Offer' }), autoApproveInput]),
     removeBtn,
   ]);
 
@@ -66,6 +70,7 @@ function renderTierRow(tier, { onRemove }) {
         flatAmount: Number(flatInput.value) || 0,
         percent: displayToPercent(percentInput.value),
         strategy: strategySelect.value,
+        autoApprove: autoApproveInput.checked,
       };
     },
   };
@@ -93,7 +98,7 @@ function renderCompetitorSection(competitor, tiers) {
 
   const addBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Add Tier' });
   addBtn.addEventListener('click', () =>
-    addRow({ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0, strategy: TIER_STRATEGIES.MAX }),
+    addRow({ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0, strategy: TIER_STRATEGIES.MAX, autoApprove: false }),
   );
 
   const section = h('div', { class: 'tier-section' }, [h('h3', { text: competitor }), rowsContainer, addBtn]);

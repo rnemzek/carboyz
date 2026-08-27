@@ -1,5 +1,12 @@
 export const COMPETITORS = ['CarMax', 'Carvana', 'KBB', 'GiveMeTheVin', 'Other'];
-export const SUBMISSION_STATUSES = ['NEW', 'IN_REVIEW', 'OFFER_BEATEN', 'DECLINED'];
+export const SUBMISSION_STATUSES = [
+  'NEW',
+  'IN_REVIEW',
+  'OFFER_BEATEN',
+  'DECLINED',
+  'PENDING_APPROVAL',
+  'AUTO_COUNTER_SENT',
+];
 
 export class Submission {
   constructor({

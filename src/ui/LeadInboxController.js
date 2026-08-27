@@ -1,4 +1,5 @@
 import { calculateSpread } from '../services/SpreadService.js';
+import { formatCounterOfferMessage } from '../services/DispatchService.js';
 
 function competitorLabel(submission) {
   if (submission.competitor === 'Other' && submission.competitorDealerName) {
@@ -57,11 +58,21 @@ export class LeadInboxController {
         offerDocument: submission.offerDocument,
         status: submission.status,
         spreadResult,
+        counterMessage: formatCounterOfferMessage({
+          submission,
+          recommendedCounterOffer: spreadResult.recommendedCounterOffer,
+        }),
       };
     });
   }
 
   updateStatus(id, status) {
     return this.submissionService.updateStatus(id, status);
+  }
+
+  approveAndSend(id, counterOfferAmount) {
+    const submission = this.submissionService.updateStatus(id, 'AUTO_COUNTER_SENT');
+    const message = formatCounterOfferMessage({ submission, recommendedCounterOffer: counterOfferAmount });
+    return { submission, message };
   }
 }
