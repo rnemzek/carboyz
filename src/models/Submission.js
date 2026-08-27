@@ -7,6 +7,28 @@ export const SUBMISSION_STATUSES = [
   'PENDING_APPROVAL',
   'AUTO_COUNTER_SENT',
 ];
+export const WIN_LOSS_STATUSES = [
+  'PENDING',
+  'AUTO_COUNTERED',
+  'MANUAL_APPROVED',
+  'WON',
+  'LOST',
+  'EXPIRED',
+  'DECLINED',
+];
+export const APPROVAL_TYPES = ['AUTO_DISPATCH', 'HUMAN_APPROVED'];
+
+function validateOptionalNumber(value, fieldName, { allowNegative = false } = {}) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    throw new Error(`Submission ${fieldName} must be a number`);
+  }
+  if (!allowNegative && value < 0) {
+    throw new Error(`Submission ${fieldName} must be a non-negative number`);
+  }
+}
 
 export class Submission {
   constructor({
@@ -24,6 +46,14 @@ export class Submission {
     competitorOfferAmount,
     offerDocument,
     status = 'NEW',
+    winLossStatus = 'PENDING',
+    initialCompetitorOffer,
+    calculatedCounterOffer,
+    finalCounterOffer,
+    expectedMargin,
+    timeToCounterMs,
+    priceBracket,
+    approvalType,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -61,6 +91,20 @@ export class Submission {
     if (!SUBMISSION_STATUSES.includes(status)) {
       throw new Error(`Submission status must be one of: ${SUBMISSION_STATUSES.join(', ')}`);
     }
+    if (!WIN_LOSS_STATUSES.includes(winLossStatus)) {
+      throw new Error(`Submission winLossStatus must be one of: ${WIN_LOSS_STATUSES.join(', ')}`);
+    }
+    if (approvalType !== undefined && approvalType !== null && !APPROVAL_TYPES.includes(approvalType)) {
+      throw new Error(`Submission approvalType must be one of: ${APPROVAL_TYPES.join(', ')}`);
+    }
+    validateOptionalNumber(initialCompetitorOffer, 'initialCompetitorOffer');
+    validateOptionalNumber(calculatedCounterOffer, 'calculatedCounterOffer');
+    validateOptionalNumber(finalCounterOffer, 'finalCounterOffer');
+    validateOptionalNumber(expectedMargin, 'expectedMargin', { allowNegative: true });
+    validateOptionalNumber(timeToCounterMs, 'timeToCounterMs');
+    if (priceBracket !== undefined && priceBracket !== null && typeof priceBracket !== 'string') {
+      throw new Error('Submission priceBracket must be a string');
+    }
 
     this.id = id;
     this.timestamp = timestamp;
@@ -76,5 +120,13 @@ export class Submission {
     this.competitorOfferAmount = competitorOfferAmount;
     this.offerDocument = offerDocument ?? null;
     this.status = status;
+    this.winLossStatus = winLossStatus;
+    this.initialCompetitorOffer = initialCompetitorOffer ?? null;
+    this.calculatedCounterOffer = calculatedCounterOffer ?? null;
+    this.finalCounterOffer = finalCounterOffer ?? null;
+    this.expectedMargin = expectedMargin ?? null;
+    this.timeToCounterMs = timeToCounterMs ?? null;
+    this.priceBracket = priceBracket ?? null;
+    this.approvalType = approvalType ?? null;
   }
 }

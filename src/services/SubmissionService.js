@@ -48,6 +48,7 @@ export class SubmissionService {
       id: data.id ?? this.generateId(),
       timestamp: data.timestamp ?? new Date().toISOString(),
       status: 'NEW',
+      initialCompetitorOffer: data.initialCompetitorOffer ?? data.competitorOfferAmount,
     });
 
     this.submissions.push(submission);
@@ -60,16 +61,20 @@ export class SubmissionService {
     return [...this.submissions];
   }
 
-  updateStatus(id, status) {
+  updateFields(id, patch) {
     const index = this.submissions.findIndex((submission) => submission.id === id);
     if (index === -1) {
       throw new Error(`Submission not found: ${id}`);
     }
 
-    const updated = new Submission({ ...this.submissions[index], status });
+    const updated = new Submission({ ...this.submissions[index], ...patch });
     this.submissions[index] = updated;
     writeSubmissions(this.storage, this.tenantId, this.submissions);
 
     return updated;
+  }
+
+  updateStatus(id, status) {
+    return this.updateFields(id, { status });
   }
 }

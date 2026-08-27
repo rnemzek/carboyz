@@ -32,6 +32,17 @@ export function formatCounterOfferMessage({ submission, recommendedCounterOffer,
   );
 }
 
+export function formatPriceBracket(tier) {
+  if (!tier) {
+    return null;
+  }
+  const min = currencyFormatter.format(tier.minPrice);
+  if (tier.maxPrice === null) {
+    return `${min}+`;
+  }
+  return `${min}-${currencyFormatter.format(tier.maxPrice)}`;
+}
+
 export function buildApprovalNotification({ submission, recommendedCounterOffer }) {
   return {
     target: DISTRO_GROUP,
@@ -89,9 +100,28 @@ export class DispatchService {
 
   dispatch(submission) {
     const { spreadResult, shouldAutoDispatch } = this.evaluate(submission);
+    const calculatedCounterOffer = spreadResult.recommendedCounterOffer;
+    const expectedMargin =
+      spreadResult.estimatedWholesaleValue === null
+        ? null
+        : spreadResult.estimatedWholesaleValue - calculatedCounterOffer;
+    const priceBracket = formatPriceBracket(spreadResult.matchedTier);
+    const initialCompetitorOffer = submission.initialCompetitorOffer ?? submission.competitorOfferAmount;
 
     if (shouldAutoDispatch) {
-      const updated = this.submissionService.updateStatus(submission.id, 'AUTO_COUNTER_SENT');
+      // This IS the counter dispatch — speed-to-lead is measured from intake to right now.
+      const timeToCounterMs = Date.now() - new Date(submission.timestamp).getTime();
+      const updated = this.submissionService.updateFields(submission.id, {
+        status: 'AUTO_COUNTER_SENT',
+        winLossStatus: 'AUTO_COUNTERED',
+        initialCompetitorOffer,
+        calculatedCounterOffer,
+        finalCounterOffer: calculatedCounterOffer,
+        expectedMargin,
+        priceBracket,
+        approvalType: 'AUTO_DISPATCH',
+        timeToCounterMs,
+      });
       const message = formatCounterOfferMessage({
         submission: updated,
         recommendedCounterOffer: spreadResult.recommendedCounterOffer,
@@ -99,7 +129,17 @@ export class DispatchService {
       return { outcome: DISPATCH_OUTCOMES.AUTO_COUNTER_SENT, submission: updated, spreadResult, message };
     }
 
-    const updated = this.submissionService.updateStatus(submission.id, 'PENDING_APPROVAL');
+    // Manual path: nothing has actually been sent to the seller yet, so timeToCounterMs
+    // and approvalType stay null until LeadInboxController.approveAndSend() dispatches it.
+    const updated = this.submissionService.updateFields(submission.id, {
+      status: 'PENDING_APPROVAL',
+      winLossStatus: 'PENDING',
+      initialCompetitorOffer,
+      calculatedCounterOffer,
+      finalCounterOffer: calculatedCounterOffer,
+      expectedMargin,
+      priceBracket,
+    });
     const notification = buildApprovalNotification({
       submission: updated,
       recommendedCounterOffer: spreadResult.recommendedCounterOffer,

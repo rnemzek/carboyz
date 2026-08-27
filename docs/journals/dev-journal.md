@@ -932,3 +932,32 @@ Lead cards branch on status: `PENDING_APPROVAL` shows a "Pending Sign-off" badge
 - `tests/dispatchService.test.js` (new); `tests/spreadConfigService.test.js`, `tests/spreadService.test.js`, `tests/submission.test.js`, `tests/ui.sellerSubmissionController.test.js`, `tests/ui.leadInboxController.test.js` (extended)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-13 scope and architecture; UOW-12's prior content archived to `.hydrate/archive/UOW-12.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-14] — Analytics & Full-Lifecycle Event Logging Schema
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 304 tests, 301 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). 22 new tests, all in the new `tests/submissionTelemetry.test.js`. `node --test --experimental-test-coverage` on the touched modules: `Submission.js` 100%/100%, `DispatchService.js` 100%/97.06%, `SubmissionService.js` 93.75%/91.67% (uncovered lines are the pre-existing storage read/write catch blocks noted since UOW-12), `LeadInboxController.js` 100%/100% — clears the repo's 80% standard.
+- **Design decision — `winLossStatus` is a separate lifecycle dimension from `status`:** `status` (`NEW`/`PENDING_APPROVAL`/`AUTO_COUNTER_SENT`/...) tracks dispatch/routing state; the new `winLossStatus` (`PENDING`/`AUTO_COUNTERED`/`MANUAL_APPROVED`/`WON`/`LOST`/`EXPIRED`/`DECLINED`) tracks deal outcome for win/loss reporting. They advance independently: `DispatchService.dispatch()` sets `winLossStatus: 'AUTO_COUNTERED'` on the auto path and leaves it `'PENDING'` on the manual path; `LeadInboxController.approveAndSend()` bumps it to `'MANUAL_APPROVED'` once a human sends the counter; the new `markWinLoss(id, 'WON' | 'LOST')` quick action is the only way to reach a terminal outcome in this UOW.
+- **Design decision — `timeToCounterMs`/`approvalType` stay `null` until the counter is actually sent:** For the manual (`PENDING_APPROVAL`) path, `DispatchService.dispatch()` only queues the lead for human review — no counter has reached the seller yet, so computing a "time to counter" or an `approvalType` at that point would be measuring the wrong event. Both are populated at the point that's true for every path: auto-dispatch computes them at `dispatch()` time (that IS the send); the manual path computes them in `LeadInboxController.approveAndSend()`, which is the actual send moment for a human-approved lead.
+- **Scope decision — no `LeadInboxView.js`/UI wiring for the WON/LOST quick actions:** the ticket's file list for this UOW names `Submission.js`, `DispatchService.js`, `SubmissionService.js`, and `LeadInboxController.js` (unlike UOW-13, which explicitly named `LeadInboxView.js`). `markWinLoss` is exposed as a tested controller method, satisfying "expose quick-action toggles," without adding button wiring the ticket didn't ask for in this pass.
+- **Scope decision — `initialCompetitorOffer` auto-populated at intake, immutable thereafter:** `SubmissionService.submit()` snapshots it from `competitorOfferAmount` (`data.initialCompetitorOffer ?? data.competitorOfferAmount`) so every submission carries the "original offer" telemetry point from creation, with no separate call required by `DispatchService`/`LeadInboxController`.
+
+### `src/models/Submission.js` (extended)
+Added `WIN_LOSS_STATUSES`/`APPROVAL_TYPES` enums and 8 new constructor fields (`winLossStatus` defaulting to `'PENDING'`; `approvalType` and 5 numeric/string telemetry fields defaulting to `null`). A small module-level `validateOptionalNumber(value, fieldName, { allowNegative })` helper (same small-helper precedent as `SpreadConfigService.js`'s `validateTier`) covers the 5 numeric fields; all reject non-numbers and negatives except `expectedMargin`, which can legitimately go negative on a loss.
+
+### `src/services/SubmissionService.js` (extended)
+New `updateFields(id, patch)` generalizes the prior single-field `updateStatus` mutation (find-by-id, reconstruct via `new Submission({...existing, ...patch})`, persist) so callers can patch several telemetry fields atomically; `updateStatus` is now a thin `updateFields(id, { status })` wrapper with an unchanged error contract.
+
+### `src/services/DispatchService.js` (extended)
+New exported `formatPriceBracket(tier)` renders the ticket's `"$0-$15,000"`-style label (`"$X+"` for an open-ended top tier, `null` when no tier matched). `dispatch()` now populates `calculatedCounterOffer`/`expectedMargin`/`priceBracket`/`initialCompetitorOffer` on both branches, plus `approvalType: 'AUTO_DISPATCH'` and `timeToCounterMs` on the auto path only (see design decision above).
+
+### `src/ui/LeadInboxController.js` (extended)
+`approveAndSend(id, counterOfferAmount)` now looks up the pre-update submission, recomputes `calculateSpread` to get `estimatedWholesaleValue` for the margin calc, and patches `finalCounterOffer`/`expectedMargin`/`approvalType: 'HUMAN_APPROVED'`/`winLossStatus: 'MANUAL_APPROVED'`/`timeToCounterMs` in one `updateFields` call; throws the same `Submission not found` error as `SubmissionService` for a missing id. New `markWinLoss(id, winLossStatus)` validates against a `WIN_LOSS_QUICK_ACTIONS = ['WON', 'LOST']` allowlist and delegates to `updateFields`.
+
+### Files added/modified
+- `src/models/Submission.js` (modified — telemetry schema)
+- `src/services/SubmissionService.js` (modified — `updateFields`, intake snapshot)
+- `src/services/DispatchService.js` (modified — telemetry auto-population, `formatPriceBracket`)
+- `src/ui/LeadInboxController.js` (modified — `approveAndSend` recalculation, `markWinLoss`)
+- `tests/submissionTelemetry.test.js` (new — the graded suite)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-14 scope and architecture; UOW-13's prior content archived to `.hydrate/archive/UOW-13.md`)
+- `docs/journals/dev-journal.md` (logged)
