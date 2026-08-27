@@ -1,0 +1,108 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { COMPETITORS } from '../src/models/Submission.js';
+import { SpreadConfigService, DEFAULT_TIERS, TIER_STRATEGIES } from '../src/services/SpreadConfigService.js';
+
+function fakeStorage() {
+  const store = new Map();
+  return {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, value),
+  };
+}
+
+test('SpreadConfigService requires a tenantId', () => {
+  assert.throws(() => new SpreadConfigService({}), /tenantId/);
+});
+
+test('seeds the default tier ladder for every known competitor', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  const config = service.getConfig();
+
+  COMPETITORS.forEach((competitor) => {
+    assert.deepEqual(config.tiersByCompetitor[competitor], DEFAULT_TIERS);
+  });
+});
+
+test('getTiersForCompetitor returns an empty array for an unknown competitor', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.deepEqual(service.getTiersForCompetitor('NotACompetitor'), []);
+});
+
+test('saveConfig persists and a fresh instance sharing storage picks it up', () => {
+  const storage = fakeStorage();
+  const service = new SpreadConfigService({ tenantId: 't1', storage });
+
+  const customTiers = [{ minPrice: 0, maxPrice: null, flatAmount: 999, percent: 0.05, strategy: 'MAX' }];
+  service.saveConfig({ tiersByCompetitor: { CarMax: customTiers } });
+
+  const reloaded = new SpreadConfigService({ tenantId: 't1', storage });
+  assert.deepEqual(reloaded.getTiersForCompetitor('CarMax'), customTiers);
+});
+
+test('two tenants stay isolated in the same storage', () => {
+  const storage = fakeStorage();
+  const serviceA = new SpreadConfigService({ tenantId: 'tenant-a', storage });
+  const serviceB = new SpreadConfigService({ tenantId: 'tenant-b', storage });
+
+  serviceA.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 42, percent: 0, strategy: 'FLAT_ONLY' }] } });
+
+  assert.deepEqual(serviceB.getTiersForCompetitor('CarMax'), DEFAULT_TIERS);
+  assert.equal(new SpreadConfigService({ tenantId: 'tenant-a', storage }).getTiersForCompetitor('CarMax')[0].flatAmount, 42);
+});
+
+test('saveConfig throws on a negative minPrice', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.throws(
+    () => service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: -1, maxPrice: null, flatAmount: 0, percent: 0 }] } }),
+    /minPrice/,
+  );
+});
+
+test('saveConfig throws when maxPrice is not greater than minPrice', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.throws(
+    () => service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 100, maxPrice: 100, flatAmount: 0, percent: 0 }] } }),
+    /maxPrice/,
+  );
+});
+
+test('saveConfig throws on negative flatAmount or percent', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.throws(
+    () => service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: -5, percent: 0 }] } }),
+    /flatAmount/,
+  );
+  assert.throws(
+    () => service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: -0.1 }] } }),
+    /percent/,
+  );
+});
+
+test('saveConfig throws on an unrecognized strategy', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  assert.throws(
+    () =>
+      service.saveConfig({
+        tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0, strategy: 'BOGUS' }] },
+      }),
+    /strategy/,
+  );
+});
+
+test('a tier omitting strategy defaults to MAX', () => {
+  const service = new SpreadConfigService({ tenantId: 't1' });
+  const saved = service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0 }] } });
+  assert.equal(saved.tiersByCompetitor.CarMax[0].strategy, TIER_STRATEGIES.MAX);
+});
+
+test('resetToDefault restores the built-in ladder after a custom save', () => {
+  const storage = fakeStorage();
+  const service = new SpreadConfigService({ tenantId: 't1', storage });
+  service.saveConfig({ tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 1, percent: 0, strategy: 'FLAT_ONLY' }] } });
+
+  service.resetToDefault();
+
+  assert.deepEqual(service.getTiersForCompetitor('CarMax'), DEFAULT_TIERS);
+  assert.deepEqual(new SpreadConfigService({ tenantId: 't1', storage }).getTiersForCompetitor('CarMax'), DEFAULT_TIERS);
+});

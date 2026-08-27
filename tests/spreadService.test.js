@@ -83,3 +83,56 @@ test('null or non-positive fairMarketValue returns NO_DATA', () => {
     DealScoreStatus.NO_DATA,
   );
 });
+
+test('tierConfig matches the bracket containing the exact minPrice boundary', () => {
+  const tierConfig = [
+    { minPrice: 0, maxPrice: 10000, flatAmount: 100, percent: 0, strategy: 'FLAT_ONLY' },
+    { minPrice: 10000, maxPrice: null, flatAmount: 200, percent: 0, strategy: 'FLAT_ONLY' },
+  ];
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 10000, tierConfig });
+  assert.equal(result.recommendedCounterOffer, 10200);
+});
+
+test('tierConfig rolls a value at the maxPrice boundary into the next bracket', () => {
+  const tierConfig = [
+    { minPrice: 0, maxPrice: 10000, flatAmount: 100, percent: 0, strategy: 'FLAT_ONLY' },
+    { minPrice: 10000, maxPrice: null, flatAmount: 200, percent: 0, strategy: 'FLAT_ONLY' },
+  ];
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 9999, tierConfig });
+  assert.equal(result.recommendedCounterOffer, 10099);
+});
+
+test('MAX strategy picks the larger of flat and percent-of-offer', () => {
+  const tierConfig = [{ minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.1, strategy: 'MAX' }];
+  // flat = 300, percent = 15000 * 0.1 = 1500 -> MAX picks 1500
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig });
+  assert.equal(result.recommendedCounterOffer, 16500);
+});
+
+test('FLAT_ONLY strategy ignores the percent amount', () => {
+  const tierConfig = [{ minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.5, strategy: 'FLAT_ONLY' }];
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig });
+  assert.equal(result.recommendedCounterOffer, 15300);
+});
+
+test('PERCENT_ONLY strategy ignores the flat amount', () => {
+  const tierConfig = [{ minPrice: 0, maxPrice: null, flatAmount: 5000, percent: 0.02, strategy: 'PERCENT_ONLY' }];
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig });
+  assert.equal(result.recommendedCounterOffer, 15300);
+});
+
+test('a tierConfig with no bracket covering the offer amount falls back to the flat counterOfferOffset', () => {
+  const tierConfig = [{ minPrice: 20000, maxPrice: null, flatAmount: 999, percent: 0, strategy: 'FLAT_ONLY' }];
+  const result = calculateSpread({
+    fairMarketValue: 20000,
+    competitorOfferAmount: 15000,
+    tierConfig,
+    counterOfferOffset: 300,
+  });
+  assert.equal(result.recommendedCounterOffer, 15300);
+});
+
+test('an empty tierConfig array falls back to the flat counterOfferOffset', () => {
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, tierConfig: [] });
+  assert.equal(result.recommendedCounterOffer, 15300);
+});

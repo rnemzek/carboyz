@@ -83,3 +83,21 @@ test('updateStatus delegates to submissionService and is reflected in the next v
   const [lead] = controller.buildLeadViewModels();
   assert.equal(lead.status, 'IN_REVIEW');
 });
+
+test('buildLeadViewModels applies a custom tier config from an injected spreadConfigService', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });
+  submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+
+  const spreadConfigService = {
+    getTiersForCompetitor: (competitor) => {
+      assert.equal(competitor, 'CarMax');
+      return [{ minPrice: 0, maxPrice: null, flatAmount: 0, percent: 0.1, strategy: 'PERCENT_ONLY' }];
+    },
+  };
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService, spreadConfigService });
+
+  const [lead] = controller.buildLeadViewModels();
+  // percent-only tier: 15000 * 0.1 = 1500, so recommended counter is 15000 + 1500 = 16500 (not the flat +300 default)
+  assert.equal(lead.spreadResult.recommendedCounterOffer, 16500);
+});

@@ -8,7 +8,7 @@ function competitorLabel(submission) {
 }
 
 export class LeadInboxController {
-  constructor({ submissionService, telemetryService, ingestService } = {}) {
+  constructor({ submissionService, telemetryService, ingestService, spreadConfigService = null } = {}) {
     if (!submissionService) {
       throw new Error('LeadInboxController requires a submissionService');
     }
@@ -22,6 +22,7 @@ export class LeadInboxController {
     this.submissionService = submissionService;
     this.telemetryService = telemetryService;
     this.ingestService = ingestService;
+    this.spreadConfigService = spreadConfigService;
   }
 
   resolveFairMarketValue(submission) {
@@ -37,9 +38,11 @@ export class LeadInboxController {
   buildLeadViewModels() {
     return this.submissionService.getSubmissions().map((submission) => {
       const fairMarketValue = this.resolveFairMarketValue(submission);
+      const tierConfig = this.spreadConfigService?.getTiersForCompetitor(submission.competitor);
       const spreadResult = calculateSpread({
         fairMarketValue,
         competitorOfferAmount: submission.competitorOfferAmount,
+        tierConfig,
       });
 
       return {

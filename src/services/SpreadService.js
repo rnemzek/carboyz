@@ -18,16 +18,47 @@ function scoreSpread(spread) {
   return DealScoreStatus.PASS;
 }
 
+function matchTier(tiers, amount) {
+  return (tiers ?? []).find((tier) => amount >= tier.minPrice && (tier.maxPrice === null || amount < tier.maxPrice)) ?? null;
+}
+
+function evaluateTierOffset(tier, competitorOfferAmount) {
+  const flatAmount = tier.flatAmount ?? 0;
+  const percentAmount = competitorOfferAmount * (tier.percent ?? 0);
+
+  if (tier.strategy === 'FLAT_ONLY') {
+    return flatAmount;
+  }
+  if (tier.strategy === 'PERCENT_ONLY') {
+    return percentAmount;
+  }
+  return Math.max(flatAmount, percentAmount);
+}
+
+function resolveCounterOfferOffset({ competitorOfferAmount, tierConfig, fallbackOffset }) {
+  const tier = matchTier(tierConfig, competitorOfferAmount);
+  if (!tier) {
+    return fallbackOffset;
+  }
+  return evaluateTierOffset(tier, competitorOfferAmount);
+}
+
 export function calculateSpread({
   fairMarketValue,
   competitorOfferAmount,
+  tierConfig,
   counterOfferOffset = DEFAULT_COUNTER_OFFSET,
 } = {}) {
   if (typeof competitorOfferAmount !== 'number' || competitorOfferAmount < 0) {
     throw new Error('calculateSpread requires a non-negative numeric competitorOfferAmount');
   }
 
-  const recommendedCounterOffer = competitorOfferAmount + counterOfferOffset;
+  const counterOffset = resolveCounterOfferOffset({
+    competitorOfferAmount,
+    tierConfig,
+    fallbackOffset: counterOfferOffset,
+  });
+  const recommendedCounterOffer = competitorOfferAmount + counterOffset;
 
   if (typeof fairMarketValue !== 'number' || fairMarketValue <= 0) {
     return {

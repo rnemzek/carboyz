@@ -865,3 +865,35 @@ New "Lead Inbox" 5th tab, wired the same way as the other four; `refreshLeadsVie
 - `tests/spreadService.test.js`, `tests/ui.leadInboxController.test.js` (new)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-11 scope and architecture; UOW-10's prior content archived to `.hydrate/archive/UOW-10.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-12] — Configurable Spread Tier Engine & Admin Portal
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 264/264 pass minus the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted in UOW-11's entry (23 new tests: `spreadConfigService.test.js` 11, `ui.spreadConfigController.test.js` 4, `spreadService.test.js` +7, `ui.leadInboxController.test.js` +1). `node --test --experimental-test-coverage` scoped to the touched/new modules: `SpreadConfigService.js` 92.91%/90.91%, `SpreadService.js` 100%/92.59%, `SpreadConfigController.js` 100%/100% (line/branch) — clears the repo's 80% standard; uncovered `SpreadConfigService.js` lines are the storage read/write failure catch blocks (same shape as `SubmissionService.js`'s uncovered lines in UOW-10).
+- **Scope decision — wire it live, not just build the capability:** The ticket only listed `SpreadConfigService`, the `SpreadService` refactor, `SpreadConfigView`, and tests as files — it didn't explicitly ask for `LeadInboxController`/`App.js` changes. But an admin screen for editing tiers that no code path ever reads would be dead weight, so the architecture step added a `spreadConfigService` as an **optional** 4th constructor param on `LeadInboxController` (defaults to `null`, existing required-dep checks and all prior tests untouched) so Lead Inbox counter-offer math actually reflects saved tier edits.
+- **Extend, not replace (same precedent as UOW-10/UOW-11):** Added a 6th "Admin" tab alongside the existing five rather than touching any of them. Default tab stays `'sell'`.
+- **Percent storage convention:** Tiers store `percent` as a 0–1 fraction internally (matches how `SpreadService` multiplies it directly against the offer amount); `SpreadConfigView` converts to/from a human-typed whole number (`2` ↔ `0.02`) at the form boundary only.
+- **Verified live with headless Playwright** (`npx serve .` + cached Chromium, driven directly since `playwright` isn't installed as a project dependency — same fallback used in UOW-11, reusing the `~/.npm/_npx` cache that already held it from that run): submitted a 2021 Jeep Wrangler lead against CarMax for $18,000 → Lead Inbox showed Recommended Counter $18,500 (default middle tier: `MAX($500 flat, $18,000 × 2% = $360)` → $500). Edited CarMax's middle tier flat amount to $900 in the new Admin tab, saved, reloaded the page (fresh `mountApp()` run) — the edited value was still $900 and the same lead's Recommended Counter recalculated to $18,900 with no further action. "Reset to Defaults" restored $500. Zero console errors throughout.
+
+### `src/services/SpreadConfigService.js` (new)
+`{ tenantId, storage }` DI, storage key `carboyz:spreadConfig:<tenantId>`, mirrors `SubmissionService.js`'s try/catch read/write pattern. Exports `TIER_STRATEGIES` (`MAX`/`FLAT_ONLY`/`PERCENT_ONLY`) and a frozen `DEFAULT_TIERS` 3-bracket ladder (`$0–15k` → $300/2%, `$15k–30k` → $500/2%, `$30k+` → $750/1.5%) seeded for every `COMPETITORS` entry. `validateConfig` throws descriptive errors on bad tier shape (negative `minPrice`/`flatAmount`/`percent`, `maxPrice` not `null`/not `> minPrice`, unrecognized `strategy`) but defaults an omitted `strategy` to `MAX` rather than throwing, and doesn't require every competitor to be present or brackets to be sorted/non-overlapping (not asked for). `getTiersForCompetitor` on an unknown competitor returns `[]` — the fallback signal `SpreadService` treats as "use the flat default."
+
+### `src/services/SpreadService.js` (refactor, fully backward-compatible)
+`calculateSpread` gained an optional `tierConfig` param. New `matchTier`/`evaluateTierOffset` helpers resolve a bracket by `amount >= minPrice && (maxPrice === null || amount < maxPrice)` and apply `Math.max(flat, percent-of-offer)` for the default/`MAX` strategy (or just one side for `FLAT_ONLY`/`PERCENT_ONLY`). No bracket match or no `tierConfig` at all → falls straight back to the pre-UOW-12 flat `counterOfferOffset` path, so all 12 original tests needed zero changes.
+
+### `src/ui/SpreadConfigController.js` / `src/ui/SpreadConfigView.js` (new)
+Controller is a thin DI wrapper (mirrors `DealerStudioController`), `getCompetitors()` sourced from `Submission.js`'s `COMPETITORS` so the Admin form's competitor list can't drift from the Sell/Lead Inbox forms. View renders one editable tier-row block per competitor (`h()` builder from `App.js`) with Add/Remove Tier buttons, a Save/Reset pair, and a `.form__status` message reusing `SellerSubmissionView`'s try/catch-and-display pattern.
+
+### `src/ui/LeadInboxController.js` / `App.js` / `styles.css`
+See scope decision above for the optional `spreadConfigService` wiring. `App.js` gained a per-tenant `SpreadConfigService` in `getTenantState()` and a 6th "Admin" tab wired identically to how "Lead Inbox" was added in UOW-11. `styles.css` added a small `.tier-section`/`.tier-row`/`.tier-row__field` block reusing existing color tokens — no new palette.
+
+### Files added/modified
+- `src/services/SpreadConfigService.js` (new)
+- `src/services/SpreadService.js` (modified — optional `tierConfig` param, backward-compatible)
+- `src/ui/SpreadConfigController.js` (new)
+- `src/ui/SpreadConfigView.js` (new)
+- `src/ui/LeadInboxController.js` (modified — optional `spreadConfigService` param)
+- `src/ui/App.js` (modified — 6th tab, service/controller/view wiring)
+- `src/ui/styles.css` (modified — tier editor styling)
+- `tests/spreadConfigService.test.js`, `tests/ui.spreadConfigController.test.js` (new); `tests/spreadService.test.js`, `tests/ui.leadInboxController.test.js` (extended)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-12 scope and architecture; UOW-11's prior content archived to `.hydrate/archive/UOW-11.md`)
+- `docs/journals/dev-journal.md` (logged)

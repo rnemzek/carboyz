@@ -8,10 +8,13 @@ import { HapticsService } from '../services/HapticsService.js';
 import { ShareService } from '../services/ShareService.js';
 import { DiscoveryService } from '../services/DiscoveryService.js';
 import { SubmissionService } from '../services/SubmissionService.js';
+import { SpreadConfigService } from '../services/SpreadConfigService.js';
 import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
 import { renderLeadInboxView } from './LeadInboxView.js';
+import { SpreadConfigController } from './SpreadConfigController.js';
+import { renderSpreadConfigView } from './SpreadConfigView.js';
 import {
   SEED_ANCHOR,
   CARBOYZ_HQ_DEALER_ID,
@@ -213,8 +216,23 @@ function renderTabs(activeTab, onSelect) {
     text: 'Lead Inbox',
     onClick: () => onSelect('leads'),
   });
-  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn]);
-  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn };
+  const adminBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'admin'),
+    text: 'Admin',
+    onClick: () => onSelect('admin'),
+  });
+  const nav = h('nav', { class: 'tabs', role: 'tablist' }, [
+    sellBtn,
+    dealerBtn,
+    buyerBtn,
+    mapBtn,
+    leadsBtn,
+    adminBtn,
+  ]);
+  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -484,12 +502,14 @@ export function mountApp(root) {
       const ingestService = new IngestService({ telemetryService, tenantId });
       const searchService = new SearchService({ dealers });
       const submissionService = new SubmissionService({ tenantId, storage: window.localStorage });
+      const spreadConfigService = new SpreadConfigService({ tenantId, storage: window.localStorage });
       tenantStateByTenantId.set(tenantId, {
         dealers,
         telemetryService,
         ingestService,
         searchService,
         submissionService,
+        spreadConfigService,
       });
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
@@ -573,12 +593,15 @@ export function mountApp(root) {
       submissionService: state.submissionService,
       telemetryService: state.telemetryService,
       ingestService: state.ingestService,
+      spreadConfigService: state.spreadConfigService,
     });
+    const spreadConfigController = new SpreadConfigController({ spreadConfigService: state.spreadConfigService });
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
     const sellView = renderSellerSubmissionView(sellerController);
     const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController);
+    const adminView = renderSpreadConfigView(spreadConfigController);
     const dealerView = renderDealerStudioView(
       dealerController,
       state.dealers,
@@ -595,18 +618,20 @@ export function mountApp(root) {
 
     mapView.update(state.dealers, state.ingestService.getInventory());
 
-    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn } = renderTabs(activeTab, (tab) => {
+    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn } = renderTabs(activeTab, (tab) => {
       activeTab = tab;
       sellView.hidden = tab !== 'sell';
       dealerView.hidden = tab !== 'dealer';
       buyerView.hidden = tab !== 'buyer';
       mapView.section.hidden = tab !== 'map';
       leadsView.hidden = tab !== 'leads';
+      adminView.hidden = tab !== 'admin';
       sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
       dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
       buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
       mapBtn.setAttribute('aria-selected', String(tab === 'map'));
       leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
+      adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
       if (tab === 'map') mapView.mount();
       if (tab === 'leads') refreshLeadsView();
     });
@@ -615,6 +640,7 @@ export function mountApp(root) {
     buyerView.hidden = activeTab !== 'buyer';
     mapView.section.hidden = activeTab !== 'map';
     leadsView.hidden = activeTab !== 'leads';
+    adminView.hidden = activeTab !== 'admin';
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
@@ -624,6 +650,7 @@ export function mountApp(root) {
       buyerView,
       mapView.section,
       leadsView,
+      adminView,
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();
