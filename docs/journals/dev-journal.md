@@ -1103,3 +1103,27 @@ Both now accept a `tenantConfig` render option. Lead Inbox: a "Download Appraisa
 - `tests/appraisalPdfGenerator.test.js` (new); `tests/ui.leadInboxController.test.js`, `tests/ui.sellerSubmissionController.test.js` (extended)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-18 scope and architecture; UOW-17's prior content archived to `.hydrate/archive/UOW-17.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-19] — Camera-Based VIN Barcode & Optical Character Recognition (OCR) Scanner
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 435 tests, 432 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). New coverage in `tests/vinScanner.test.js` (19 tests). Coverage: `vinScanner.js` 100.00% line / 80.95% branch / 80.77% funcs (quality gate: 80%). Browser/Playwright check **not performed** — no `chromium-cli`/`playwright`/DOM-shim tooling is installed in this execution environment, and `getUserMedia`/`BarcodeDetector` need real camera hardware + a permission grant that headless automation can't meaningfully exercise anyway; flagged to the Product Owner as a manual on-device verification gap (Scan VIN button opens camera + reticle, a real Code 39/128/DataMatrix barcode auto-fills VIN/Year/Make with a haptic buzz, denied permission falls back to the manual field cleanly).
+- **Scope decision — no real OCR engine; the "OCR fallback" is a text-pattern parser, not image-to-text:** true client-side OCR needs either a multi-MB wasm engine (`tesseract.js`) or the now-removed experimental `TextDetector` API, both incompatible with this codebase's zero-dependency-per-module precedent (`qrEncoder.js`, `appraisalPdfGenerator.js`, `iconNormalizer.js`). `vinScanner.js` ships the real half — live camera + native `BarcodeDetector` scanning (Code 39/128, DataMatrix) — plus the AC's frame-grabber utility (`captureVideoFrame`, DI'd/pure) and a regex+check-digit `findValidVin(text)` parser that the scanner modal's manual "type or paste the VIN" fallback field runs through (the path a user hits after their phone's own camera-roll OCR reads the sticker, or when they just type it).
+- **Scope decision — Year/Make decode locally (VIN position 10 / WMI table), no NHTSA network call; Model/Trim stay manual:** the AC allows "NHTSA / internal decoding logic." A live NHTSA vPIC call would be this codebase's first network dependency in an otherwise offline-capable, `localStorage`-backed PWA; model year and WMI-based manufacturer decode fully and deterministically offline, so those ship. Model/Trim need a full manufacturer VDS/WMI pattern database that can't be meaningfully embedded — rather than fabricate a guess, those two fields stay manual after a scan, same as before. Both decoders degrade to `null` (field left untouched) outside their known table, never a wrong guess.
+- **Scope decision — check-digit validation gates both entry paths:** `findValidVin` (used identically by the barcode-detection loop and the manual-fallback field) only returns a candidate that passes the full ISO 3779/NHTSA modulus-11 check, so a misread barcode or a typo'd manual entry never silently fills the form — the AC's "before auto-filling" requirement holds for both paths, not just the camera one.
+
+### `src/utils/vinScanner.js` (new)
+Pure `normalizeVinText`/`isValidVinFormat`/`computeVinCheckDigit`/`validateVin`/`extractVinCandidates`/`findValidVin`/`decodeModelYear`/`decodeWmiMake`/`isCameraSupported`/`isBarcodeDetectorSupported`/`captureVideoFrame` (all unit-tested, no DOM access required) plus `createVinScanner(...)` — a fully dependency-injected camera + `BarcodeDetector` engine (real `navigator.mediaDevices`/`window.BarcodeDetector`/`requestAnimationFrame` default in a browser, fakes in tests, same DI precedent as `TenantConfigService`'s `document`/`URL` injection). `extractVinCandidates` normalizes per whitespace-delimited token (not across the whole string) so a label like "VIN: ‹vin›" can't merge into one run and shift the match window.
+
+### `src/ui/SellerSubmissionView.js` (extended)
+New `renderVinScannerModal({ onVinConfirmed })` local factory (same `{ overlay, open, close }` shape as `LeadInboxView.js`'s `renderDocumentModal`) with a live `<video>` viewfinder, CSS reticle overlay, status line, and a "type/paste VIN" manual fallback parsed through the same `findValidVin`. New "📷 Scan VIN" button next to the VIN input (`.vin-input-row`). On a confirmed VIN: `controller.hapticsService?.vibrate?.()` (already exposed on `SellerSubmissionController` — no `App.js` change needed), fills VIN + conditionally Year/Make from the local decoders, closes the modal. Camera errors (unsupported/permission-denied/detect-failed) surface inline pointing at the same manual field the AC's "graceful degradation" describes.
+
+### `src/ui/styles.css` (extended)
+Additive `.vin-input-row`, `.scanner-modal*` (viewport/video/reticle/status/fallback/actions) rules; no existing selectors touched.
+
+### Files added/modified
+- `src/utils/vinScanner.js` (new)
+- `src/ui/SellerSubmissionView.js` (modified — scan button, scanner modal, auto-fill wiring)
+- `src/ui/styles.css` (modified — `.vin-input-row`, `.scanner-modal*`)
+- `tests/vinScanner.test.js` (new)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-19 scope and architecture; UOW-18's prior content archived to `.hydrate/archive/UOW-18.md`)
+- `docs/journals/dev-journal.md` (logged)

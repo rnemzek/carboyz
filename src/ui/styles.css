@@ -1215,3 +1215,70 @@ body {
     bottom: calc(52px + env(safe-area-inset-bottom));
   }
 }
+
+.vin-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.vin-input-row > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.scanner-modal {
+  max-width: 420px;
+  padding: 16px;
+}
+
+.scanner-modal__viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+}
+
+.scanner-modal__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scanner-modal__reticle {
+  position: absolute;
+  inset: 22% 8%;
+  border: 3px solid var(--color-primary);
+  border-radius: 10px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.scanner-modal__status {
+  margin: var(--spacing) 0 0;
+  font-size: 0.9rem;
+  color: var(--color-secondary);
+  min-height: 1.2em;
+}
+
+.scanner-modal__status--error {
+  color: var(--color-overpriced);
+}
+
+.scanner-modal__fallback {
+  display: flex;
+  gap: 8px;
+  margin-top: var(--spacing);
+}
+
+.scanner-modal__fallback input {
+  flex: 1;
+  min-width: 0;
+}
+
+.scanner-modal__actions {
+  margin-top: var(--spacing);
+  display: flex;
+  justify-content: center;
+}

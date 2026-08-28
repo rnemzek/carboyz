@@ -1,6 +1,7 @@
 import { h } from './App.js';
 import { COMPETITORS } from '../models/Submission.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
+import { createVinScanner, findValidVin, decodeModelYear, decodeWmiMake } from '../utils/vinScanner.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -9,6 +10,88 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 });
 
 const APPROVAL_POLL_INTERVAL_MS = 3000;
+
+function renderVinScannerModal({ onVinConfirmed }) {
+  const video = h('video', { class: 'scanner-modal__video', autoplay: '', muted: '', playsinline: '' });
+  const reticle = h('div', { class: 'scanner-modal__reticle', 'aria-hidden': 'true' });
+  const viewport = h('div', { class: 'scanner-modal__viewport' }, [video, reticle]);
+  const statusEl = h('p', { class: 'scanner-modal__status', role: 'status', 'aria-live': 'polite' });
+  const manualInput = h('input', { class: 'input--large', placeholder: 'Or type/paste the VIN' });
+  const useTypedBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Use This VIN' });
+  const fallbackRow = h('div', { class: 'scanner-modal__fallback' }, [manualInput, useTypedBtn]);
+  const cancelBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Cancel' });
+  const actions = h('div', { class: 'scanner-modal__actions' }, [cancelBtn]);
+  const modal = h('div', { class: 'modal scanner-modal' }, [
+    h('h3', { class: 'modal__stage', text: 'Scan VIN' }),
+    viewport,
+    statusEl,
+    fallbackRow,
+    actions,
+  ]);
+  const overlay = h('div', { class: 'modal-overlay', hidden: '' }, [modal]);
+
+  let scanner = null;
+
+  function setStatus(message, isError = false) {
+    statusEl.textContent = message;
+    statusEl.classList.toggle('scanner-modal__status--error', isError);
+  }
+
+  function stopScanner() {
+    scanner?.stop();
+    scanner = null;
+  }
+
+  function close() {
+    stopScanner();
+    overlay.hidden = true;
+    manualInput.value = '';
+  }
+
+  function confirm(vin) {
+    stopScanner();
+    overlay.hidden = true;
+    manualInput.value = '';
+    onVinConfirmed(vin);
+  }
+
+  function handleError({ reason }) {
+    if (reason === 'unsupported') {
+      setStatus('Camera not available on this device — type or paste the VIN below.', true);
+    } else if (reason === 'permission-denied') {
+      setStatus('Camera access denied — type or paste the VIN below.', true);
+    } else {
+      setStatus('Having trouble reading that — try lining up the barcode, or type the VIN below.', true);
+    }
+  }
+
+  function open() {
+    overlay.hidden = false;
+    setStatus('Point the camera at the door-jamb barcode or VIN.');
+    scanner = createVinScanner({
+      videoElement: video,
+      onDetected: ({ vin }) => confirm(vin),
+      onError: handleError,
+    });
+    scanner.start();
+  }
+
+  useTypedBtn.addEventListener('click', () => {
+    const vin = findValidVin(manualInput.value);
+    if (!vin) {
+      setStatus("Couldn't find a valid VIN in that text — double check and try again.", true);
+      return;
+    }
+    confirm(vin);
+  });
+
+  cancelBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+
+  return { overlay, open, close };
+}
 
 function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -21,6 +104,18 @@ function readFileAsBase64(file) {
 
 export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null, tenantConfig = null } = {}) {
   const vinInput = h('input', { name: 'vin', placeholder: 'VIN', required: '', class: 'input--large' });
+  const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
+  const vinScannerModal = renderVinScannerModal({
+    onVinConfirmed: (vin) => {
+      controller.hapticsService?.vibrate?.();
+      vinInput.value = vin;
+      const year = decodeModelYear(vin);
+      if (year) yearInput.value = year;
+      const make = decodeWmiMake(vin);
+      if (make) makeInput.value = make;
+    },
+  });
+  scanVinBtn.addEventListener('click', () => vinScannerModal.open());
   const yearInput = h('input', {
     name: 'year',
     type: 'number',
@@ -148,7 +243,10 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   }
 
   const form = h('form', { class: 'form form--mobile' }, [
-    h('div', { class: 'form__row' }, [h('label', { text: 'VIN' }), vinInput]),
+    h('div', { class: 'form__row' }, [
+      h('label', { text: 'VIN' }),
+      h('div', { class: 'vin-input-row' }, [vinInput, scanVinBtn]),
+    ]),
     h('div', { class: 'form__row form__row--split' }, [
       h('div', {}, [h('label', { text: 'Year' }), yearInput]),
       h('div', {}, [h('label', { text: 'Make' }), makeInput]),
@@ -233,5 +331,6 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     h('p', { class: 'view__subtitle', text: 'Got a better offer elsewhere? Show us and we may beat it.' }),
     form,
     waitingScreen,
+    vinScannerModal.overlay,
   ]);
 }
