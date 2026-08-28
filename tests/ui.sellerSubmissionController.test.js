@@ -116,3 +116,12 @@ test('submitSubmission leaves pendingSessionId null without a sessionStashServic
 
   assert.equal(pendingSessionId, null);
 });
+
+test('getSubmission returns the matching submission by id, or null when not found', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const controller = new SellerSubmissionController({ submissionService });
+  const { submission } = controller.submitSubmission(baseData());
+
+  assert.equal(controller.getSubmission(submission.id), submission);
+  assert.equal(controller.getSubmission('nope'), null);
+});

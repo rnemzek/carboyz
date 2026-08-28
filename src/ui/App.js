@@ -659,10 +659,12 @@ export function mountApp(root) {
     const sellView = renderSellerSubmissionView(sellerController, {
       sessionStashService: state.sessionStashService,
       prefill: pendingPrefill,
+      tenantConfig: activeTenantConfig,
     });
     pendingPrefill = null;
     const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController, {
       onSendCounter: (text) => shareService.share({ title: 'Counter Offer', text }),
+      tenantConfig: activeTenantConfig,
     });
     const adminView = renderSpreadConfigView(spreadConfigController);
     const { section: analyticsView, refresh: refreshAnalyticsView } = renderAnalyticsView(analyticsController);

@@ -1072,3 +1072,34 @@ Added a static baseline `manifest.webmanifest` (icon-less) and `<link rel="manif
 - `tests/iconNormalizer.test.js`, `tests/tenantConfigService.test.js`, `tests/pwaInstallPromptView.test.js` (new); `tests/tenantConfig.test.js`, `tests/ui.theme.test.js` (extended)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-17 scope and architecture; UOW-16's prior content archived to `.hydrate/archive/UOW-16.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-18] — Branded PDF Counter-Offer Appraisal Sheet Generator
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 419 tests, 416 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). New coverage in `tests/appraisalPdfGenerator.test.js` (22 tests); one direct `getSubmission` assertion added to each of `tests/ui.leadInboxController.test.js`/`tests/ui.sellerSubmissionController.test.js`. Coverage: `appraisalPdfGenerator.js` 96.70% line / 86.27% branch (quality gate: 80%) — the only uncovered lines are the real-browser default `document`/`URL.createObjectURL`/`URL.revokeObjectURL` fallbacks, which tests intentionally bypass via injection (same precedent as `TenantConfigService`'s untested `defaultCreateManifestUrl`). Verified with a live Playwright browser drive against `npm start`: seeded 50 historical leads, clicked "Download Appraisal Sheet" on an `AUTO_COUNTER_SENT` lead card and confirmed the downloaded `.svg` file opens as a valid SVG root element containing the vehicle/VIN, the accent-highlighted "Competitor Comparison" box, and an embedded QR (`role="img"`); submitted a seller intake that landed `PENDING_APPROVAL`, approved it from the Lead Inbox, confirmed the seller's waiting screen flipped to "Offer Ready!" and showed "Download Guaranteed Offer Sheet", downloaded and confirmed VIN/vehicle content; switched tenants (CarBoyZ → Summit Auto) and re-downloaded to confirm the tenant name and accent color (`#b3541e`) flow into a fresh document — zero console errors throughout.
+- **Reconciliation note — "`AUTO_COUNTER_SENT` or `MANUAL_APPROVED`" collapses to one condition:** `Submission.status` only ever takes the value `'AUTO_COUNTER_SENT'` for a dispatched counter-offer, whether auto-dispatched or human-approved; `MANUAL_APPROVED` only ever appears as `winLossStatus` (confirmed against `DispatchService.dispatch()`, `LeadInboxController.approveAndSend()`, and `TestHarnessView.js`'s own `HISTORICAL_OUTCOME_PRESETS`). The Lead Inbox download button's condition is simply `lead.status === 'AUTO_COUNTER_SENT'`.
+- **Format decision — SVG, not a hand-rolled PDF binary:** `renderAppraisalSvg` builds one self-contained 816×1056 (8.5"×11" @ 96dpi) SVG document string, same shape as `qrEncoder.js`'s existing `renderQrSvg`, downloaded as `.svg`. SVG is natively printable (browser Print → Save as PDF) and opens as an image everywhere, satisfying the ticket's "PDF/Image" framing without a PDF byte-stream writer, and without adding a Canvas/Image rasterization step that no AC line required.
+- **Contract decision — the generator takes the raw `Submission`, not a view's flattened shape:** rather than widening `LeadInboxController.buildLeadViewModels()`'s trimmed lead view model or the seller waiting-screen's stash entry (both intentionally minimal, already-tested contracts), both controllers got one new 1-line `getSubmission(id)` lookup method, and the Views call it at button-click time.
+- **Scope decision — VIN is rendered as text, not a barcode symbol:** no barcode-symbology utility exists in this codebase and the zero-dependency constraint rules out adding one; large monospace VIN text is the fallback.
+
+### `src/utils/appraisalPdfGenerator.js` (new)
+Pure `buildVerificationUrl`/`buildAppraisalPayload`/`buildAppraisalFilename`/`renderAppraisalSvg`/`generateAppraisalDocument` (all unit-tested, no DOM access) plus `triggerAppraisalDownload`/`downloadAppraisalSheet` — DOM-dependent but fully dependency-injected (same `document`/`createObjectUrl`/`revokeObjectUrl` injection precedent as `TenantConfigService`), so unlike most View-tier DOM functions in this codebase, these are unit-tested against a fake `document` rather than left untested. `renderAppraisalSvg` nests the QR SVG from `qrEncoder.js`'s `encodeQrMatrix`/`renderQrSvg` directly as a child `<svg>` element (no data-URI re-encoding needed) and XML-escapes all interpolated tenant/competitor free text.
+
+### `src/ui/LeadInboxController.js` / `src/ui/SellerSubmissionController.js` (extended)
+Additive `getSubmission(id)` lookup method on each, both `this.submissionService.getSubmissions().find((s) => s.id === id) ?? null`.
+
+### `src/ui/LeadInboxView.js` / `src/ui/SellerSubmissionView.js` (extended)
+Both now accept a `tenantConfig` render option. Lead Inbox: a "Download Appraisal Sheet" button alongside "Send Counter" on `AUTO_COUNTER_SENT` lead cards. Seller Confirmation: a "Download Guaranteed Offer Sheet" button appended to the waiting screen once the session-stash entry resolves to `READY` (the human-approved path only — the only path that ever shows this waiting screen).
+
+### `src/ui/App.js` (extended)
+`tenantConfig: activeTenantConfig` threaded into both existing `renderLeadInboxView(...)` and `renderSellerSubmissionView(...)` call sites — no new services or per-tenant state.
+
+### Files added/modified
+- `src/utils/appraisalPdfGenerator.js` (new)
+- `src/ui/LeadInboxController.js` (modified — `getSubmission`)
+- `src/ui/LeadInboxView.js` (modified — `tenantConfig` option, download button)
+- `src/ui/SellerSubmissionController.js` (modified — `getSubmission`)
+- `src/ui/SellerSubmissionView.js` (modified — `tenantConfig` option, download button)
+- `src/ui/App.js` (modified — `tenantConfig` threaded into both render calls)
+- `tests/appraisalPdfGenerator.test.js` (new); `tests/ui.leadInboxController.test.js`, `tests/ui.sellerSubmissionController.test.js` (extended)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-18 scope and architecture; UOW-17's prior content archived to `.hydrate/archive/UOW-17.md`)
+- `docs/journals/dev-journal.md` (logged)

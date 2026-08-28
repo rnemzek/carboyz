@@ -1,5 +1,6 @@
 import { h } from './App.js';
 import { COMPETITORS } from '../models/Submission.js';
+import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -18,7 +19,7 @@ function readFileAsBase64(file) {
   });
 }
 
-export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null } = {}) {
+export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null, tenantConfig = null } = {}) {
   const vinInput = h('input', { name: 'vin', placeholder: 'VIN', required: '', class: 'input--large' });
   const yearInput = h('input', {
     name: 'year',
@@ -130,6 +131,19 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       unsubscribe();
       waitingSpinner.hidden = true;
       waitingMessageEl.textContent = `Offer Ready! We can pay you ${currencyFormatter.format(entry.finalCounterOffer)} today.`;
+
+      const submission = tenantConfig ? controller.getSubmission(entry.submissionId) : null;
+      if (submission) {
+        const downloadBtn = h('button', { class: 'button', type: 'button', text: 'Download Guaranteed Offer Sheet' });
+        downloadBtn.addEventListener('click', () => {
+          downloadAppraisalSheet({
+            submission,
+            tenantConfig,
+            verificationBaseUrl: `${window.location.origin}${window.location.pathname}`,
+          });
+        });
+        waitingScreen.appendChild(downloadBtn);
+      }
     }
   }
 

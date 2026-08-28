@@ -132,6 +132,15 @@ test('approveAndSend works without a sessionStashService configured', () => {
   assert.doesNotThrow(() => controller.approveAndSend(created.id, 16000));
 });
 
+test('getSubmission returns the matching submission by id, or null when not found', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission());
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  assert.equal(controller.getSubmission(created.id), created);
+  assert.equal(controller.getSubmission('nope'), null);
+});
+
 test('buildLeadViewModels applies a custom tier config from an injected spreadConfigService', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });

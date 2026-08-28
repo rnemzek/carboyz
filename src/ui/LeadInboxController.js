@@ -79,6 +79,10 @@ export class LeadInboxController {
     return this.submissionService.updateStatus(id, status);
   }
 
+  getSubmission(id) {
+    return this.submissionService.getSubmissions().find((submission) => submission.id === id) ?? null;
+  }
+
   approveAndSend(id, counterOfferAmount) {
     const before = this.submissionService.getSubmissions().find((submission) => submission.id === id);
     if (!before) {

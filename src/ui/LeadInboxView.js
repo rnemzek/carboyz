@@ -1,4 +1,5 @@
 import { h } from './App.js';
+import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -63,7 +64,7 @@ function renderDocumentModal() {
   return { overlay, open };
 }
 
-function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter }) {
+function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter, onDownloadAppraisal }) {
   const badge = spreadBadge(lead.spreadResult.status);
   const dispatchBadge = DISPATCH_BADGES[lead.status];
 
@@ -120,6 +121,12 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
       sendBtn.textContent = result?.shared ? 'Shared!' : 'Send Counter';
     });
     actions.appendChild(sendBtn);
+
+    if (onDownloadAppraisal) {
+      const downloadBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Download Appraisal Sheet' });
+      downloadBtn.addEventListener('click', () => onDownloadAppraisal(lead.id));
+      actions.appendChild(downloadBtn);
+    }
   } else {
     STATUS_ACTIONS.forEach(({ status, label }) => {
       const btn = h('button', {
@@ -136,7 +143,7 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
   return h('article', { class: 'card' }, [top, meta, offers, actions]);
 }
 
-export function renderLeadInboxView(controller, { onSendCounter } = {}) {
+export function renderLeadInboxView(controller, { onSendCounter, tenantConfig } = {}) {
   const list = h('div', { class: 'card-list' });
   const { overlay: documentModal, open: openDocumentModal } = renderDocumentModal();
   const sentMessageOverrides = new Map();
@@ -170,6 +177,14 @@ export function renderLeadInboxView(controller, { onSendCounter } = {}) {
             renderList();
           },
           onSendCounter: onSendCounter ?? (() => Promise.resolve({ shared: false })),
+          onDownloadAppraisal: tenantConfig
+            ? (id) =>
+                downloadAppraisalSheet({
+                  submission: controller.getSubmission(id),
+                  tenantConfig,
+                  verificationBaseUrl: `${window.location.origin}${window.location.pathname}`,
+                })
+            : null,
         }),
       );
     });

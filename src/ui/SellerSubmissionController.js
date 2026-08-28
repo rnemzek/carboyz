@@ -24,4 +24,8 @@ export class SellerSubmissionController {
 
     return { submission, pendingSessionId };
   }
+
+  getSubmission(id) {
+    return this.submissionService.getSubmissions().find((submission) => submission.id === id) ?? null;
+  }
 }
