@@ -961,3 +961,43 @@ New exported `formatPriceBracket(tier)` renders the ticket's `"$0-$15,000"`-styl
 - `tests/submissionTelemetry.test.js` (new — the graded suite)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-14 scope and architecture; UOW-13's prior content archived to `.hydrate/archive/UOW-13.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-15] — E2E Interactive Test Harness, QR Generator & Pending Session Stash
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 345 tests, 342 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). 38 new tests across `tests/qrEncoder.test.js`, `tests/sessionStashService.test.js`, `tests/ui.testHarnessView.test.js`, plus additions to `tests/ui.sellerSubmissionController.test.js`/`tests/ui.leadInboxController.test.js`. Coverage on touched modules: `qrEncoder.js` 100%/97.83%, `SessionStashService.js` 97.03%/96.30%, `SellerSubmissionController.js` 100%/100%, `LeadInboxController.js` 100%/100% (full suite); `TestHarnessView.js`'s pure/testable exports are fully covered — its DOM-rendering function is intentionally untested, same tier as `LeadInboxView.js`/`SellerSubmissionView.js`. Live-browser test drive (Playwright, headless Chromium) covered: Test Harness tab generation + QR render for all 4 brackets, one-click inject (pending-approval and auto-dispatch outcomes), 50-lead historical seed, and the full cross-tab flow — seller submits, sees the pulsing "Evaluating Your Offer..." screen, a second tab approves it from the Lead Inbox, and the seller's tab flips live to "Offer Ready! We can pay you $X today." with zero console errors. All 7 tabs (including the new Test Harness tab) cycle without errors.
+- **Design decision — zero-dependency, hand-rolled QR encoder (`src/utils/qrEncoder.js`):** per explicit Product Owner direction, no CDN script or npm dependency — a from-scratch ISO/IEC 18004 byte-mode encoder (versions 1-10, EC levels L/M) with GF(256) Reed-Solomon and BCH format/version-info generator polynomials computed algorithmically at load time rather than hardcoded per-version, so the only memorized constants are the spec's own structural tables (block layout, alignment-pattern centers, remainder bits) — cross-validated arithmetically against the spec's independently-known total-codewords-per-version sequence. Automated tests verify structure/determinism/capacity math (100% line coverage, including the version≥7 version-info path and the multi-block-group path at versions 8/10, which the first coverage pass had missed); they cannot prove ISO placement/masking compliance against external ground truth (no reference decoder available in this environment) — real-world phone scannability was not separately verified beyond the browser test drive's QR render, and should be confirmed with an actual phone camera during the live kick-the-tires session.
+- **Design decision — `SessionStashService` uses `localStorage` + `BroadcastChannel`, not a backend:** this is a same-browser/cross-tab mechanism only (durable poll fallback via storage, instant push via the channel) — there is no server component in this app, so a QR genuinely scanned by a separate physical device cannot receive live approval updates from the presenter's machine. This was flagged to the Product Owner up front; the live demo path is either the same phone reloading its own submission, or two tabs on one machine, both confirmed working in the browser test drive.
+- **Bug found and fixed during the browser test drive — `.form[hidden]` had no effect:** `SellerSubmissionView`'s `.form { display: flex }` CSS rule silently overrode the browser's default `[hidden] { display: none }` UA rule, so `form.hidden = true` (used to swap the form for the waiting screen) had no visual effect despite the DOM property being set correctly. This codebase already has the identical fix applied to `.view`/`.form__row`/`.modal-overlay`/etc. (an explicit `.classname[hidden] { display: none; }` override) — `.form` was simply never toggled before this UOW, so the gap had never surfaced. Fixed by adding the matching `.form[hidden]` rule in `styles.css`, following the existing convention exactly.
+- **Deliberate breaking change — `SellerSubmissionController.submitSubmission()` return shape:** now returns `{ submission, pendingSessionId }` instead of a bare `Submission`, mirroring the `{ submission, message }` / `{ outcome, submission, ... }` shape `LeadInboxController.approveAndSend()`/`DispatchService.dispatch()` already return. `pendingSessionId` is non-null only when a `sessionStashService` is configured and the dispatch outcome required manual sign-off. Every existing call site (5 tests, `SellerSubmissionView.js`'s submit handler) was updated.
+- **Scope decision — compact pipe-delimited QR payload, not JSON:** `TestHarnessView.js`'s `encodeAppraisalForUrl` uses a versioned (`carboyz-appraisal-v1|...`) pipe-delimited string rather than JSON, keeping the encoded URL short enough to land in a low QR version, which scans more reliably off a screen than the denser code JSON would require.
+
+### `src/utils/qrEncoder.js` (new)
+`encodeQrMatrix(text, { errorCorrectionLevel })` and `renderQrSvg(matrix, { cellSize, margin })` — see design decision above.
+
+### `src/services/SessionStashService.js` (new)
+`createPending(submissionId)`, `resolveBySubmissionId(submissionId, { finalCounterOffer })`, `getStatus(pendingSessionId)`, `subscribe(pendingSessionId, onResolved)` — localStorage-backed with a `BroadcastChannel` push layer, same storage-service precedent (`storageKey`/read/write helpers, silent try/catch) as `SubmissionService`/`SpreadConfigService`.
+
+### `src/ui/TestHarnessView.js` (new)
+Pure/testable exports (`PRICE_BRACKET_PRESETS`, `HISTORICAL_OUTCOME_PRESETS`, `generateVin`, `buildMockAppraisal`, `encodeAppraisalForUrl`/`decodeAppraisalFromUrlParam`, `buildPrefillUrl`/`parsePrefillFromSearch`, `buildHistoricalSubmissionPatch`, `seedHistoricalLeads`) plus the untested `renderTestHarnessView` DOM function wiring the bracket generator, QR render, one-click inject, and the 50-lead seeder into the new "Test Harness" tab.
+
+### `src/ui/SellerSubmissionController.js` / `src/ui/LeadInboxController.js` (extended)
+Optional `sessionStashService` dependency; `submitSubmission` stashes a pending session on a manual-approval dispatch outcome (see breaking-change note above), `approveAndSend` resolves it with the human-approved amount.
+
+### `src/ui/SellerSubmissionView.js` (extended)
+Optional `{ sessionStashService, prefill }`; renders the pulsing "Evaluating Your Offer..." waiting screen (polling + `BroadcastChannel` subscribe, whichever resolves first) and applies a decoded QR prefill to the form inputs.
+
+### `src/ui/App.js` (extended)
+New "Test Harness" tab (always visible, same as the existing unconditional "Admin" tab — no dev-mode/environment-gating concept introduced); per-tenant `SessionStashService` instance wired into both controllers; boots with `parsePrefillFromSearch(window.location.search)` to land a QR-scanned URL on a pre-filled Sell tab.
+
+### Files added/modified
+- `src/utils/qrEncoder.js` (new)
+- `src/services/SessionStashService.js` (new)
+- `src/ui/TestHarnessView.js` (new)
+- `src/ui/SellerSubmissionController.js` (modified — `sessionStashService`, `submitSubmission` return shape)
+- `src/ui/LeadInboxController.js` (modified — `sessionStashService` resolution in `approveAndSend`)
+- `src/ui/SellerSubmissionView.js` (modified — waiting screen, prefill)
+- `src/ui/App.js` (modified — Test Harness tab, sessionStashService wiring, prefill boot)
+- `src/ui/styles.css` (modified — waiting-screen spinner/pulse, harness layout, `.form[hidden]` fix)
+- `tests/qrEncoder.test.js`, `tests/sessionStashService.test.js`, `tests/ui.testHarnessView.test.js` (new); `tests/ui.sellerSubmissionController.test.js`, `tests/ui.leadInboxController.test.js` (extended)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-15 scope and architecture; UOW-14's prior content archived to `.hydrate/archive/UOW-14.md`)
+- `docs/journals/dev-journal.md` (logged)

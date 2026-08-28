@@ -1,6 +1,14 @@
 import { h } from './App.js';
 import { COMPETITORS } from '../models/Submission.js';
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+const APPROVAL_POLL_INTERVAL_MS = 3000;
+
 function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -10,7 +18,7 @@ function readFileAsBase64(file) {
   });
 }
 
-export function renderSellerSubmissionView(controller) {
+export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null } = {}) {
   const vinInput = h('input', { name: 'vin', placeholder: 'VIN', required: '', class: 'input--large' });
   const yearInput = h('input', {
     name: 'year',
@@ -91,6 +99,40 @@ export function renderSellerSubmissionView(controller) {
   const statusEl = h('p', { class: 'form__status', role: 'status', 'aria-live': 'polite' });
   const submitBtn = h('button', { class: 'button button--large', type: 'submit', text: 'Submit for Review' });
 
+  const waitingSpinner = h('div', { class: 'waiting-screen__spinner', 'aria-hidden': 'true' });
+  const waitingMessageEl = h('p', {
+    class: 'waiting-screen__message',
+    role: 'status',
+    'aria-live': 'polite',
+    text: 'Evaluating Your Offer...',
+  });
+  const waitingScreen = h('div', { class: 'waiting-screen', hidden: '' }, [waitingSpinner, waitingMessageEl]);
+
+  function startWaitingForApproval(pendingSessionId) {
+    form.hidden = true;
+    waitingScreen.hidden = false;
+    waitingSpinner.hidden = false;
+    waitingMessageEl.textContent = 'Evaluating Your Offer...';
+
+    if (!sessionStashService) return;
+
+    let settled = false;
+    const unsubscribe = sessionStashService.subscribe(pendingSessionId, resolve);
+    const intervalId = setInterval(() => {
+      const status = sessionStashService.getStatus(pendingSessionId);
+      if (status?.status === 'READY') resolve(status);
+    }, APPROVAL_POLL_INTERVAL_MS);
+
+    function resolve(entry) {
+      if (settled) return;
+      settled = true;
+      clearInterval(intervalId);
+      unsubscribe();
+      waitingSpinner.hidden = true;
+      waitingMessageEl.textContent = `Offer Ready! We can pay you ${currencyFormatter.format(entry.finalCounterOffer)} today.`;
+    }
+  }
+
   const form = h('form', { class: 'form form--mobile' }, [
     h('div', { class: 'form__row' }, [h('label', { text: 'VIN' }), vinInput]),
     h('div', { class: 'form__row form__row--split' }, [
@@ -123,7 +165,7 @@ export function renderSellerSubmissionView(controller) {
       const offerDocument = file ? await readFileAsBase64(file) : null;
       const data = new FormData(form);
 
-      controller.submitSubmission({
+      const { pendingSessionId } = controller.submitSubmission({
         vin: data.get('vin'),
         year: Number(data.get('year')),
         make: data.get('make'),
@@ -142,6 +184,10 @@ export function renderSellerSubmissionView(controller) {
       dropzoneLabel.textContent = 'Tap to take a photo or drop a PDF';
       statusEl.textContent = "Submitted! We'll let you know if we can beat that offer.";
       statusEl.classList.remove('form__status--error');
+
+      if (pendingSessionId) {
+        startWaitingForApproval(pendingSessionId);
+      }
     } catch (error) {
       statusEl.textContent = error.message;
       statusEl.classList.add('form__status--error');
@@ -150,9 +196,28 @@ export function renderSellerSubmissionView(controller) {
     }
   });
 
+  if (prefill) {
+    vinInput.value = prefill.vin ?? '';
+    yearInput.value = prefill.year ?? '';
+    makeInput.value = prefill.make ?? '';
+    modelInput.value = prefill.model ?? '';
+    trimInput.value = prefill.trim ?? '';
+    mileageInput.value = prefill.mileage ?? '';
+    zipInput.value = prefill.zipCode ?? '';
+    if (prefill.competitor) {
+      competitorSelect.value = prefill.competitor;
+    }
+    const isOther = competitorSelect.value === 'Other';
+    dealerNameRow.hidden = !isOther;
+    dealerNameInput.required = isOther;
+    dealerNameInput.value = prefill.competitorDealerName ?? '';
+    offerAmountInput.value = prefill.competitorOfferAmount ?? '';
+  }
+
   return h('section', { class: 'view', id: 'view-sell' }, [
     h('h2', { text: 'Sell Your Car' }),
     h('p', { class: 'view__subtitle', text: 'Got a better offer elsewhere? Show us and we may beat it.' }),
     form,
+    waitingScreen,
   ]);
 }

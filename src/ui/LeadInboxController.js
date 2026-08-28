@@ -11,7 +11,13 @@ function competitorLabel(submission) {
 }
 
 export class LeadInboxController {
-  constructor({ submissionService, telemetryService, ingestService, spreadConfigService = null } = {}) {
+  constructor({
+    submissionService,
+    telemetryService,
+    ingestService,
+    spreadConfigService = null,
+    sessionStashService = null,
+  } = {}) {
     if (!submissionService) {
       throw new Error('LeadInboxController requires a submissionService');
     }
@@ -26,6 +32,7 @@ export class LeadInboxController {
     this.telemetryService = telemetryService;
     this.ingestService = ingestService;
     this.spreadConfigService = spreadConfigService;
+    this.sessionStashService = sessionStashService;
   }
 
   resolveFairMarketValue(submission) {
@@ -100,6 +107,7 @@ export class LeadInboxController {
       timeToCounterMs,
     });
     const message = formatCounterOfferMessage({ submission, recommendedCounterOffer: counterOfferAmount });
+    this.sessionStashService?.resolveBySubmissionId?.(id, { finalCounterOffer: counterOfferAmount });
     return { submission, message };
   }
 

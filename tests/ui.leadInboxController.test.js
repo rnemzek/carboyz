@@ -108,6 +108,30 @@ test('approveAndSend marks the submission AUTO_COUNTER_SENT and formats the mess
   assert.equal(lead.status, 'AUTO_COUNTER_SENT');
 });
 
+test('approveAndSend resolves the session stash with the override amount when a sessionStashService is configured', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const resolveCalls = [];
+  const sessionStashService = {
+    resolveBySubmissionId: (id, patch) => resolveCalls.push({ id, ...patch }),
+  };
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService, sessionStashService });
+
+  controller.approveAndSend(created.id, 16000);
+
+  assert.equal(resolveCalls.length, 1);
+  assert.equal(resolveCalls[0].id, created.id);
+  assert.equal(resolveCalls[0].finalCounterOffer, 16000);
+});
+
+test('approveAndSend works without a sessionStashService configured', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  assert.doesNotThrow(() => controller.approveAndSend(created.id, 16000));
+});
+
 test('buildLeadViewModels applies a custom tier config from an injected spreadConfigService', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });

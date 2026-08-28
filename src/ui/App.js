@@ -10,12 +10,14 @@ import { DiscoveryService } from '../services/DiscoveryService.js';
 import { SubmissionService } from '../services/SubmissionService.js';
 import { SpreadConfigService } from '../services/SpreadConfigService.js';
 import { DispatchService } from '../services/DispatchService.js';
+import { SessionStashService } from '../services/SessionStashService.js';
 import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
 import { renderLeadInboxView } from './LeadInboxView.js';
 import { SpreadConfigController } from './SpreadConfigController.js';
 import { renderSpreadConfigView } from './SpreadConfigView.js';
+import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
 import {
   SEED_ANCHOR,
   CARBOYZ_HQ_DEALER_ID,
@@ -239,6 +241,14 @@ function renderTabs(activeTab, onSelect) {
     text: 'Admin',
     onClick: () => onSelect('admin'),
   });
+  const harnessBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'harness'),
+    text: 'Test Harness',
+    onClick: () => onSelect('harness'),
+  });
   const nav = h('nav', { class: 'tabs', role: 'tablist' }, [
     sellBtn,
     dealerBtn,
@@ -246,8 +256,9 @@ function renderTabs(activeTab, onSelect) {
     mapBtn,
     leadsBtn,
     adminBtn,
+    harnessBtn,
   ]);
-  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn };
+  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, harnessBtn };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -508,6 +519,7 @@ export function mountApp(root) {
     storage: window.localStorage,
     defaultTenantId: DEFAULT_TENANT_ID,
   });
+  let pendingPrefill = parsePrefillFromSearch(window.location.search);
   let activeTab = 'sell';
 
   function getTenantState(tenantId) {
@@ -518,6 +530,7 @@ export function mountApp(root) {
       const searchService = new SearchService({ dealers });
       const submissionService = new SubmissionService({ tenantId, storage: window.localStorage });
       const spreadConfigService = new SpreadConfigService({ tenantId, storage: window.localStorage });
+      const sessionStashService = new SessionStashService({ tenantId, storage: window.localStorage });
       const dispatchService = new DispatchService({
         submissionService,
         spreadConfigService,
@@ -532,6 +545,7 @@ export function mountApp(root) {
         searchService,
         submissionService,
         spreadConfigService,
+        sessionStashService,
         dispatchService,
       });
       if (tenantId === CARBOYZ_TENANT_ID) {
@@ -612,22 +626,32 @@ export function mountApp(root) {
       submissionService: state.submissionService,
       hapticsService,
       dispatchService: state.dispatchService,
+      sessionStashService: state.sessionStashService,
     });
     const leadInboxController = new LeadInboxController({
       submissionService: state.submissionService,
       telemetryService: state.telemetryService,
       ingestService: state.ingestService,
       spreadConfigService: state.spreadConfigService,
+      sessionStashService: state.sessionStashService,
     });
     const spreadConfigController = new SpreadConfigController({ spreadConfigService: state.spreadConfigService });
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
-    const sellView = renderSellerSubmissionView(sellerController);
+    const sellView = renderSellerSubmissionView(sellerController, {
+      sessionStashService: state.sessionStashService,
+      prefill: pendingPrefill,
+    });
+    pendingPrefill = null;
     const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController, {
       onSendCounter: (text) => shareService.share({ title: 'Counter Offer', text }),
     });
     const adminView = renderSpreadConfigView(spreadConfigController);
+    const harnessView = renderTestHarnessView({
+      sellerController,
+      submissionService: state.submissionService,
+    }).section;
     const dealerView = renderDealerStudioView(
       dealerController,
       state.dealers,
@@ -644,7 +668,7 @@ export function mountApp(root) {
 
     mapView.update(state.dealers, state.ingestService.getInventory());
 
-    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn } = renderTabs(activeTab, (tab) => {
+    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, harnessBtn } = renderTabs(activeTab, (tab) => {
       activeTab = tab;
       sellView.hidden = tab !== 'sell';
       dealerView.hidden = tab !== 'dealer';
@@ -652,12 +676,14 @@ export function mountApp(root) {
       mapView.section.hidden = tab !== 'map';
       leadsView.hidden = tab !== 'leads';
       adminView.hidden = tab !== 'admin';
+      harnessView.hidden = tab !== 'harness';
       sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
       dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
       buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
       mapBtn.setAttribute('aria-selected', String(tab === 'map'));
       leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
       adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
+      harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
       if (tab === 'map') mapView.mount();
       if (tab === 'leads') refreshLeadsView();
     });
@@ -667,6 +693,7 @@ export function mountApp(root) {
     mapView.section.hidden = activeTab !== 'map';
     leadsView.hidden = activeTab !== 'leads';
     adminView.hidden = activeTab !== 'admin';
+    harnessView.hidden = activeTab !== 'harness';
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
@@ -677,6 +704,7 @@ export function mountApp(root) {
       mapView.section,
       leadsView,
       adminView,
+      harnessView,
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();
