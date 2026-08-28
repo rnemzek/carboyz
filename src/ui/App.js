@@ -555,14 +555,7 @@ export function mountApp(root) {
         notifier: createDistroNotifier(),
       });
       const analyticsService = new AnalyticsService({ submissionService });
-      const syncAdapter = new SyncAdapter({ tenantId, wsUrl: window.CARBOYZ_SYNC_WS_URL || null });
-      syncAdapter.on('SUBMISSION_SYNCED', () => {
-        hapticsService.vibrate();
-        render();
-      });
-      syncAdapter.on('TENANT_POLICY_SYNCED', () => render());
-      syncAdapter.connect();
-      tenantStateByTenantId.set(tenantId, {
+      const state = {
         dealers,
         telemetryService,
         ingestService,
@@ -572,8 +565,20 @@ export function mountApp(root) {
         sessionStashService,
         dispatchService,
         analyticsService,
-        syncAdapter,
+        syncAdapter: null,
+        syncToast: null,
+      };
+      const syncAdapter = new SyncAdapter({ tenantId, wsUrl: window.CARBOYZ_SYNC_WS_URL || null });
+      syncAdapter.on('SUBMISSION_SYNCED', (payload) => {
+        submissionService.receiveExternalSubmission(payload);
+        hapticsService.vibrate();
+        state.syncToast = { message: 'New lead received in cell' };
+        render();
       });
+      syncAdapter.on('TENANT_POLICY_SYNCED', () => render());
+      syncAdapter.connect();
+      state.syncAdapter = syncAdapter;
+      tenantStateByTenantId.set(tenantId, state);
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
         seedLocalDealers(ingestService);
@@ -652,6 +657,7 @@ export function mountApp(root) {
       hapticsService,
       dispatchService: state.dispatchService,
       sessionStashService: state.sessionStashService,
+      syncAdapter: state.syncAdapter,
     });
     const leadInboxController = new LeadInboxController({
       submissionService: state.submissionService,
@@ -671,9 +677,12 @@ export function mountApp(root) {
       tenantConfig: activeTenantConfig,
     });
     pendingPrefill = null;
+    const activeSyncToast = state.syncToast;
+    state.syncToast = null;
     const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController, {
       onSendCounter: (text) => shareService.share({ title: 'Counter Offer', text }),
       tenantConfig: activeTenantConfig,
+      syncToast: activeSyncToast,
     });
     const adminView = renderSpreadConfigView(spreadConfigController);
     const { section: analyticsView, refresh: refreshAnalyticsView } = renderAnalyticsView(analyticsController);

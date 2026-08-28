@@ -143,7 +143,23 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
   return h('article', { class: 'card' }, [top, meta, offers, actions]);
 }
 
-export function renderLeadInboxView(controller, { onSendCounter, tenantConfig } = {}) {
+function renderSyncToast(syncToast) {
+  if (!syncToast) {
+    return null;
+  }
+  const toast = h('div', {
+    class: 'sync-toast',
+    role: 'status',
+    'aria-live': 'polite',
+    text: syncToast.message ?? 'New lead received in cell',
+  });
+  setTimeout(() => {
+    toast.hidden = true;
+  }, 4000);
+  return toast;
+}
+
+export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, syncToast = null } = {}) {
   const list = h('div', { class: 'card-list' });
   const { overlay: documentModal, open: openDocumentModal } = renderDocumentModal();
   const sentMessageOverrides = new Map();
@@ -195,6 +211,7 @@ export function renderLeadInboxView(controller, { onSendCounter, tenantConfig } 
   const section = h('section', { class: 'view', id: 'view-leads' }, [
     h('h2', { text: 'Lead Inbox' }),
     h('p', { class: 'view__subtitle', text: 'Submitted offers, scored against market comps.' }),
+    renderSyncToast(syncToast),
     list,
     documentModal,
   ]);

@@ -125,3 +125,22 @@ test('getSubmission returns the matching submission by id, or null when not foun
   assert.equal(controller.getSubmission(submission.id), submission);
   assert.equal(controller.getSubmission('nope'), null);
 });
+
+test('submitSubmission broadcasts the created submission through a configured syncAdapter', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const calls = [];
+  const syncAdapter = { submitSubmissionCreated: (payload) => calls.push(payload) };
+  const controller = new SellerSubmissionController({ submissionService, syncAdapter });
+
+  const { submission } = controller.submitSubmission(baseData());
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].id, submission.id);
+});
+
+test('submitSubmission works without a syncAdapter configured', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const controller = new SellerSubmissionController({ submissionService });
+
+  assert.doesNotThrow(() => controller.submitSubmission(baseData()));
+});

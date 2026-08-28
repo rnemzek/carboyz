@@ -86,3 +86,42 @@ test('is a safe no-op without storage — submissions still work for the current
   assert.doesNotThrow(() => service.submit(baseData()));
   assert.equal(service.getSubmissions().length, 1);
 });
+
+test('receiveExternalSubmission adds a synced submission arriving with an id already assigned', () => {
+  const storage = makeFakeStorage();
+  const service = new SubmissionService({ tenantId: 't1', storage });
+
+  const result = service.receiveExternalSubmission({
+    ...baseData(),
+    id: 't1-sub-99',
+    timestamp: '2026-08-28T00:00:00.000Z',
+    status: 'NEW',
+  });
+
+  assert.equal(result.id, 't1-sub-99');
+  assert.equal(service.getSubmissions().length, 1);
+  const rehydrated = new SubmissionService({ tenantId: 't1', storage });
+  assert.equal(rehydrated.getSubmissions()[0].id, 't1-sub-99');
+});
+
+test('receiveExternalSubmission ignores a duplicate id already present locally', () => {
+  const service = new SubmissionService({ tenantId: 't1' });
+  const created = service.submit(baseData());
+
+  const result = service.receiveExternalSubmission({ ...created, id: created.id });
+
+  assert.equal(result, null);
+  assert.equal(service.getSubmissions().length, 1);
+});
+
+test('receiveExternalSubmission ignores payloads without an id or that fail Submission validation', () => {
+  const service = new SubmissionService({ tenantId: 't1' });
+
+  assert.equal(service.receiveExternalSubmission(null), null);
+  assert.equal(service.receiveExternalSubmission({}), null);
+  assert.equal(
+    service.receiveExternalSubmission({ ...baseData(), id: 't1-sub-1', timestamp: '2026-08-28T00:00:00.000Z', competitor: 'NotReal' }),
+    null,
+  );
+  assert.equal(service.getSubmissions().length, 0);
+});

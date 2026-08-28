@@ -370,6 +370,16 @@ body {
   background: var(--color-underpriced);
 }
 
+.sync-toast {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--color-primary);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
 .card__counter-input {
   font-size: 1rem;
   padding: 8px 10px;

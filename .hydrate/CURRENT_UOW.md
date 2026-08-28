@@ -6,25 +6,24 @@ Working Directory (absolute): /Users/rnemzek/Projects/personal/carboyz
 
 ## Target Task Scope
 
-### UOW-20 — Cellular Tenant Backend & Real-Time WebSocket Sync Service (Epic 1 Phase 1)
+### UOW-21 — Multi-Tenant Mobile Intake & Desktop Inbox Sync UI Integration (Epic 1 Phase 2)
 
 **Objective**
-Implement a lightweight Hono-based Node.js backend service with WebSocket relay support to enable real-time, cross-device submission and state synchronization across isolated tenant cells, while maintaining `BroadcastChannel` as an offline/local fallback.
+Wire the `SyncAdapter` service built in UOW-20 into the CarBoyZ PWA UI layers (SolidJS/ESM modules), connecting real-time submission creation on mobile phone intake views to live inbox state updates on desktop lead management dashboards.
 
 **Acceptance Criteria**
-1. **Cellular Hono Backend Service (`src/server/index.js`)**:
-   - HTTP ingress server powered by Hono (`@hono/node-server`).
-   - Tenant isolation routing via `/api/v1/tenants/:tenantId`.
-   - Endpoint `/api/v1/health` returning `{ status: "ok", uptime: number }`.
-2. **WebSocket Real-Time Sync Server (`src/server/wsRelay.js`)**:
-   - Tenant-scoped WebSocket client room connections.
-   - Broadcast events (`SUBMISSION_CREATED`, `POLICY_UPDATED`) across connected clients in the same `tenantId` room.
-3. **Client Sync Adapter (`src/services/SyncAdapter.js`)**:
-   - Dependency-injected service managing client transport state.
-   - Dual-mode sync: connects to WebSocket when online, falls back to `BroadcastChannel` offline.
-4. **Testing & Coverage (`tests/server.test.js`, `tests/syncAdapter.test.js`)**:
-   - Maintain ≥80% test coverage on new server/adapter modules.
-   - Server integration tests spinning up ephemeral port for WS broadcasts.
-   - All existing tests pass.
+1. **SyncAdapter UI Binding**:
+   - Instantiate and initialize `SyncAdapter` inside main application bootstrap (`src/ui/App.js` or core controller).
+   - Ensure tenant routing key (`tenantId`) is resolved from URL parameters (`?tenant=X`), subdomain context, or localized store settings.
+2. **Real-Time Intake Emission**:
+   - Updating vehicle appraisal or lead submission forms in mobile view triggers `SyncAdapter.broadcast('SUBMISSION_CREATED', payload)`.
+   - Form submission operates seamlessly offline via `BroadcastChannel` local fallback when socket connectivity drops.
+3. **Desktop Lead Inbox Real-Time Refresh**:
+   - Desktop lead inbox component listens for `SUBMISSION_SYNCED` events and updates the lead stream reactivity without requiring a full manual page refresh.
+   - Show an subtle inline UI toast/indicator ("New lead received in cell") upon remote event reception.
+4. **Testing & Quality Gates**:
+   - Unit/component tests covering `SyncAdapter` UI event handling in `tests/ui/syncIntegration.test.js`.
+   - Maintain ≥80% line and branch test coverage on new UI controller code.
+   - All existing test suites pass (`npm test`).
 5. **Log Completion**:
    - Append execution summary directly to `docs/SYSTEM.md` (Section 4: Decision & Execution Log).

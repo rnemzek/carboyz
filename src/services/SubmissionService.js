@@ -61,6 +61,23 @@ export class SubmissionService {
     return [...this.submissions];
   }
 
+  receiveExternalSubmission(data) {
+    if (!data?.id || this.submissions.some((submission) => submission.id === data.id)) {
+      return null;
+    }
+
+    let submission;
+    try {
+      submission = new Submission(data);
+    } catch {
+      return null;
+    }
+
+    this.submissions.push(submission);
+    writeSubmissions(this.storage, this.tenantId, this.submissions);
+    return submission;
+  }
+
   updateFields(id, patch) {
     const index = this.submissions.findIndex((submission) => submission.id === id);
     if (index === -1) {
