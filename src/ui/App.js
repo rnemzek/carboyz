@@ -11,12 +11,15 @@ import { SubmissionService } from '../services/SubmissionService.js';
 import { SpreadConfigService } from '../services/SpreadConfigService.js';
 import { DispatchService } from '../services/DispatchService.js';
 import { SessionStashService } from '../services/SessionStashService.js';
+import { AnalyticsService } from '../services/AnalyticsService.js';
 import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
 import { renderLeadInboxView } from './LeadInboxView.js';
 import { SpreadConfigController } from './SpreadConfigController.js';
 import { renderSpreadConfigView } from './SpreadConfigView.js';
+import { AnalyticsController } from './AnalyticsController.js';
+import { renderAnalyticsView } from './AnalyticsView.js';
 import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
 import {
   SEED_ANCHOR,
@@ -241,6 +244,14 @@ function renderTabs(activeTab, onSelect) {
     text: 'Admin',
     onClick: () => onSelect('admin'),
   });
+  const analyticsBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'analytics'),
+    text: 'Analytics',
+    onClick: () => onSelect('analytics'),
+  });
   const harnessBtn = h('button', {
     class: 'tabs__button',
     type: 'button',
@@ -256,9 +267,10 @@ function renderTabs(activeTab, onSelect) {
     mapBtn,
     leadsBtn,
     adminBtn,
+    analyticsBtn,
     harnessBtn,
   ]);
-  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, harnessBtn };
+  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, analyticsBtn, harnessBtn };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -538,6 +550,7 @@ export function mountApp(root) {
         ingestService,
         notifier: createDistroNotifier(),
       });
+      const analyticsService = new AnalyticsService({ submissionService });
       tenantStateByTenantId.set(tenantId, {
         dealers,
         telemetryService,
@@ -547,6 +560,7 @@ export function mountApp(root) {
         spreadConfigService,
         sessionStashService,
         dispatchService,
+        analyticsService,
       });
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
@@ -636,6 +650,7 @@ export function mountApp(root) {
       sessionStashService: state.sessionStashService,
     });
     const spreadConfigController = new SpreadConfigController({ spreadConfigService: state.spreadConfigService });
+    const analyticsController = new AnalyticsController({ analyticsService: state.analyticsService });
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
@@ -648,6 +663,7 @@ export function mountApp(root) {
       onSendCounter: (text) => shareService.share({ title: 'Counter Offer', text }),
     });
     const adminView = renderSpreadConfigView(spreadConfigController);
+    const { section: analyticsView, refresh: refreshAnalyticsView } = renderAnalyticsView(analyticsController);
     const harnessView = renderTestHarnessView({
       sellerController,
       submissionService: state.submissionService,
@@ -668,31 +684,38 @@ export function mountApp(root) {
 
     mapView.update(state.dealers, state.ingestService.getInventory());
 
-    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, harnessBtn } = renderTabs(activeTab, (tab) => {
-      activeTab = tab;
-      sellView.hidden = tab !== 'sell';
-      dealerView.hidden = tab !== 'dealer';
-      buyerView.hidden = tab !== 'buyer';
-      mapView.section.hidden = tab !== 'map';
-      leadsView.hidden = tab !== 'leads';
-      adminView.hidden = tab !== 'admin';
-      harnessView.hidden = tab !== 'harness';
-      sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
-      dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
-      buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
-      mapBtn.setAttribute('aria-selected', String(tab === 'map'));
-      leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
-      adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
-      harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
-      if (tab === 'map') mapView.mount();
-      if (tab === 'leads') refreshLeadsView();
-    });
+    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, analyticsBtn, harnessBtn } = renderTabs(
+      activeTab,
+      (tab) => {
+        activeTab = tab;
+        sellView.hidden = tab !== 'sell';
+        dealerView.hidden = tab !== 'dealer';
+        buyerView.hidden = tab !== 'buyer';
+        mapView.section.hidden = tab !== 'map';
+        leadsView.hidden = tab !== 'leads';
+        adminView.hidden = tab !== 'admin';
+        analyticsView.hidden = tab !== 'analytics';
+        harnessView.hidden = tab !== 'harness';
+        sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
+        dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
+        buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
+        mapBtn.setAttribute('aria-selected', String(tab === 'map'));
+        leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
+        adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
+        analyticsBtn.setAttribute('aria-selected', String(tab === 'analytics'));
+        harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
+        if (tab === 'map') mapView.mount();
+        if (tab === 'leads') refreshLeadsView();
+        if (tab === 'analytics') refreshAnalyticsView();
+      },
+    );
     sellView.hidden = activeTab !== 'sell';
     dealerView.hidden = activeTab !== 'dealer';
     buyerView.hidden = activeTab !== 'buyer';
     mapView.section.hidden = activeTab !== 'map';
     leadsView.hidden = activeTab !== 'leads';
     adminView.hidden = activeTab !== 'admin';
+    analyticsView.hidden = activeTab !== 'analytics';
     harnessView.hidden = activeTab !== 'harness';
 
     const app = h('div', { class: 'app' }, [
@@ -704,6 +727,7 @@ export function mountApp(root) {
       mapView.section,
       leadsView,
       adminView,
+      analyticsView,
       harnessView,
     ]);
     root.replaceChildren(app);

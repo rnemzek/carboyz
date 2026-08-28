@@ -1001,3 +1001,29 @@ New "Test Harness" tab (always visible, same as the existing unconditional "Admi
 - `tests/qrEncoder.test.js`, `tests/sessionStashService.test.js`, `tests/ui.testHarnessView.test.js` (new); `tests/ui.sellerSubmissionController.test.js`, `tests/ui.leadInboxController.test.js` (extended)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-15 scope and architecture; UOW-14's prior content archived to `.hydrate/archive/UOW-14.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-16] — Analytics & Win/Loss Reporting Dashboard
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 365 tests, 362 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). 20 new tests across `tests/analyticsService.test.js` and `tests/ui.analyticsController.test.js`. Coverage on touched modules: `AnalyticsService.js` 100%/98.41%, `AnalyticsController.js` 100%/100% (quality gate: 80%). `AnalyticsView.js`'s DOM-rendering function is intentionally untested, same tier as `LeadInboxView.js`/`SpreadConfigView.js`/`TestHarnessView.js`'s render functions — verified instead via a live Playwright browser test drive: navigated to the new Analytics tab (empty state, zero console errors), seeded 50 historical leads from the Test Harness tab, confirmed KPI cards/competitor table/price-bracket table/approval-split bar all populate with correct real numbers (50 volume, 50% win rate, $19,753 total margin, 28%/72% auto/human split), then exercised both the Date Range filter (Last 7 Days correctly narrowed to 6 recent-seeded submissions) and the Competitor filter (CarMax narrowed to 25 rows) — all with zero console/page errors.
+- **Design decision — fixed 3-bucket price-tier reporting, independent of the stored `priceBracket` field:** the ticket's "$0–$15k / $15k–$30k / $30k+" reporting buckets are computed fresh off `competitorOfferAmount` (`priceTierForAmount` in `AnalyticsService.js`), not read from `submission.priceBracket` — that stored field is a free-text label derived from whatever spread-tier config was active at dispatch time (e.g. `"$4,500-$5,500"`) and isn't a stable 3-bucket scheme, so it can't answer "how many leads fall in $0–$15k" consistently across tenants/configs.
+- **Design decision — `winRate`/`avgResponseTimeMs`/margin totals are null/zero-safe, not `NaN`-prone:** every aggregation function in `AnalyticsService.js` guards its denominator (`0` for rate/percent fields, `null` — not `0` — for averages with no data, since "no data yet" needs to render as "—" rather than a misleading "$0"/"0s" in the KPI cards).
+- **Scope note:** read-only over submission data — no changes to `Submission.js`, `SubmissionService.js`, `DispatchService.js`, or any other existing service/controller.
+
+### `src/services/AnalyticsService.js` (new)
+Pure exported functions (`resolveSinceDate`, `priceTierForAmount`, `competitorLabel`, `filterSubmissions`, `computeConversionMetrics`, `computeSpeedToLead`, `computeMarginTotals`, `computeCompetitorMatrix`, `computePriceTierDistribution`, `computeApprovalSplit`, `computeMetrics`) plus a thin `AnalyticsService` class (`getMetrics`, `getCompetitorLabels`) reading live submissions through `submissionService.getSubmissions()` — same pure-functions-plus-class-wrapper tier as `DispatchService.js`.
+
+### `src/ui/AnalyticsController.js` / `src/ui/AnalyticsView.js` (new)
+Controller mirrors the thin `SpreadConfigController.js` shape (`getDateRangePresets`, `getCompetitorOptions`, `buildViewModel`). View renders KPI cards (Total Volume, Win Rate, Avg Response Time, Total Expected Margin), a Competitor Comparison table, a Price Bracket Distribution table, and an Approval Method Split bar, all behind Date Range / Competitor filter `<select>`s that re-invoke `controller.buildViewModel(...)` on change — same `renderX(controller)` → `{ section, refresh }` pattern as `renderLeadInboxView`.
+
+### `src/ui/App.js` (extended)
+New "Analytics" nav tab (8th tab, after Admin and before Test Harness) following the exact `renderTabs` pattern; per-tenant `AnalyticsService` instance wired alongside the other tenant-scoped services; tab-select calls `refreshAnalyticsView()` so switching in always reflects the latest submissions.
+
+### Files added/modified
+- `src/services/AnalyticsService.js` (new)
+- `src/ui/AnalyticsController.js` (new)
+- `src/ui/AnalyticsView.js` (new)
+- `src/ui/App.js` (modified — Analytics tab, analyticsService wiring)
+- `src/ui/styles.css` (modified — `.kpi-row`/`.kpi-card`, `.data-table`, `.data-bar`, `.approval-split-bar`)
+- `tests/analyticsService.test.js`, `tests/ui.analyticsController.test.js` (new)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-16 scope and architecture; UOW-15's prior content archived to `.hydrate/archive/UOW-15.md`)
+- `docs/journals/dev-journal.md` (logged)
