@@ -30,3 +30,14 @@ test('createTenantConfig accepts a tagline override', () => {
   const config = createTenantConfig({ tagline: 'Deals you can trust.' });
   assert.equal(config.tagline, 'Deals you can trust.');
 });
+
+test('createTenantConfig defaults iconSet to null', () => {
+  const config = createTenantConfig();
+  assert.equal(config.iconSet, null);
+});
+
+test('createTenantConfig accepts an iconSet override', () => {
+  const iconSet = { appleTouchIcon: 'data:apple', manifestIcon192: 'data:192', manifestIcon512: 'data:512' };
+  const config = createTenantConfig({ iconSet });
+  assert.deepEqual(config.iconSet, iconSet);
+});

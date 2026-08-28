@@ -19,6 +19,11 @@ test('themeToCssVariables maps known theme color keys to CSS custom property nam
   });
 });
 
+test('themeToCssVariables maps the accent key to --color-accent', () => {
+  const variables = themeToCssVariables({ accent: '#ff8800' });
+  assert.deepEqual(variables, { '--color-accent': '#ff8800' });
+});
+
 test('themeToCssVariables omits keys that are not present in the input', () => {
   const variables = themeToCssVariables({ primary: '#111111' });
   assert.deepEqual(variables, { '--color-primary': '#111111' });

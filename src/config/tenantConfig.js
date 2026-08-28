@@ -15,6 +15,7 @@ export const DEFAULT_TENANT_CONFIG = Object.freeze({
   name: 'Carboyz',
   tagline: '',
   logoUrl: '',
+  iconSet: null,
   themeColors: DEFAULT_THEME_COLORS,
   contact: DEFAULT_CONTACT,
 });

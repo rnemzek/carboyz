@@ -21,6 +21,9 @@ import { renderSpreadConfigView } from './SpreadConfigView.js';
 import { AnalyticsController } from './AnalyticsController.js';
 import { renderAnalyticsView } from './AnalyticsView.js';
 import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
+import { TenantConfigService } from '../services/TenantConfigService.js';
+import { renderBottomNavView } from './BottomNavView.js';
+import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
 import {
   SEED_ANCHOR,
   CARBOYZ_HQ_DEALER_ID,
@@ -29,7 +32,6 @@ import {
   LOCAL_DEALERS,
   seedLocalDealers,
 } from '../utils/seedInventory.js';
-import { applyTenantTheme } from './theme.js';
 import { getBrandInitials } from './branding.js';
 import { discoveryStageLabel } from './discoveryProgress.js';
 import { DealerStudioController } from './DealerStudioController.js';
@@ -523,6 +525,7 @@ export function mountApp(root) {
   const dealersByTenant = buildDealersByTenant();
   const hapticsService = new HapticsService();
   const shareService = new ShareService();
+  const tenantConfigService = new TenantConfigService();
   const tenantStateByTenantId = new Map();
   const mapView = renderMapView();
 
@@ -626,8 +629,7 @@ export function mountApp(root) {
   }
 
   function render() {
-    applyTenantTheme(activeTenantConfig);
-    document.title = activeTenantConfig.name;
+    tenantConfigService.applyTenant(activeTenantConfig);
 
     const state = getTenantState(activeTenantConfig.tenantId);
     const dealerController = new DealerStudioController({
@@ -684,31 +686,37 @@ export function mountApp(root) {
 
     mapView.update(state.dealers, state.ingestService.getInventory());
 
+    function handleTabSelect(tab) {
+      activeTab = tab;
+      sellView.hidden = tab !== 'sell';
+      dealerView.hidden = tab !== 'dealer';
+      buyerView.hidden = tab !== 'buyer';
+      mapView.section.hidden = tab !== 'map';
+      leadsView.hidden = tab !== 'leads';
+      adminView.hidden = tab !== 'admin';
+      analyticsView.hidden = tab !== 'analytics';
+      harnessView.hidden = tab !== 'harness';
+      sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
+      dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
+      buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
+      mapBtn.setAttribute('aria-selected', String(tab === 'map'));
+      leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
+      adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
+      analyticsBtn.setAttribute('aria-selected', String(tab === 'analytics'));
+      harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
+      bottomNavButtons.forEach((button, buttonTab) => {
+        button.setAttribute('aria-selected', String(tab === buttonTab));
+      });
+      if (tab === 'map') mapView.mount();
+      if (tab === 'leads') refreshLeadsView();
+      if (tab === 'analytics') refreshAnalyticsView();
+    }
+
     const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, analyticsBtn, harnessBtn } = renderTabs(
       activeTab,
-      (tab) => {
-        activeTab = tab;
-        sellView.hidden = tab !== 'sell';
-        dealerView.hidden = tab !== 'dealer';
-        buyerView.hidden = tab !== 'buyer';
-        mapView.section.hidden = tab !== 'map';
-        leadsView.hidden = tab !== 'leads';
-        adminView.hidden = tab !== 'admin';
-        analyticsView.hidden = tab !== 'analytics';
-        harnessView.hidden = tab !== 'harness';
-        sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
-        dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
-        buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
-        mapBtn.setAttribute('aria-selected', String(tab === 'map'));
-        leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
-        adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
-        analyticsBtn.setAttribute('aria-selected', String(tab === 'analytics'));
-        harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
-        if (tab === 'map') mapView.mount();
-        if (tab === 'leads') refreshLeadsView();
-        if (tab === 'analytics') refreshAnalyticsView();
-      },
+      (tab) => handleTabSelect(tab),
     );
+    const { nav: bottomNav, buttons: bottomNavButtons } = renderBottomNavView(activeTab, (tab) => handleTabSelect(tab));
     sellView.hidden = activeTab !== 'sell';
     dealerView.hidden = activeTab !== 'dealer';
     buyerView.hidden = activeTab !== 'buyer';
@@ -717,6 +725,8 @@ export function mountApp(root) {
     adminView.hidden = activeTab !== 'admin';
     analyticsView.hidden = activeTab !== 'analytics';
     harnessView.hidden = activeTab !== 'harness';
+
+    const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
@@ -729,6 +739,8 @@ export function mountApp(root) {
       adminView,
       analyticsView,
       harnessView,
+      bottomNav,
+      a2hsPrompt?.el,
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();

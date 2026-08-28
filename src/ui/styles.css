@@ -1119,3 +1119,99 @@ body {
   font-size: 0.85rem;
   color: var(--color-secondary);
 }
+
+.bottom-nav {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+}
+
+.bottom-nav__button {
+  flex: 1;
+  border: none;
+  background: none;
+  color: var(--color-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 8px 4px;
+  border-radius: var(--radius);
+}
+
+.bottom-nav__button[aria-selected='true'] {
+  color: var(--color-primary);
+  background: var(--color-background);
+}
+
+.a2hs-drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: calc(var(--spacing) * 1.5) var(--spacing) calc(var(--spacing) * 1.5 + env(safe-area-inset-bottom));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.a2hs-drawer__logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.a2hs-drawer__logo--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: var(--color-on-primary, #ffffff);
+  font-weight: 700;
+}
+
+.a2hs-drawer__title {
+  font-weight: 600;
+}
+
+.a2hs-drawer__steps {
+  text-align: left;
+  font-size: 0.85rem;
+  color: var(--color-secondary);
+  padding-left: 1.2em;
+  margin: 0;
+}
+
+.a2hs-drawer__dismiss {
+  border: none;
+  background: none;
+  color: var(--color-secondary);
+  font-size: 0.8rem;
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .tabs {
+    display: none;
+  }
+
+  .bottom-nav {
+    display: flex;
+  }
+
+  /* Bottom nav occupies the viewport's bottom edge on mobile, so the A2HS drawer
+     stacks directly above it instead of overlapping it. */
+  .a2hs-drawer {
+    bottom: calc(52px + env(safe-area-inset-bottom));
+  }
+}

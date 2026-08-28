@@ -1,0 +1,9 @@
+{
+  "name": "Carboyz",
+  "short_name": "Carboyz",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0057d9",
+  "icons": []
+}

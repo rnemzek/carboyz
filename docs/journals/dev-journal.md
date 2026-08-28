@@ -1027,3 +1027,48 @@ New "Analytics" nav tab (8th tab, after Admin and before Test Harness) following
 - `tests/analyticsService.test.js`, `tests/ui.analyticsController.test.js` (new)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-16 scope and architecture; UOW-15's prior content archived to `.hydrate/archive/UOW-15.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-17] — White-Labeling Engine & Mobile PWA Ergonomics
+- **Date:** 8/27/2026
+- **Status:** Complete. `npm test` 392 tests, 389 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11's entry (confirmed identical failures, nothing new). New/extended coverage across `tests/iconNormalizer.test.js`, `tests/tenantConfigService.test.js`, `tests/pwaInstallPromptView.test.js`, `tests/tenantConfig.test.js`, `tests/ui.theme.test.js`. Coverage: `TenantConfigService.js` 93.52%/96.88% (quality gate: 80%); `iconNormalizer.js`'s and `PwaInstallPromptView.js`'s pure/testable exports are 100% branch-covered — each file's DOM/Canvas/Image-touching functions (`loadImageElement`, `renderIconCanvas`, `normalizeIconSet`, `renderPwaInstallPromptView`) are the same untested tier as `TestHarnessView.js`'s `renderTestHarnessView`/`AnalyticsView.js`'s `renderAnalyticsView`, so file-level coverage numbers are diluted by design, not by gap — same exemption precedent used since UOW-15/16. Verified with a live Playwright browser test drive (script run against `npm start`, both a 1200×800 desktop viewport and a 390×844 iOS-Safari-UA mobile viewport): desktop keeps the top tab bar and hides `.bottom-nav`; mobile hides `.tabs` and shows the 4-button bottom nav; switching brands (CarBoyZ → Summit Auto) live-updates `<title>` and `<meta name="theme-color">` with zero console errors; the A2HS drawer renders under the spoofed iOS UA with 3 steps, dismiss removes it and the dismissal survives a reload (localStorage-backed).
+- **Bug found and fixed during the browser test drive — A2HS drawer overlapped and blocked the bottom nav bar:** both `.a2hs-drawer` and `.bottom-nav` are `position: fixed; bottom: 0`, so on a mobile viewport the drawer sat on top of the nav bar and ate its click events (Playwright's click on the "Analytics" bottom-nav button timed out with "`.a2hs-drawer` intercepts pointer events"). Fixed by raising `.a2hs-drawer`'s `bottom` offset to clear the bottom nav's height inside the same `max-width: 640px` media query that shows the bottom nav.
+- **Scope decision — `TenantConfigService` composes the existing tenant trio, it doesn't replace it:** `src/config/tenantConfig.js` (shape), `TenantRegistry.js` (lookup/storage), and `src/ui/theme.js` (`applyTenantTheme` → `:root` CSS vars) were left untouched apart from two additive fields (`tenantConfig.iconSet`, `theme.js`'s new `accent` → `--color-accent` key). `TenantConfigService` owns only the `<head>` side effects (title/meta/icon-links/manifest-link) that didn't exist anywhere in the codebase before this UOW, and delegates to `applyTenantTheme` internally rather than reimplementing CSS-var application.
+- **Scope decision — icon normalization uses "contain" (letterbox) layout, not "cover" (crop):** `computeContainLayout` in `iconNormalizer.js` scales the whole source image to fit inside a padded safe-area box, centered — a crop-to-square "cover" strategy would cut off wide/tall logos, which is the wrong default for a logo-normalization tool.
+- **Scope decision — bottom nav's 4th slot is `admin` only; Test Harness stays desktop-only:** the ticket's "Admin / Test Harness" 4th slot doesn't cleanly split across two bottom-nav buttons without either a 5-item bar or an ambiguous combined control. Test Harness is a QA/dev tool, not a field-ops destination, so it was dropped from the curated mobile set; the full 8-tab top nav (Test Harness included) is only hidden below the 640px breakpoint, so tablet/desktop retain full access.
+- **Scope decision — no default icon assets shipped:** `TenantConfigService` only injects `<link rel="apple-touch-icon">`/`<link rel="icon" sizes="...">` tags when a tenant's `iconSet` is present. All 3 seed presets ship with `iconSet: null` (no design assets provided) — this is expected until an admin flow (out of scope for this UOW; no AC asked for one) runs `normalizeIconSet` against a real logo upload.
+
+### `src/utils/iconNormalizer.js` (new)
+`ICON_SPECS` (180/192/512), pure `resolveIconSpec`/`computeContainLayout` (tested), plus DOM/Canvas/Image-dependent `loadImageElement`/`renderIconCanvas`/`canvasToPngDataUrl`/`normalizeIconSet` (untested, same tier as View-layer render functions) — `normalizeIconSet(input)` is the full orchestrator producing the `{ appleTouchIcon, manifestIcon192, manifestIcon512 }` data-URL map stored as `tenantConfig.iconSet`.
+
+### `src/services/TenantConfigService.js` (new)
+Pure `buildManifestObject(tenantConfig)` plus `TenantConfigService` class (`applyTenant`/`applyManifest`) — DI'd `document`/`createManifestUrl`/`revokeManifestUrl` (same injectable-target precedent as `theme.js`'s `applyTenantTheme`) so head-mutation logic is fully unit-tested against a fake `document` without touching real Canvas/Blob APIs. Sets `document.title`, upserts `<meta name="theme-color">`, upserts apple-touch-icon/manifest-icon `<link>`s when `iconSet` is present, and swaps a Blob-URL-backed `<link rel="manifest">` per tenant (revoking the prior URL on each switch).
+
+### `src/ui/BottomNavView.js` (new)
+`BOTTOM_NAV_ITEMS` (Intake→`sell`, Lead Inbox→`leads`, Analytics→`analytics`, Admin→`admin`) + untested `renderBottomNavView(activeTab, onSelect)` DOM function, same shape/tier as `App.js`'s own `renderTabs`.
+
+### `src/ui/PwaInstallPromptView.js` (new)
+Pure `detectA2hsPlatform`/`buildA2hsCopy`/`shouldShowA2hsPrompt`/`readA2hsDismissed`/`writeA2hsDismissed` (tested) plus untested `renderPwaInstallPromptView` DOM function — same mixed pure+DOM shape as `TestHarnessView.js`.
+
+### `src/config/tenantConfig.js` / `src/ui/theme.js` (extended)
+Additive `iconSet: null` default on `DEFAULT_TENANT_CONFIG`; additive `accent` → `--color-accent` entry in `theme.js`'s `CSS_VARIABLE_BY_COLOR_KEY`.
+
+### `src/ui/App.js` (extended)
+Shared `TenantConfigService` instance replaces the old inline `applyTenantTheme`+`document.title` pair in `render()`; tab-select logic extracted into a named `handleTabSelect` closure shared by both `renderTabs` and `renderBottomNavView` so both navs' active state stays in sync from one place; A2HS drawer mounted/re-evaluated each `render()` call.
+
+### `index.html` / `manifest.webmanifest` (new/extended)
+Added a static baseline `manifest.webmanifest` (icon-less) and `<link rel="manifest">` in `index.html` for pre-JS PWA installability; `TenantConfigService` swaps the link's `href` to a per-tenant generated manifest at runtime.
+
+### Files added/modified
+- `src/utils/iconNormalizer.js` (new)
+- `src/services/TenantConfigService.js` (new)
+- `src/ui/BottomNavView.js` (new)
+- `src/ui/PwaInstallPromptView.js` (new)
+- `src/config/tenantConfig.js` (modified — `iconSet` field)
+- `src/ui/theme.js` (modified — `accent` CSS var key)
+- `src/ui/App.js` (modified — `TenantConfigService`/`BottomNavView`/`PwaInstallPromptView` wiring, shared `handleTabSelect`)
+- `src/ui/styles.css` (modified — `.bottom-nav*`, `.a2hs-drawer*`, mobile breakpoint media query)
+- `index.html` (modified — `<link rel="manifest">`)
+- `manifest.webmanifest` (new)
+- `tests/iconNormalizer.test.js`, `tests/tenantConfigService.test.js`, `tests/pwaInstallPromptView.test.js` (new); `tests/tenantConfig.test.js`, `tests/ui.theme.test.js` (extended)
+- `.hydrate/CURRENT_UOW.md` (updated with UOW-17 scope and architecture; UOW-16's prior content archived to `.hydrate/archive/UOW-16.md`)
+- `docs/journals/dev-journal.md` (logged)

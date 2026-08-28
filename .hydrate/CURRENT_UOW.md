@@ -13,116 +13,161 @@ See AI_PROJECT_RULES.md at repo root (Operating Triad Contract, Quality Gates, S
 
 ## Target Task Scope & Active Sprint
 
-### UOW-16 — Analytics & Win/Loss Reporting Dashboard
+### UOW-17 — White-Labeling Engine & Mobile PWA Ergonomics
 
 **Objective**
-Build a dedicated Analytics Dashboard inside the Admin Portal that leverages the telemetry data captured in UOW-14 and seeded in UOW-15. The dashboard visualizes conversion rates, margin spreads, speed-to-lead performance, and competitor win/loss breakdowns.
+Implement dynamic white-labeling with an in-browser icon normalization utility, bottom mobile navigation bar, and A2HS (Add to Home Screen) onboarding drawer.
 
 **Acceptance Criteria** (as given by Product Owner)
-1. Analytics Service Layer (`src/services/AnalyticsService.js`) — process raw `Submission` records (including seeded historical leads) and compute: win/loss conversion rate, average speed-to-lead broken down by `AUTO_DISPATCH` vs. `HUMAN_APPROVED`, total expected margin captured across won deals, competitor win-rate matrix, and price-tier volume/conversion distribution.
-2. Analytics Dashboard UI (`src/ui/AnalyticsView.js` / `AnalyticsController.js`) — dedicated "Analytics" nav tab; KPI cards (Total Volume, Win Rate %, Avg Response Time, Total Expected Margin); competitor comparison table; price-bracket distribution table; approval-method split; date-range and competitor filter controls.
-3. `tests/analyticsService.test.js` covering metrics calculations, empty/null safety, and filtering logic. ≥80% line/branch coverage. Full `npm test` regression pass + Playwright/manual browser check.
+1. Canvas-Based Icon Processing Utility (`src/utils/iconNormalizer.js`) — accepts raw image files or URLs (SVG/PNG/JPG), renders onto an HTML5 Canvas centering the logo inside a square with safe-area padding, generates normalized PNG outputs for apple-touch-icon (180×180) and manifest icons (192×192, 512×512).
+2. Dynamic Tenant Branding Service (`src/services/TenantConfigService.js`) — stores tenant profiles, applies theme properties to `:root` CSS vars, dynamically updates `<title>`, `<meta name="theme-color">`, `<link rel="apple-touch-icon">`, and Web App Manifest links in `<head>`.
+3. Mobile Bottom Navigation Bar (`src/ui/BottomNavView.js`) — replaces top header tabs on mobile viewports with a persistent bottom tab bar (Intake, Lead Inbox, Analytics, Admin), safe-area bottom padding.
+4. PWA A2HS Onboarding (`src/ui/PwaInstallPromptView.js`) — non-intrusive bottom drawer explaining the 3-tap "Add to Home Screen" flow for iOS Safari / Android Chrome, tenant-branded.
 
 ### Prior UOW
-UOW-15's staged content archived to `.hydrate/archive/UOW-15.md` (shipped and committed as `8c819c4`).
+UOW-16's staged content archived to `.hydrate/archive/UOW-16.md` (shipped and committed as `31d3675`).
 
 ### Architecture (Lead Architect step)
 
-This UOW **is** Fast-Path eligible for the service/controller layer (pure, additive, no schema or breaking-contract changes) but the UI layer adds one new nav tab, following the exact precedent set by the `harness` tab in UOW-15 — no new architectural pattern is introduced.
+Fast-Path eligible: additive across all four surfaces, no breaking changes to existing service/controller contracts. Reconciliation note up front — the repo already has `src/config/tenantConfig.js` (shape + `createTenantConfig`), `src/config/TenantRegistry.js` (per-tenant storage/lookup), and `src/ui/theme.js` (`applyTenantTheme` → `:root` CSS vars). `TenantConfigService` does **not** duplicate any of these — it composes them and owns exactly the `<head>` side effects (title/meta/icon-links/manifest-link) that don't exist yet anywhere in the codebase.
 
 ---
 
-#### 1. Data Model — no changes
+#### 1. `src/utils/iconNormalizer.js` — pure layout math + thin canvas/image I/O
 
-No changes to `Submission.js`. Every field the dashboard needs already exists on `Submission` (from UOW-14/15): `competitor`, `competitorDealerName`, `competitorOfferAmount`, `finalCounterOffer`, `expectedMargin`, `timeToCounterMs`, `winLossStatus`, `approvalType`, `timestamp`. The ticket's "$0–$15k / $15k–$30k / $30k+" price brackets are a **fixed reporting bucketing**, distinct from the stored `submission.priceBracket` string (which is derived from configurable per-competitor spread tiers, e.g. `"$4,500-$5,500"`, and isn't a stable 3-bucket scheme). Analytics buckets independently off `competitorOfferAmount` (always present, non-negative, validated at construction — see `Submission.js` — so no null-guard needed there specifically, unlike the optional telemetry fields).
-
----
-
-#### 2. `src/services/AnalyticsService.js` — pure functions + thin class wrapper
-
-Same tier/shape as `DispatchService.js`: exported pure functions (unit-testable in isolation, no DOM, no storage) plus a class that wires them to a live `submissionService`.
+Split for testability, same precedent as `TestHarnessView.js` (pure exports tested, DOM-touching `renderX` untested) — canvas/`Image`/`FileReader` have no Node equivalent, so only the geometry is unit-tested.
 
 **Exported constants:**
-- `PRICE_TIERS` — 3 entries: `{ key, label, min, max }` — `0–15000` / `15000–30000` / `30000–null` (open-ended top bucket), labels `'$0–$15k'` / `'$15k–$30k'` / `'$30k+'`.
-- `DATE_RANGE_PRESETS` — `{ LAST_7_DAYS, LAST_30_DAYS, ALL_TIME }` string enum.
+- `ICON_SPECS = [{ key: 'appleTouchIcon', size: 180 }, { key: 'manifestIcon192', size: 192 }, { key: 'manifestIcon512', size: 512 }]`
 
-**Exported pure functions:**
-- `resolveSinceDate(preset, now = new Date())` → `Date | null` (`null` for `ALL_TIME`, meaning "no lower bound").
-- `priceTierForAmount(amount)` → the matching `PRICE_TIERS` entry (last bucket catches everything ≥ its `min`).
-- `competitorLabel(submission)` → mirrors the existing `competitorLabel` helper duplicated in `DispatchService.js`/`LeadInboxController.js` (`Other` + `competitorDealerName` when present) — a third small duplication is consistent with this codebase's existing precedent (both of those already re-implement it locally rather than sharing an import) rather than introducing a new shared-utils indirection unrequested by this UOW.
-- `filterSubmissions(submissions, { since = null, competitor = null } = {})` → filters by `timestamp >= since` (when `since` is non-null) and by `competitorLabel(submission) === competitor` (when `competitor` is non-null/non-empty).
-- `computeConversionMetrics(submissions)` → `{ total, won, lost, winRate }`; `winRate = won / (won + lost)`, `0` when no closed deals (empty-safe, no `NaN`).
-- `computeSpeedToLead(submissions)` → `{ overallAvgMs, autoDispatchAvgMs, humanApprovedAvgMs }`, each averaged over submissions with a non-null numeric `timeToCounterMs` (sliced further by `approvalType` for the two breakdown fields); `null` (not `0`/`NaN`) when the relevant slice is empty — "no data" must be visually distinct from "0ms" in the UI.
-- `computeMarginTotals(submissions)` → `{ totalExpectedMargin }`, summing `expectedMargin` only over `winLossStatus === 'WON'` submissions with a non-null numeric `expectedMargin` (margin is only actually "captured" on a won deal).
-- `computeCompetitorMatrix(submissions)` → one row per distinct `competitorLabel` present in the input, each `{ competitor, volume, avgCounterOffer, winRate, totalMargin }` (`avgCounterOffer` over non-null `finalCounterOffer`; `winRate`/`totalMargin` reuse the two functions above scoped to that competitor's slice).
-- `computePriceTierDistribution(submissions)` → one row per `PRICE_TIERS` entry (all 3 always present, even at `volume: 0`, so the UI table never collapses a bucket), each `{ tier, label, volume, winRate }`.
-- `computeApprovalSplit(submissions)` → `{ autoDispatchCount, humanApprovedCount, autoDispatchPct, humanApprovedPct }`, scoped to submissions with a non-null `approvalType` (undispatched submissions don't count toward either side); percentages `0` when no dispatched submissions exist.
-- `computeMetrics(submissions)` → single aggregate object combining all of the above, shaped exactly as the KPI-card/table props the view consumes: `{ totalVolume, winRate, won, lost, avgResponseTimeMs, speedToLead, totalExpectedMargin, competitorMatrix, priceTierDistribution, approvalSplit }`.
+**Pure, testable:**
+- `resolveIconSpec(key)` → matching `ICON_SPECS` entry, throws `Unknown icon spec: ${key}` if not found.
+- `computeContainLayout(sourceWidth, sourceHeight, canvasSize, paddingRatio = 0.12)` → `{ drawWidth, drawHeight, dx, dy }`. **"Contain", not "cover"** — the whole logo is scaled to fit inside a `canvasSize * (1 - 2*paddingRatio)` safe-area box, preserving aspect ratio, centered via `dx`/`dy`. (A crop-to-square "cover" strategy would cut off wide/tall logos, which is wrong for a logo-normalization tool.) Covers square/wide/tall source branches plus `paddingRatio` variation.
 
-**Class:**
+**DOM-dependent, untested (same tier as View-layer render functions):**
+- `loadImageElement(input)` → async; `input` is a `File`/`Blob` (read via `FileReader`/`createObjectURL`) or a `string` URL (assigned directly to `new Image().src` — the canvas rasterizes SVG/PNG/JPG uniformly once loaded); resolves on `load`, rejects on `error`.
+- `renderIconCanvas(image, size, paddingRatio)` → new `size×size` canvas, `computeContainLayout` off `image.naturalWidth`/`naturalHeight`, `ctx.drawImage(image, dx, dy, drawWidth, drawHeight)`, returns the canvas.
+- `canvasToPngDataUrl(canvas)` → `canvas.toDataURL('image/png')`.
+- `normalizeIconSet(input, { paddingRatio = 0.12 } = {})` → async orchestrator: loads the image once, renders+exports all 3 `ICON_SPECS`, returns `{ appleTouchIcon, manifestIcon192, manifestIcon512 }` (data-URL strings) — **this exact shape is `tenantConfig.iconSet`**, consumed by `TenantConfigService`.
+
+Not wired into any upload UI in this UOW (no AC asks for one) — it's a standalone utility exercised by its own tests; `TenantConfigService`/tenant presets treat `iconSet` as optional and gracefully no-op icon-link updates when absent.
+
+---
+
+#### 2. `src/config/tenantConfig.js` — additive field only
+
+Add `iconSet: null` to `DEFAULT_TENANT_CONFIG` and pass through in `createTenantConfig` via a plain top-level override (no nested-merge needed — `iconSet` is either `null` or a flat 3-key data-URL map, unlike `themeColors`/`contact`). Extend existing `tests/tenantConfig.test.js` with default/override assertions (no new test file).
+
+#### 2b. `src/ui/theme.js` — additive `accent` color key
+
+Add `accent: '--color-accent'` to `CSS_VARIABLE_BY_COLOR_KEY` (the AC explicitly names `--color-accent` alongside `--color-primary`). Stays optional/undefined-filtered exactly like `surface`/`border`/`onPrimary` today — no change to `DEFAULT_THEME_COLORS`. One assertion added to existing `tests/ui.theme.test.js`.
+
+---
+
+#### 3. `src/services/TenantConfigService.js`
+
+Same DI-for-testability precedent as `theme.js`'s injectable `target` — constructor takes an injectable `document`-like object (defaults to the real `document`) plus an injectable manifest-blob factory so tests never depend on Node's `Blob`/`URL.createObjectURL` support.
+
 ```
-export class AnalyticsService {
-  constructor({ submissionService } = {}) // throws 'AnalyticsService requires a submissionService' if missing
-  getMetrics({ since = null, competitor = null } = {})   // filters live submissions, returns computeMetrics(...)
-  getCompetitorLabels()                                   // distinct competitorLabel(...) values present, sorted — powers the filter <select>
+export function buildManifestObject(tenantConfig)
+  // pure, testable: { name, short_name, description, start_url: '/', display: 'standalone',
+  //   background_color, theme_color, icons: [...] } — icons array includes an entry only for each
+  //   iconSet.manifestIcon192/512 that is present (0, 1, or 2 entries); background_color/theme_color
+  //   fall back to sane defaults when themeColors is sparse.
+
+export class TenantConfigService {
+  constructor({ document = (typeof document !== 'undefined' ? document : null),
+                createManifestUrl = defaultCreateManifestUrl } = {})
+  applyTenant(tenantConfig)
+    // no-op if this.document is null (SSR/non-browser, same safety precedent as applyTenantTheme).
+    // 1. applyTenantTheme(tenantConfig, this.document.documentElement)  — delegates, no duplication
+    // 2. this.document.title = tenantConfig.name
+    // 3. upsert <meta name="theme-color"> content = themeColors.primary
+    // 4. if iconSet.appleTouchIcon: upsert <link rel="apple-touch-icon" href=...>
+    // 5. if iconSet.manifestIcon192 / manifestIcon512: upsert matching <link rel="icon" sizes="...">
+    // 6. revoke the previously created manifest URL (if any), build buildManifestObject(tenantConfig),
+    //    createManifestUrl(manifestObject) → href, upsert <link rel="manifest" href=...>
 }
 ```
 
+`upsertMetaTag`/`upsertLinkTag` are small private helpers: find by `document.head.querySelector('meta[name=...]')` / `('link[rel=...][sizes=...]')`, update `content`/`href` in place if found, else `document.createElement` + `head.appendChild`.
+
+`defaultCreateManifestUrl(manifestObject)` — real implementation: `URL.createObjectURL(new Blob([JSON.stringify(manifestObject)], { type: 'application/manifest+json' }))`.
+
 ---
 
-#### 3. `src/ui/AnalyticsController.js`
+#### 4. `src/ui/BottomNavView.js`
 
-Same thin shape as `SpreadConfigController.js`:
+Untested DOM-rendering tier (same as `renderTabs` in `App.js` itself, `AnalyticsView.js`, `LeadInboxView.js` — none of these have dedicated test files).
+
 ```
-export class AnalyticsController {
-  constructor({ analyticsService }) // throws if missing
-  getDateRangePresets()             // Object.values(DATE_RANGE_PRESETS)
-  getCompetitorOptions()            // analyticsService.getCompetitorLabels()
-  buildViewModel({ dateRange = DATE_RANGE_PRESETS.ALL_TIME, competitor = null } = {})
-    // → analyticsService.getMetrics({ since: resolveSinceDate(dateRange), competitor })
-}
+export const BOTTOM_NAV_ITEMS = [
+  { tab: 'sell', label: 'Intake' },
+  { tab: 'leads', label: 'Lead Inbox' },
+  { tab: 'analytics', label: 'Analytics' },
+  { tab: 'admin', label: 'Admin' },
+];
+export function renderBottomNavView(activeTab, onSelect) → { nav, buttons }  // buttons: Map<tab, HTMLButtonElement>
 ```
 
----
+**Scope decision — 4th slot is `admin` only, Test Harness stays desktop-only:** the ticket lists "Admin / Test Harness" as one slot but a bottom bar only has room for 4 destinations matching the other 3 named tabs 1:1. Test Harness is a QA/dev tool, not a field-ops destination, so it's dropped from the curated mobile set rather than jammed into a shared button with unclear tap targets. The existing top `nav.tabs` (all 8 tabs, Test Harness included) is only hidden below the mobile breakpoint — tablet/desktop retain full access, and "hidden below breakpoint" is reversible/inspectable in the CSS if the Product Owner wants it revisited.
 
-#### 4. `src/ui/AnalyticsView.js` — `renderAnalyticsView(controller)` → `{ section, refresh }`
-
-Untested DOM-rendering tier (same precedent as `renderLeadInboxView`/`renderSpreadConfigView` — only the controller and pure service functions are unit-tested).
-
-- **Filter row**: date-range `<select>` (3 `DATE_RANGE_PRESETS` options) + competitor `<select>` (`'All Competitors'` + `controller.getCompetitorOptions()`), both re-invoking `renderMetrics()` on `change`.
-- **KPI row** (`.kpi-row` of `.kpi-card`): Total Volume, Win Rate % (`winRate * 100`, 1 decimal), Avg Response Time (`avgResponseTimeMs / 1000`, rounded seconds, "—" when `null`), Total Expected Margin (currency-formatted).
-- **Competitor Comparison table** (`.data-table`): Competitor | Volume | Avg Counter | Win Rate % | Total Margin, one row per `competitorMatrix` entry, win-rate cell rendered with a CSS data-bar (`.data-bar` wrapping a `.data-bar__fill` sized by inline `style.width`, matching the `--pct` pattern already established for spread-tier visuals... — see `styles.css` addition below) — empty state row when `competitorMatrix` is empty.
-- **Price Bracket Distribution table**: Bracket | Volume | Win Rate %, one row per `priceTierDistribution` entry (always 3 rows).
-- **Approval Method Split**: single horizontal two-segment bar (`Auto-Dispatched` vs. `Human-Approved`, from `approvalSplit.autoDispatchPct`/`humanApprovedPct`) plus a text readout under it.
-
-`refresh()` re-reads filter `<select>` values, calls `controller.buildViewModel(...)`, and re-renders all of the above in place (same `list.replaceChildren()` + rebuild pattern as `renderLeadInboxView`/`renderSpreadConfigView`'s `renderSections`).
+**CSS (`styles.css`):** `.bottom-nav` fixed to viewport bottom, `display: none` by default; `.bottom-nav__button`; media query `@media (max-width: 640px) { .tabs { display: none; } .bottom-nav { display: flex; } }`. Safe-area: `padding-bottom: calc(8px + env(safe-area-inset-bottom));` (viewport meta already has `viewport-fit=cover` in `index.html` — no change needed there).
 
 ---
 
-#### 5. `App.js` wiring
+#### 5. `src/ui/PwaInstallPromptView.js`
 
-- Import `AnalyticsService`, `AnalyticsController`, `renderAnalyticsView`.
-- `getTenantState()`: instantiate `new AnalyticsService({ submissionService })` per tenant alongside the other tenant-scoped services (no storage dependency of its own — it only reads through `submissionService`).
-- 8th nav tab, `'analytics'` → **"Analytics"**, added after `'admin'` and before `'harness'`, following the exact `renderTabs` button/`aria-selected`/visibility-toggle pattern used for all existing tabs (no new gating concept).
-- `render()`: `new AnalyticsController({ analyticsService: state.analyticsService })`, `renderAnalyticsView(analyticsController)`, wire `.hidden` toggling + call `refresh()` on tab-select (same as `leads`' `refreshLeadsView()` today) so switching into the tab always reflects the latest submissions/seeded data.
+Mixed file, same precedent as `TestHarnessView.js` (pure exports tested, `renderX` DOM function untested).
+
+**Pure, testable:**
+- `detectA2hsPlatform({ userAgent = '', standalone = false } = {})` → `'ios-safari' | 'android-chrome' | 'unsupported'`. `standalone: true` → always `'unsupported'` (already installed). iOS Safari: UA matches `/iphone|ipad|ipod/i` and `/safari/i` and NOT `/crios|fxios|edgios/i` (other iOS browsers can't drive native A2HS this way). Android Chrome: `/android/i` and `/chrome/i`. Else `'unsupported'`.
+- `buildA2hsCopy(platform, tenantConfig)` → `{ title, steps: [3 strings] }` tenant-branded (`Add ${tenantConfig.name} to your Home Screen`), platform-specific 3-tap steps; `null` for `'unsupported'`.
+- `shouldShowA2hsPrompt({ platform, dismissed })` → `platform !== 'unsupported' && !dismissed`.
+- `A2HS_STORAGE_KEY = 'carboyz:a2hsDismissed'`, `readA2hsDismissed(storage)` / `writeA2hsDismissed(storage)` — try/catch-guarded exactly like `tenantResolution.js`'s storage helpers (silent no-op on unavailable storage).
+
+**DOM-dependent, untested:**
+- `renderPwaInstallPromptView({ tenantConfig, window = globalThis, storage = window?.localStorage } = {})` → detects platform via `window.navigator.userAgent` + `window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone`; if `shouldShowA2hsPrompt(...)` is false, returns `null` (caller doesn't mount anything); else builds the bottom drawer (tenant logo/name via `getBrandInitials`/`logoUrl`, `copy.title`, ordered `copy.steps`, dismiss button wired to `writeA2hsDismissed(storage)` + `el.remove()`).
 
 ---
 
-#### 6. `src/ui/styles.css` additions
+#### 6. `App.js` wiring
 
-`.kpi-row` / `.kpi-card` (flex/grid row of stat tiles), `.data-table` (reuse existing table conventions if any, else minimal border-collapse styling), `.data-bar` / `.data-bar__fill` (simple CSS width-percentage bar, no new dependency), `.approval-split-bar` (two-segment flex bar). Theme-consistent with existing `styles.css` custom properties — no hardcoded colors outside the existing palette variables.
+- Import `TenantConfigService`, `renderBottomNavView`, `BOTTOM_NAV_ITEMS`, `renderPwaInstallPromptView`.
+- One shared `const tenantConfigService = new TenantConfigService();` at `mountApp` scope (document-singleton, not per-tenant).
+- `render()`: replace the existing `applyTenantTheme(activeTenantConfig); document.title = ...;` pair with `tenantConfigService.applyTenant(activeTenantConfig);` (removes now-redundant lines; the service calls `applyTenantTheme` internally, so no duplication).
+- Extract the tab-select logic already inline in `renderTabs`'s 3rd arg into a named `handleTabSelect(tab)` closure inside `render()`, used as the `onSelect` callback for **both** `renderTabs` and `renderBottomNavView`, keeping both navs' `aria-selected`/active state and the view-section `.hidden` toggling in one place (no duplicated switch logic).
+- Mount `renderBottomNavView(activeTab, handleTabSelect).nav` alongside the existing top `nav` in the `app` div.
+- Mount the A2HS drawer: `const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig }); const app = h('div', {...}, [..., a2hsPrompt?.el].filter(Boolean));` — re-evaluated each `render()` call (tenant switch, discovery scan completion) so branding/dismissal state stays current; not on a tighter loop since nothing else re-renders more often than that today.
+
+---
+
+#### 7. `index.html` / new `manifest.webmanifest`
+
+- Add `manifest.webmanifest` at repo root: minimal icon-less static baseline (`name`, `short_name`, `start_url`, `display`, `theme_color`, `background_color`) so PWA installability has a valid manifest before JS runs.
+- Add `<link rel="manifest" href="/manifest.webmanifest">` to `index.html` `<head>`. `TenantConfigService.applyTenant()` swaps this link's `href` to a per-tenant Blob-URL manifest at runtime (icons array populated only when `iconSet` is present). Existing `<meta name="theme-color" content="#0057d9">` is reused/updated in place, not duplicated.
+- No default apple-touch-icon/manifest-icon binary assets are added (no design assets provided, out of scope) — `TenantConfigService` simply skips those `<link>` upserts when a tenant's `iconSet` is `null`, which is the case for all 3 seed presets until someone runs the normalizer.
 
 ---
 
 ### Testing Summary (new)
-- `tests/analyticsService.test.js` (new): `resolveSinceDate` for all 3 presets; `priceTierForAmount` boundary values (14999/15000/29999/30000/100000); `filterSubmissions` by `since` and by `competitor` (including `Other`+dealer-name label matching); `computeConversionMetrics`/`computeSpeedToLead`/`computeMarginTotals`/`computeApprovalSplit` empty-array safety (no `NaN`, `null` vs `0` distinction per spec above); `computeCompetitorMatrix` and `computePriceTierDistribution` against a small fixture set with known expected aggregates; `computeMetrics` end-to-end shape check; `AnalyticsService` class — constructor throws without `submissionService`, `getMetrics` filtering delegates correctly, `getCompetitorLabels` dedupes/sorts.
-- Regression: full `npm test` must stay green (pre-existing `locationAdapter.test.js` env flakes remain the only expected failures, per every prior UOW's journal entry).
-- Coverage: 80% line/branch standard applies to `AnalyticsService.js` and `AnalyticsController.js`.
+- `tests/iconNormalizer.test.js` (new) — `resolveIconSpec` (found + unknown-key throw), `computeContainLayout` across square/wide/tall sources and varying `paddingRatio`.
+- `tests/tenantConfigService.test.js` (new) — `buildManifestObject` (icons present/absent permutations, fallback colors); `TenantConfigService.applyTenant` against an injected fake `document` (title set, meta upsert-vs-create, apple-touch-icon/manifest-icon links only created when `iconSet` present, manifest link href swapped via injected `createManifestUrl`); safe no-op with `document: null`.
+- `tests/pwaInstallPromptView.test.js` (new) — `detectA2hsPlatform` (iOS Safari, iOS Chrome→unsupported, Android Chrome, standalone→unsupported, desktop UA→unsupported), `buildA2hsCopy` per platform incl. tenant-name interpolation, `shouldShowA2hsPrompt` truth table, `readA2hsDismissed`/`writeA2hsDismissed` storage-unavailable safety.
+- `tests/tenantConfig.test.js` (extended) — `iconSet` default `null`, override passthrough.
+- `tests/ui.theme.test.js` (extended) — `accent` → `--color-accent` mapping.
+- No dedicated test files for `BottomNavView.js` or the `render*` half of `PwaInstallPromptView.js` — untested View tier, consistent with `AnalyticsView.js`/`LeadInboxView.js`/`SpreadConfigView.js`/`App.js`'s own `renderTabs`.
+- Regression: full `npm test` must stay green (pre-existing `tests/locationAdapter.test.js` env flakes remain the only expected failures, per every prior UOW's journal entry).
+- Coverage: 80% line/branch standard applies to `iconNormalizer.js`'s pure exports, `TenantConfigService.js`, and `PwaInstallPromptView.js`'s pure exports.
+- Manual/Playwright browser check: load app, confirm bottom nav appears at a mobile viewport width and drives the same tab state as the top nav; confirm A2HS drawer renders under a spoofed iOS/Android UA and dismiss persists across a reload; confirm switching the brand-switcher updates `<title>`/`<meta theme-color>`/manifest link href with zero console errors.
 
 ### Other file touches
-- `src/ui/styles.css` — additive only (§6).
-- No changes to `Submission.js`, `SubmissionService.js`, `DispatchService.js`, `TestHarnessView.js`, or any other existing service/controller — this UOW is read-only over submission data.
-- No changes to `index.html`/`package.json` (no new dependency).
+- `src/config/tenantConfig.js` — additive `iconSet` field (§2).
+- `src/ui/theme.js` — additive `accent` CSS var key (§2b).
+- `src/ui/styles.css` — additive only (`.bottom-nav*`, `.a2hs-drawer*`, mobile breakpoint media query).
+- `index.html` — add `<link rel="manifest">`.
+- `manifest.webmanifest` — new static baseline file.
+- No changes to `TenantRegistry.js`, `tenantResolution.js`, `Submission.js`, `SubmissionService.js`, `DispatchService.js`, `AnalyticsService.js`, or any other existing service/controller.
 
 ## Execution Instruction
 Architecture fully specified above. Lead Developer (Claude Code) to proceed directly with implementation and verification per Fast-Path Protocol §3 (One-Shot Context Transition) — no secondary plan-approval cycle required before writing code.

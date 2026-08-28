@@ -6,6 +6,7 @@ const CSS_VARIABLE_BY_COLOR_KEY = {
   surface: '--color-surface',
   border: '--color-border',
   onPrimary: '--color-on-primary',
+  accent: '--color-accent',
 };
 
 export function themeToCssVariables(themeColors = {}) {
