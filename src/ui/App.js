@@ -22,6 +22,7 @@ import { AnalyticsController } from './AnalyticsController.js';
 import { renderAnalyticsView } from './AnalyticsView.js';
 import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
 import { TenantConfigService } from '../services/TenantConfigService.js';
+import { SyncAdapter } from '../services/SyncAdapter.js';
 import { renderBottomNavView } from './BottomNavView.js';
 import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
 import {
@@ -554,6 +555,13 @@ export function mountApp(root) {
         notifier: createDistroNotifier(),
       });
       const analyticsService = new AnalyticsService({ submissionService });
+      const syncAdapter = new SyncAdapter({ tenantId, wsUrl: window.CARBOYZ_SYNC_WS_URL || null });
+      syncAdapter.on('SUBMISSION_SYNCED', () => {
+        hapticsService.vibrate();
+        render();
+      });
+      syncAdapter.on('TENANT_POLICY_SYNCED', () => render());
+      syncAdapter.connect();
       tenantStateByTenantId.set(tenantId, {
         dealers,
         telemetryService,
@@ -564,6 +572,7 @@ export function mountApp(root) {
         sessionStashService,
         dispatchService,
         analyticsService,
+        syncAdapter,
       });
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);

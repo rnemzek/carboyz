@@ -8,12 +8,16 @@
   "scripts": {
     "test": "node --test",
     "prestart": "node scripts/generate-runtime-config.js && node scripts/vendor-spatial-core.js",
-    "start": "npx serve . -p ${PORT:-8080}"
+    "start": "npx serve . -p ${PORT:-8080}",
+    "start:server": "node src/server/index.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@nemzilla/spatial-core": "file:../spatial-core"
+    "@hono/node-server": "^2.1.1",
+    "@nemzilla/spatial-core": "file:../spatial-core",
+    "hono": "^4.13.5",
+    "ws": "^8.21.3"
   }
 }

@@ -1127,3 +1127,33 @@ Additive `.vin-input-row`, `.scanner-modal*` (viewport/video/reticle/status/fall
 - `tests/vinScanner.test.js` (new)
 - `.hydrate/CURRENT_UOW.md` (updated with UOW-19 scope and architecture; UOW-18's prior content archived to `.hydrate/archive/UOW-18.md`)
 - `docs/journals/dev-journal.md` (logged)
+
+## [UOW-20] — Cellular Tenant Backend & Real-Time WebSocket Sync Service
+- **Date:** 8/28/2026
+- **Status:** Complete. `npm test` 465 tests, 462 pass — the same 3 pre-existing, unrelated `tests/locationAdapter.test.js` env-dependent flakes noted since UOW-11 (confirmed identical failures, nothing new). New coverage: `tests/server.test.js` (14 tests), `tests/syncAdapter.test.js` (16 tests). Coverage: `src/server/index.js` 91.67% line / 91.67% branch / 87.50% funcs, `src/server/wsRelay.js` 96.49% line / 90.63% branch / 100.00% funcs, `src/services/SyncAdapter.js` 93.59% line / 88.68% branch / 95.83% funcs (quality gate: 80%).
+- **First real network/server dependency in this codebase:** everything shipped prior to this UOW was a zero-dependency, offline-first, static-served PWA. This UOW adds `hono`, `@hono/node-server`, and `ws` as Node-only server-process dependencies (never vendored/shipped to the browser — `src/server/*` runs only under `npm run start:server`) while every client-side module (`SyncAdapter.js`) stays zero-dependency ESM with DI, matching the existing `TenantConfigService`/`SessionStashService` precedent.
+- **Scope decision — SyncAdapter defaults to BroadcastChannel until a relay is actually deployed:** `App.js` reads an optional `window.CARBOYZ_SYNC_WS_URL` global (not currently set anywhere) rather than hardcoding a relay URL, so today's deployment keeps working exactly as before (local-tab-only sync via `BroadcastChannel`) and cross-device sync activates automatically once that global is configured against a running `start:server` instance — no code change needed at that point.
+- **Bug found and fixed during verification — not a product bug:** `tests/server.test.js`'s "mismatched tenantId" integration test had an inverted assertion (`messages.length === 0` when the valid relayed message *does* also land in that same permanent listener, so the correct expectation is `1`). The failed assertion skipped the test's `clientA/clientB.close()` calls, and the `finally` block's `server.close()` then hung waiting on the still-open sockets — surfacing as an apparent multi-second "hang" rather than a fast, obvious failure. Fixed the assertion and made both integration tests close their sockets in `finally` regardless of outcome, so a future assertion failure fails fast instead of hanging. Also fixed a real resource leak in `tests/syncAdapter.test.js`: several tests constructed a `SyncAdapter` without an explicit `channel`, letting it auto-detect a *real* `BroadcastChannel` (which keeps Node's event loop alive until `.close()`); passed an explicit fake channel in each of those cases.
+
+### `src/server/index.js` (new)
+Hono HTTP app: `resolveTenantId(c)` chains route param → `?tenantId=` query → `x-tenant-id` header → host subdomain (skipping bare `localhost`/IP hosts and two-label domains with no subdomain), set into context by a global middleware. `GET /api/v1/health` → `{ status: 'ok', uptime }`; `GET /api/v1/tenants/:tenantId` → `{ tenantId }`. `startServer({ port })` boots `@hono/node-server`'s `serve()` and wires `createWsRelay` onto the same underlying `http.Server` for the `/ws` upgrade path; a `import.meta.url` guard runs it only when the file is executed directly (`node src/server/index.js`), not when imported by tests.
+
+### `src/server/wsRelay.js` (new)
+`createWsRelay({ server, path })` manages tenant-scoped rooms (`Map<tenantId, Set<ws>>`) on top of a `noServer: true` `ws.WebSocketServer`. `handleUpgrade` resolves `tenantId` from the `/ws` upgrade request's query string, destroying the socket (never upgrading) when the path or `tenantId` doesn't resolve. A `SUBMISSION_CREATED`/`POLICY_UPDATED` message is only rebroadcast to the rest of that tenant's room when its own `tenantId` field matches the room the sending socket actually joined — a spoofed or missing `tenantId`, an unrecognized `type`, or malformed JSON is silently dropped at the cell boundary per the architecture's protocol-framing decision.
+
+### `src/services/SyncAdapter.js` (new)
+DI'd, DOM-free dual-mode transport: `connect()` opens a WebSocket (`WebSocketClass` injected, defaulting to the global `WebSocket` when present) against `${wsUrl}?tenantId=...` when both `wsUrl` and a WebSocket implementation are available, and falls back to a tenant-scoped `BroadcastChannel` (same auto-detect/`channel: false`-opt-out precedent as `SessionStashService`) on any connect failure, error, or close — including when no `wsUrl` is configured at all. `submitSubmissionCreated`/`submitPolicyUpdated` send through whichever transport is currently live; incoming `SUBMISSION_CREATED`/`POLICY_UPDATED` messages (tenantId-checked, JSON-parse-guarded) re-emit as `SYNC_EVENTS.SUBMISSION_SYNCED`/`TENANT_POLICY_SYNCED` through a small `on`/`off`/`emit` pub-sub, mirroring `SessionStashService.subscribe`'s unsubscribe-function return shape.
+
+### `src/ui/App.js` (extended)
+Each tenant's `getTenantState()` now also constructs a `SyncAdapter({ tenantId, wsUrl: window.CARBOYZ_SYNC_WS_URL || null })`, wires `SUBMISSION_SYNCED`/`TENANT_POLICY_SYNCED` to a haptic buzz + `render()`, and calls `.connect()` immediately — additive, no changes to `SubmissionService`/`DispatchService`/`SpreadConfigService`, which stay out of this UOW's file-touch scope; outbound `submitSubmissionCreated`/`submitPolicyUpdated` calls are available on the adapter for a future UOW to wire into the actual submission/policy mutation paths.
+
+### Files added/modified
+- `package.json` (modified — `hono`, `@hono/node-server`, `ws` dependencies; `start:server` script)
+- `package-lock.json` (modified — dependency resolution)
+- `src/server/index.js` (new)
+- `src/server/wsRelay.js` (new)
+- `src/services/SyncAdapter.js` (new)
+- `src/ui/App.js` (modified — `SyncAdapter` initialized per tenant)
+- `tests/server.test.js` (new)
+- `tests/syncAdapter.test.js` (new)
+- `docs/journals/dev-journal.md` (logged)
