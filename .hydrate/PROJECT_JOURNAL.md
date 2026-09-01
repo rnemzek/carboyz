@@ -18,4 +18,5 @@
 - [x] **UOW-AUTOSUGGEST:** Auto-Suggest Location Picker
 - [x] **UOW-PROCEDURAL:** Procedural Regional Dealer Seeding Engine
 - [x] **[UOW-21]** Regional Dealer Seeding & PWA Offline Sync — 2026-08-28 | Pass: 34/34 tests
+- [x] **[UOW-22]** LocationAdapter Network Assertion Repair — 2026-09-01 | Pass: 476/476 tests
 

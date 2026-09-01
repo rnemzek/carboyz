@@ -1,6 +1,18 @@
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveLocationQuery, searchLocationSuggestions, describeCoordinates } from '../src/adapters/locationAdapter.js';
+
+// Tests below rely on "no apiKey option" meaning "no API key configured" so the offline-gazetteer
+// fallback is deterministic. Neutralize any ambient GOOGLE_PLACES_API_KEY (e.g. from a developer's
+// shell or .env.local) for the duration of this file so that guarantee holds regardless of host env.
+let savedApiKey;
+before(() => {
+  savedApiKey = process.env.GOOGLE_PLACES_API_KEY;
+  delete process.env.GOOGLE_PLACES_API_KEY;
+});
+after(() => {
+  if (savedApiKey !== undefined) process.env.GOOGLE_PLACES_API_KEY = savedApiKey;
+});
 
 function fakeGooglePlacesResponse(overrides = {}) {
   return {
