@@ -186,7 +186,9 @@ function renderPairingCard(controller) {
       return;
     }
 
-    const svgMarkup = renderQrSvg(encodeQrMatrix(url));
+    // Lowest supported error-correction level keeps the payload at the smallest QR
+    // version for a given URL length, producing large, camera-friendly modules.
+    const svgMarkup = renderQrSvg(encodeQrMatrix(url, { errorCorrectionLevel: 'L' }));
     qrContainer.innerHTML = svgMarkup;
     statusEl.textContent = 'Waiting for a mobile device to scan...';
 

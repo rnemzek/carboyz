@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { encodeQrMatrix, renderQrSvg, ALIGNMENT_POSITIONS } from '../src/utils/qrEncoder.js';
 
 function expectedFinderCell(dr, dc) {
@@ -150,4 +152,49 @@ test('renderQrSvg marks the root SVG for crisp, unblurred edge rendering', () =>
   const matrix = encodeQrMatrix('crisp edges check', { errorCorrectionLevel: 'L' });
   const svg = renderQrSvg(matrix);
   assert.match(svg, /^<svg[^>]*\sshape-rendering="crispEdges"/);
+});
+
+test('encodeQrMatrix defaults to error correction level L, the lowest-overhead/most-compact level', () => {
+  const withDefault = encodeQrMatrix('https://app.example.com/sell?sessionId=pair-abc123');
+  const withExplicitL = encodeQrMatrix('https://app.example.com/sell?sessionId=pair-abc123', {
+    errorCorrectionLevel: 'L',
+  });
+  assert.deepEqual(withDefault, withExplicitL);
+});
+
+test('encodeQrMatrix at level L never chooses a larger version than level M for the same payload (compact matrix density)', () => {
+  // A realistic mobile-pairing URL: origin + path + a generated pairingSessionId.
+  const pairingUrl = 'https://dealer-portal.carboyz.app/sell?sessionId=pair-a1b2c3d4e5f6-1738372929292';
+  const levelL = encodeQrMatrix(pairingUrl, { errorCorrectionLevel: 'L' });
+  const levelM = encodeQrMatrix(pairingUrl, { errorCorrectionLevel: 'M' });
+  assert.ok(
+    levelL.length <= levelM.length,
+    `expected level L matrix (${levelL.length}) to be no larger than level M (${levelM.length})`,
+  );
+  // A realistic pairing URL should stay well within the small/large-module low-version range.
+  assert.ok(levelL.length <= 41, `expected a low-version (<=41 module) matrix, got ${levelL.length}`);
+});
+
+test('.pairing-card__qr is a centered, square, high-contrast card matching the container spec', () => {
+  const cssPath = fileURLToPath(new URL('../src/ui/styles.css', import.meta.url));
+  const css = readFileSync(cssPath, 'utf8');
+  const ruleMatch = css.match(/\.pairing-card__qr\s*\{([^}]*)\}/);
+  assert.ok(ruleMatch, 'expected a .pairing-card__qr rule in styles.css');
+  const rule = ruleMatch[1];
+  assert.match(rule, /max-width:\s*280px/);
+  assert.match(rule, /aspect-ratio:\s*1\s*\/\s*1/);
+  assert.match(rule, /margin:\s*16px auto/);
+  assert.match(rule, /padding:\s*16px/);
+  assert.match(rule, /border-radius:\s*12px/);
+  assert.match(rule, /background:\s*#FFFFFF/i);
+});
+
+test('.pairing-card__qr svg fills its square container without stretching or leaving excess whitespace', () => {
+  const cssPath = fileURLToPath(new URL('../src/ui/styles.css', import.meta.url));
+  const css = readFileSync(cssPath, 'utf8');
+  const ruleMatch = css.match(/\.pairing-card__qr svg\s*\{([^}]*)\}/);
+  assert.ok(ruleMatch, 'expected a .pairing-card__qr svg rule in styles.css');
+  const rule = ruleMatch[1];
+  assert.match(rule, /width:\s*100%/);
+  assert.match(rule, /height:\s*100%/);
 });

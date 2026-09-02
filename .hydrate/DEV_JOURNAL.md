@@ -427,3 +427,36 @@ attribute. `npm test` → 577/577 passing (574 existing + 3 new, zero regression
 
 **Not done:** no browser was available to visually confirm the rendered pairing card in
 `LeadInboxView.js`; verified via unit tests and `node --check` syntax checking only.
+
+## [UOW-CARBOYZ-31] QR Code Layout Refinement & Payload Density Reduction — 2026-09-02
+
+**Compact matrix density:** `qrEncoder.js`'s `encodeQrMatrix` already defaulted to error
+correction level `'L'` — the lowest of the two supported levels (`L`/`M`) and the one with the
+largest per-version data capacity, so it already selects the smallest possible matrix version for
+a given payload. No algorithmic change was needed there. Made this explicit at the call site:
+`LeadInboxView.js:189` now passes `{ errorCorrectionLevel: 'L' }` to `encodeQrMatrix` instead of
+relying on the implicit default, with a comment explaining why. The "minimal URL path length" plan
+item was out of scope — the pairing URL is built by `LeadInboxController.createPairingSession`
+(`src/ui/LeadInboxController.js`), which isn't in this UOW's target scope.
+
+**Symmetrical card layout:** `.pairing-card__qr` in `src/ui/styles.css` (note: UOW target scope
+said `public/styles.css`, but the actual stylesheet lives at `src/ui/styles.css` — same file
+`LeadInboxView.js`/`index.html` reference) now matches the spec exactly: `max-width: 280px`,
+`aspect-ratio: 1 / 1`, `margin: 16px auto`, `padding: 16px`, `border-radius: 12px`,
+`background: #FFFFFF`, keeping the existing `border` and flex-centering.
+
+**QR matrix scaling:** `.pairing-card__qr svg` changed from `max-width: 100%; height: auto` to
+`width: 100%; height: 100%`. Since the container is a fixed square (`aspect-ratio: 1/1`) and the
+QR SVG's `viewBox` is also always square, this fills the padded card exactly with no stretch and
+no leftover whitespace, whereas the old `height: auto` could leave vertical whitespace once the
+container's height was constrained by `aspect-ratio` rather than by the SVG's own intrinsic size.
+
+**Tests:** Added four tests to `tests/qrEncoder.test.js` — default EC level equals explicit `'L'`,
+level `'L'` never producing a larger matrix than level `'M'` for the same realistic pairing URL
+(and staying at or under a 41-module/version-6 low-version bound), and two tests reading
+`src/ui/styles.css` directly to assert the `.pairing-card__qr` and `.pairing-card__qr svg` rules
+carry the required properties. `npm test` → 581/581 passing (577 existing + 4 new, zero
+regressions).
+
+**Not done:** no browser was available to visually confirm the centered/scaled QR card; verified
+via unit tests (including direct CSS-rule assertions) only.

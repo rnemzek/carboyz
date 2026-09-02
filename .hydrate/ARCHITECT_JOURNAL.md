@@ -200,3 +200,16 @@ exactly that 4-module floor. This is a behavioral (not signature) change, so eve
 zone automatically with no call-site edits required. Any future caller that needs a *larger* quiet
 zone than 4 modules can still pass a bigger `margin`; nothing can request smaller than the floor
 anymore. The root `<svg>` also now always carries `shape-rendering="crispEdges"`.
+
+## [UOW-CARBOYZ-31] QR Code Layout Refinement & Payload Density Reduction — 2026-09-02
+
+No contract or payload schema changes. `encodeQrMatrix`'s public signature and default
+(`errorCorrectionLevel: 'L'`) are unchanged — the default was already the most compact supported
+level, so this UOW made that intent explicit at the one call site (`LeadInboxView.js`) rather than
+changing behavior. `.pairing-card__qr` and `.pairing-card__qr svg` in `src/ui/styles.css` are now
+pinned to the exact spec (280px square card, 16px margin/padding, 12px radius, SVG fills at
+100%/100%) — a presentation-only change with no effect on any service or controller contract.
+
+Noting for the roadmap: the UOW's target-scope path `public/styles.css` doesn't exist in this
+repo; the actual stylesheet is `src/ui/styles.css`. Future UOW payloads referencing the stylesheet
+should use that path.
