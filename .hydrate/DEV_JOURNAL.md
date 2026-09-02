@@ -491,3 +491,31 @@ code or `TestHarnessView.js`).
 
 **Smoke-checked** `@nemzilla/qr-core`'s `renderQrSvg` directly via `node -e`, confirming it returns
 a valid `<svg>` string for a sample pairing URL.
+
+## UOW-CARBOYZ-33: Mobile Viewport & CSS Responsiveness Audit Across All UI Views — 2026-09-02
+
+**Root cause identified:** `.form__row--split` (shared by the intake form's Year/Make/Model/Trim/
+Mileage/ZIP pairs in `SellerSubmissionView.js`, the inventory form in `App.js`, `SpreadConfigView.js`,
+and `AnalyticsView.js`'s filter bar via `analytics__filters form__row form__row--split`) laid its
+children out with `display:flex; flex:1` and no `min-width:0` override. Flex items default to
+`min-width:auto`, which floors their shrink at the content's intrinsic min-content size — for
+`<input>`/`<select>` elements this is wide enough that two side-by-side fields overflow the ~432px
+usable content width on a narrow phone viewport, producing the reported input overlap and filter
+clipping.
+
+**Fix:** converted `.form__row--split` to `display:grid; grid-template-columns:
+repeat(auto-fit, minmax(140px, 1fr))`, which wraps fields onto new rows instead of overflowing, and
+set `min-width:0` on its children. Removed the now-redundant `.analytics__filters` flex-basis
+override (the shared grid rule already covers it). Also added `min-width:0` +
+`overflow-wrap:break-word` to `.card__title` and `.kpi-card`/`.kpi-card__label` (long titles/labels
+could otherwise force their flex/grid track past its bound), `overflow-x:auto` on
+`.analytics__table-container` (wide data tables no longer force page-level horizontal scroll), and
+`min-height:44px` + flex-centering on `.bottom-nav__button` for a touch-safe tap target.
+`env(safe-area-inset-bottom)` padding on `.bottom-nav` was already present from prior work — no
+change needed there. `.tier-row__field` (`SpreadConfigView.js`) already had an explicit
+`min-width:100px` + `flex-wrap:wrap` on its parent, so it was already overflow-safe; left untouched.
+
+**Scope:** CSS-only (`src/ui/styles.css`). No DOM structure, event listeners, or data-binding
+attributes touched in any `.js` view/controller file, per the UOW's preserve-logic constraint.
+
+**Tests:** `npm test` → 581/581 passing, no regressions.

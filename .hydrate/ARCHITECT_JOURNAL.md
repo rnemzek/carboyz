@@ -235,3 +235,15 @@ collision with the (no-longer-imported-in-this-file) `qrEncoder.js` export of th
 **No payload/contract changes** to `LeadInboxController` or the pairing-session flow — only the
 QR-rendering call inside `renderPairingCard`'s click handler changed, which became `async` to
 `await` the new call.
+
+## UOW-CARBOYZ-33: Mobile Viewport & CSS Responsiveness Audit — 2026-09-02
+
+**No contract/payload changes.** Pure CSS layout fix, no architectural surface touched.
+
+**Established convention:** `.form__row--split` is now the canonical multi-field-row primitive
+(`display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))`) used by any form or
+filter bar needing 2+ side-by-side fields that must wrap safely below ~640px — currently consumed
+by `SellerSubmissionView`, `App.js`'s inventory form, `SpreadConfigView`, and `AnalyticsView`'s
+filter bar. Future views needing a responsive multi-column field row should reuse this class rather
+than hand-rolling flex layouts, to avoid reintroducing the min-width:auto overflow class of bug
+fixed here.
