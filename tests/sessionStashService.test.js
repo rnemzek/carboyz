@@ -132,3 +132,69 @@ test('storage read/write failures degrade gracefully without throwing', () => {
   assert.doesNotThrow(() => service.createPending('sub-1'));
   assert.equal(service.getStatus('anything'), null);
 });
+
+test('createPairingSession stores a PENDING PAIRING entry and returns a pairingSessionId', () => {
+  const storage = makeMemoryStorage();
+  const service = new SessionStashService({ tenantId: 't1', storage, channel: makeFakeChannel() });
+
+  const pairingSessionId = service.createPairingSession();
+
+  assert.ok(pairingSessionId);
+  const status = service.getStatus(pairingSessionId);
+  assert.equal(status.type, 'PAIRING');
+  assert.equal(status.status, 'PENDING');
+});
+
+test('connectPairingSession flips a matching pairing entry to CONNECTED and posts a PAIRING_CONNECTED message', () => {
+  const storage = makeMemoryStorage();
+  const channel = makeFakeChannel();
+  const service = new SessionStashService({ tenantId: 't1', storage, channel });
+  const pairingSessionId = service.createPairingSession();
+
+  const updated = service.connectPairingSession(pairingSessionId);
+
+  assert.equal(updated.status, 'CONNECTED');
+  assert.equal(service.getStatus(pairingSessionId).status, 'CONNECTED');
+  assert.equal(channel.posted.length, 1);
+  assert.equal(channel.posted[0].type, 'PAIRING_CONNECTED');
+  assert.equal(channel.posted[0].pairingSessionId, pairingSessionId);
+});
+
+test('connectPairingSession returns null for an unknown or non-pairing session id', () => {
+  const storage = makeMemoryStorage();
+  const service = new SessionStashService({ tenantId: 't1', storage, channel: makeFakeChannel() });
+  const pendingSessionId = service.createPending('sub-1');
+
+  assert.equal(service.connectPairingSession('nope'), null);
+  assert.equal(service.connectPairingSession(pendingSessionId), null);
+});
+
+test('subscribeToPairingConnected invokes the callback only for the matching pairingSessionId, and unsubscribe stops delivery', () => {
+  const storage = makeMemoryStorage();
+  const channel = makeFakeChannel();
+  const service = new SessionStashService({ tenantId: 't1', storage, channel });
+  const targetId = service.createPairingSession();
+  const otherId = service.createPairingSession();
+
+  const received = [];
+  const unsubscribe = service.subscribeToPairingConnected(targetId, (event) => received.push(event));
+
+  service.connectPairingSession(otherId);
+  assert.equal(received.length, 0);
+
+  service.connectPairingSession(targetId);
+  assert.equal(received.length, 1);
+
+  unsubscribe();
+  const secondTargetId = service.createPairingSession();
+  service.connectPairingSession(secondTargetId);
+  assert.equal(received.length, 1);
+});
+
+test('subscribeToPairingConnected is a safe no-op when no channel is available', () => {
+  const service = new SessionStashService({ tenantId: 't1', storage: makeMemoryStorage(), channel: false });
+  const unsubscribe = service.subscribeToPairingConnected('anything', () => {
+    throw new Error('should never be called');
+  });
+  assert.doesNotThrow(() => unsubscribe());
+});

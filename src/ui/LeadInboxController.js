@@ -115,6 +115,24 @@ export class LeadInboxController {
     return { submission, message };
   }
 
+  /**
+   * Generates a QR pairing session and the mobile pairing URL that encodes it. Scanning the
+   * QR loads the app with `?sessionId=<pairingSessionId>`, which `SellerSubmissionController`
+   * binds via `bindPairingSession` — see `subscribeToPairingConnected` for the live callback.
+   */
+  createPairingSession({ baseUrl } = {}) {
+    if (!this.sessionStashService) {
+      throw new Error('LeadInboxController requires a sessionStashService to create a pairing session');
+    }
+    const pairingSessionId = this.sessionStashService.createPairingSession();
+    const url = `${baseUrl ?? ''}?sessionId=${encodeURIComponent(pairingSessionId)}`;
+    return { pairingSessionId, url };
+  }
+
+  subscribeToPairingConnected(pairingSessionId, onConnected) {
+    return this.sessionStashService?.subscribeToPairingConnected?.(pairingSessionId, onConnected) ?? (() => {});
+  }
+
   markWinLoss(id, winLossStatus) {
     if (!WIN_LOSS_QUICK_ACTIONS.includes(winLossStatus)) {
       throw new Error(`markWinLoss only supports ${WIN_LOSS_QUICK_ACTIONS.join(' or ')}, got: ${winLossStatus}`);

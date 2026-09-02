@@ -158,3 +158,59 @@ test('buildLeadViewModels applies a custom tier config from an injected spreadCo
   // percent-only tier: 15000 * 0.1 = 1500, so recommended counter is 15000 + 1500 = 16500 (not the flat +300 default)
   assert.equal(lead.spreadResult.recommendedCounterOffer, 16500);
 });
+
+test('createPairingSession delegates to sessionStashService and builds a pairing URL', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const calls = [];
+  const sessionStashService = {
+    createPairingSession: () => {
+      calls.push('createPairingSession');
+      return 'pair-t1-123';
+    },
+  };
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService, sessionStashService });
+
+  const { pairingSessionId, url } = controller.createPairingSession({ baseUrl: 'https://app.example/sell' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(pairingSessionId, 'pair-t1-123');
+  assert.equal(url, 'https://app.example/sell?sessionId=pair-t1-123');
+});
+
+test('createPairingSession throws without a sessionStashService configured', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  assert.throws(() => controller.createPairingSession({ baseUrl: 'https://app.example' }), /sessionStashService/);
+});
+
+test('subscribeToPairingConnected delegates to sessionStashService and returns its unsubscribe function', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const subscribeCalls = [];
+  const unsubscribeSpy = () => {};
+  const sessionStashService = {
+    subscribeToPairingConnected: (pairingSessionId, onConnected) => {
+      subscribeCalls.push({ pairingSessionId, onConnected });
+      return unsubscribeSpy;
+    },
+  };
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService, sessionStashService });
+
+  const onConnected = () => {};
+  const unsubscribe = controller.subscribeToPairingConnected('pair-t1-123', onConnected);
+
+  assert.equal(subscribeCalls.length, 1);
+  assert.equal(subscribeCalls[0].pairingSessionId, 'pair-t1-123');
+  assert.equal(subscribeCalls[0].onConnected, onConnected);
+  assert.equal(unsubscribe, unsubscribeSpy);
+});
+
+test('subscribeToPairingConnected is a safe no-op without a sessionStashService configured', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const unsubscribe = controller.subscribeToPairingConnected('anything', () => {
+    throw new Error('should never be called');
+  });
+  assert.doesNotThrow(() => unsubscribe());
+});

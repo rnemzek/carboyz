@@ -39,4 +39,12 @@ export class SellerSubmissionController {
   getSubmission(id) {
     return this.submissionService.getSubmissions().find((submission) => submission.id === id) ?? null;
   }
+
+  /** Binds a scanned QR pairing session id to this mobile view via `SessionStashService`. */
+  bindPairingSession(pairingSessionId) {
+    if (!pairingSessionId) {
+      return null;
+    }
+    return this.sessionStashService?.connectPairingSession?.(pairingSessionId) ?? null;
+  }
 }

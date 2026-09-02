@@ -1,4 +1,5 @@
 export const STASH_STATUSES = ['PENDING', 'READY'];
+export const STASH_TYPES = ['SUBMISSION', 'PAIRING'];
 
 function storageKey(tenantId) {
   return `carboyz:sessionStash:${tenantId}`;
@@ -37,14 +38,15 @@ export class SessionStashService {
     this.channel = channel ?? (typeof BroadcastChannel === 'function' ? new BroadcastChannel(channelName(tenantId)) : null);
   }
 
-  generateSessionId() {
-    return `stash-${this.tenantId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  generateSessionId(prefix = 'stash') {
+    return `${prefix}-${this.tenantId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   createPending(submissionId) {
     const stash = readStash(this.storage, this.tenantId);
     const pendingSessionId = this.generateSessionId();
     stash[pendingSessionId] = {
+      type: 'SUBMISSION',
       submissionId,
       status: 'PENDING',
       finalCounterOffer: null,
@@ -52,6 +54,51 @@ export class SessionStashService {
     };
     writeStash(this.storage, this.tenantId, stash);
     return pendingSessionId;
+  }
+
+  /**
+   * Creates a QR pairing session for the desktop Lead Inbox to display: a mobile device that
+   * loads the app with `?sessionId=<pairingSessionId>` binds to it via `connectPairingSession`,
+   * which the desktop can observe live through `subscribeToPairingConnected`.
+   */
+  createPairingSession() {
+    const stash = readStash(this.storage, this.tenantId);
+    const pairingSessionId = this.generateSessionId('pair');
+    stash[pairingSessionId] = {
+      type: 'PAIRING',
+      status: 'PENDING',
+      updatedAt: new Date().toISOString(),
+    };
+    writeStash(this.storage, this.tenantId, stash);
+    return pairingSessionId;
+  }
+
+  connectPairingSession(pairingSessionId) {
+    const stash = readStash(this.storage, this.tenantId);
+    const entry = stash[pairingSessionId];
+    if (!entry || entry.type !== 'PAIRING') {
+      return null;
+    }
+
+    const updated = { ...entry, status: 'CONNECTED', updatedAt: new Date().toISOString() };
+    stash[pairingSessionId] = updated;
+    writeStash(this.storage, this.tenantId, stash);
+    this.channel?.postMessage?.({ type: 'PAIRING_CONNECTED', pairingSessionId });
+
+    return updated;
+  }
+
+  subscribeToPairingConnected(pairingSessionId, onConnected) {
+    if (!this.channel) {
+      return () => {};
+    }
+    const handler = (event) => {
+      if (event.data?.type === 'PAIRING_CONNECTED' && event.data.pairingSessionId === pairingSessionId) {
+        onConnected(event.data);
+      }
+    };
+    this.channel.addEventListener('message', handler);
+    return () => this.channel.removeEventListener('message', handler);
   }
 
   resolveBySubmissionId(submissionId, { finalCounterOffer }) {

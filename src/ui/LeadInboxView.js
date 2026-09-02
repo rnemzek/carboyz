@@ -1,5 +1,6 @@
 import { h } from './App.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
+import { encodeQrMatrix, renderQrSvg } from '../utils/qrEncoder.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -159,6 +160,52 @@ function renderSyncToast(syncToast) {
   return toast;
 }
 
+function renderPairingCard(controller) {
+  const qrContainer = h('div', { class: 'pairing-card__qr' });
+  const statusEl = h('p', { class: 'pairing-card__status', role: 'status', 'aria-live': 'polite' });
+  const generateBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Pair Mobile Device' });
+
+  let unsubscribe = () => {};
+
+  function reset() {
+    unsubscribe();
+    unsubscribe = () => {};
+    qrContainer.replaceChildren();
+    statusEl.textContent = '';
+  }
+
+  generateBtn.addEventListener('click', () => {
+    reset();
+    let pairingSessionId;
+    let url;
+    try {
+      const baseUrl = `${window.location.origin}${window.location.pathname}`;
+      ({ pairingSessionId, url } = controller.createPairingSession({ baseUrl }));
+    } catch (error) {
+      statusEl.textContent = error.message;
+      return;
+    }
+
+    const svgMarkup = renderQrSvg(encodeQrMatrix(url));
+    qrContainer.innerHTML = svgMarkup;
+    statusEl.textContent = 'Waiting for a mobile device to scan...';
+
+    unsubscribe = controller.subscribeToPairingConnected(pairingSessionId, () => {
+      statusEl.textContent = 'Device connected! New submissions will appear below.';
+    });
+  });
+
+  const card = h('div', { class: 'card pairing-card' }, [
+    h('h3', { class: 'card__title', text: 'Pair Mobile Device' }),
+    h('p', { class: 'card__meta', text: 'Generate a QR code for a customer to scan and submit their offer from their phone.' }),
+    generateBtn,
+    qrContainer,
+    statusEl,
+  ]);
+
+  return card;
+}
+
 export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, syncToast = null } = {}) {
   const list = h('div', { class: 'card-list' });
   const { overlay: documentModal, open: openDocumentModal } = renderDocumentModal();
@@ -211,6 +258,7 @@ export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, s
   const section = h('section', { class: 'view', id: 'view-leads' }, [
     h('h2', { text: 'Lead Inbox' }),
     h('p', { class: 'view__subtitle', text: 'Submitted offers, scored against market comps.' }),
+    renderPairingCard(controller),
     renderSyncToast(syncToast),
     list,
     documentModal,

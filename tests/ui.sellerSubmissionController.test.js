@@ -144,3 +144,41 @@ test('submitSubmission works without a syncAdapter configured', () => {
 
   assert.doesNotThrow(() => controller.submitSubmission(baseData()));
 });
+
+test('bindPairingSession delegates to sessionStashService.connectPairingSession', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const calls = [];
+  const sessionStashService = {
+    connectPairingSession: (id) => {
+      calls.push(id);
+      return { status: 'CONNECTED' };
+    },
+  };
+  const controller = new SellerSubmissionController({ submissionService, sessionStashService });
+
+  const result = controller.bindPairingSession('pair-t1-123');
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0], 'pair-t1-123');
+  assert.equal(result.status, 'CONNECTED');
+});
+
+test('bindPairingSession is a no-op returning null when given no pairingSessionId', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const sessionStashService = {
+    connectPairingSession: () => {
+      throw new Error('should not be called without a pairingSessionId');
+    },
+  };
+  const controller = new SellerSubmissionController({ submissionService, sessionStashService });
+
+  assert.equal(controller.bindPairingSession(null), null);
+  assert.equal(controller.bindPairingSession(undefined), null);
+});
+
+test('bindPairingSession is a safe no-op without a sessionStashService configured', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const controller = new SellerSubmissionController({ submissionService });
+
+  assert.equal(controller.bindPairingSession('pair-t1-123'), null);
+});

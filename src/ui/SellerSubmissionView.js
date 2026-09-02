@@ -102,7 +102,16 @@ function readFileAsBase64(file) {
   });
 }
 
+function readPairingSessionIdFromLocation() {
+  if (typeof window === 'undefined' || !window.location?.search) {
+    return null;
+  }
+  return new URLSearchParams(window.location.search).get('sessionId');
+}
+
 export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null, tenantConfig = null } = {}) {
+  controller.bindPairingSession?.(readPairingSessionIdFromLocation());
+
   const vinInput = h('input', { name: 'vin', placeholder: 'VIN', required: '', class: 'input--large' });
   const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
   const vinScannerModal = renderVinScannerModal({
