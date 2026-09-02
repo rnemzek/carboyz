@@ -76,3 +76,13 @@ test('Submission defaults trim and offerDocument to null when omitted', () => {
   assert.equal(withExtras.trim, 'XLE');
   assert.equal(withExtras.offerDocument, 'data:image/png;base64,abc');
 });
+
+test('Submission defaults policyVersionId to null when omitted and rejects a non-string value', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.policyVersionId, null);
+
+  assert.throws(() => new Submission(baseData({ policyVersionId: 42 })), /policyVersionId/);
+
+  const withVersion = new Submission(baseData({ policyVersionId: 'v1.1.0' }));
+  assert.equal(withVersion.policyVersionId, 'v1.1.0');
+});

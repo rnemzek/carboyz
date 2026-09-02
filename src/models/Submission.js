@@ -54,6 +54,7 @@ export class Submission {
     timeToCounterMs,
     priceBracket,
     approvalType,
+    policyVersionId,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -105,6 +106,9 @@ export class Submission {
     if (priceBracket !== undefined && priceBracket !== null && typeof priceBracket !== 'string') {
       throw new Error('Submission priceBracket must be a string');
     }
+    if (policyVersionId !== undefined && policyVersionId !== null && typeof policyVersionId !== 'string') {
+      throw new Error('Submission policyVersionId must be a string');
+    }
 
     this.id = id;
     this.timestamp = timestamp;
@@ -128,5 +132,6 @@ export class Submission {
     this.timeToCounterMs = timeToCounterMs ?? null;
     this.priceBracket = priceBracket ?? null;
     this.approvalType = approvalType ?? null;
+    this.policyVersionId = policyVersionId ?? null;
   }
 }

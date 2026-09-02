@@ -51,3 +51,36 @@ untouched, matching this UOW's surgical file scope. `App.js` wires `window` `onl
 events to flush every tenant's queue through its `SyncAdapter` and to show a new offline banner.
 
 Remaining roadmap gap: Policy Versioning & Audit Ledger (Epic 2 / UOW-CARBOYZ-26).
+
+## UOW-26 completed - 20260902
+Epic 2 (Policy Governance) closed. New `AuditLedgerService` is a self-contained hash-chained
+ledger (own storage key per tenant, own genesis-hash/block-linking scheme) rather than being
+folded into `SpreadConfigService` — keeps the crypto/chain-integrity concern testable in
+isolation and reusable if another mutable config ever needs the same audit trail. Hashing is a
+hand-rolled *synchronous* SHA-256, not `crypto.subtle.digest`: the existing `SpreadConfigView`
+save/reset flow depends on `saveConfig()`/`resetToDefault()` staying synchronous (its error
+handling is a plain `try/catch`), so an async Web Crypto call would have forced a breaking
+change to that contract. Verified the implementation against Node's `crypto` module before
+trusting it project-wide.
+
+`policyVersionId` is semantic-versioned (`vMAJOR.MINOR.0`) and monotonically increasing —
+`resetToDefault()` bumps the version forward rather than reverting to `v1.0.0`, so the ledger
+and any pinned `Submission.policyVersionId` never appear to go "backwards" even when the tier
+values themselves are reset to the built-in ladder.
+
+`PolicySnapshot` is new: an immutable point-in-time capture of `(policyVersionId,
+tiersByCompetitor, configHash)`, returned by `SpreadConfigService.getActivePolicySnapshot()`.
+`SpreadService.calculateSpread()` only needed a much smaller contract change to satisfy the
+"Submission Version Pinning" criterion, though — an optional `policyVersionId` parameter that
+it echoes back on its result object (same pattern as the existing `matchedTier` pass-through),
+which `DispatchService.dispatch()` then writes onto the `Submission` record. `PolicySnapshot`
+remains available for a future consumer that needs the full tier ladder alongside the version
+id (e.g. a what-if/counterfactual simulator), which is the one Epic 2 item still on the
+roadmap.
+
+No breaking changes to `SpreadConfigService.saveConfig()`'s existing single-argument call
+shape — `authorId` is an additive, defaulted second-argument option (`{ authorId = 'system' }`).
+
+Roadmap: Epic 2 (Policy Governance) and Epic 3 (Offline Support) are both now closed. Remaining
+gap per the UOW-23 audit is analytics version-pinning / counterfactual "what-if" simulation
+against the new `PolicySnapshot`/audit ledger — no UOW opened yet.

@@ -48,6 +48,7 @@ export function calculateSpread({
   competitorOfferAmount,
   tierConfig,
   counterOfferOffset = DEFAULT_COUNTER_OFFSET,
+  policyVersionId = null,
 } = {}) {
   if (typeof competitorOfferAmount !== 'number' || competitorOfferAmount < 0) {
     throw new Error('calculateSpread requires a non-negative numeric competitorOfferAmount');
@@ -67,6 +68,7 @@ export function calculateSpread({
       recommendedCounterOffer,
       status: DealScoreStatus.NO_DATA,
       matchedTier,
+      policyVersionId,
     };
   }
 
@@ -79,5 +81,6 @@ export function calculateSpread({
     recommendedCounterOffer,
     status: scoreSpread(spread),
     matchedTier,
+    policyVersionId,
   };
 }

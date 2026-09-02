@@ -158,3 +158,67 @@ Coverage on modified services/controllers: `SessionStashService.js` 97.97%/97.37
 convention (no jsdom harness; all View files are thin DOM glue over tested
 controllers/services, per the UOW-23 audit). Manually verified `qrEncoder` round-trips a
 realistic pairing URL into a valid SVG matrix without hitting the version-10 capacity ceiling.
+
+
+## [UOW-26] Policy Versioning & Immutable Cryptographic Audit Ledger — 2026-09-02
+
+**Summary:** Closed the last flagged Epic 2 gap: `SpreadConfigService.saveConfig()` previously
+overwrote `localStorage` with no history. It now assigns semantic policy versions (`v1.0.0`,
+`v1.1.0`, ...) and appends every mutation to a new hash-chained, append-only audit ledger.
+
+**Implementation:**
+- `src/services/AuditLedgerService.js` (new): append-only, hash-chained ledger keyed per
+  tenant (`carboyz:auditLedger:<tenantId>`). Each block records `sequence`, `timestamp`,
+  `authorId`, `previousConfigHash`, `newConfigHash`, `diffPayload` (per-competitor,
+  per-tier-index change list from `diffConfigs()`), `previousBlockHash`, and `blockHash`
+  (hash of the rest of the block, chaining to the prior block). `verifyChainIntegrity()`
+  walks the chain recomputing hashes to detect tampering.
+  Hashing uses a hand-written, dependency-free, **synchronous** SHA-256 (`sha256Hex`),
+  verified byte-for-byte against Node's `crypto.createHash('sha256')` on multiple vectors
+  (empty string, `'abc'`, 1000-char string, JSON, NIST-style pangram) before use. Chose this
+  over `crypto.subtle.digest` (which is Promise-only) specifically to avoid making
+  `saveConfig()` async — the UI's `SpreadConfigView.js` save/reset handlers do synchronous
+  `try/catch` validation-error handling that an async boundary would have silently broken.
+  `canonicalize()` sorts object keys before hashing so hash equality doesn't depend on key
+  insertion order.
+- `src/models/PolicySnapshot.js` (new): immutable point-in-time capture of a tenant's active
+  `policyVersionId` + `tiersByCompetitor` + `configHash`, defensively cloned on construction.
+- `src/services/SpreadConfigService.js`: constructor now builds (or accepts an injected)
+  `AuditLedgerService`. `saveConfig(nextConfig, { authorId = 'system' } = {})` and
+  `resetToDefault(authorId = 'system')` both route through a new shared `applyConfig()` that
+  bumps the policy version (`bumpPolicyVersion()`: increments minor, resets patch — new
+  tenants start at `v1.0.0`) and records the mutation on the ledger before persisting. Added
+  `getActivePolicyVersionId()` and `getActivePolicySnapshot()`. `authorId` is optional and
+  additive, so every pre-existing `saveConfig({...})` call site keeps working unchanged.
+- `src/services/SpreadService.js`: `calculateSpread()` takes an optional `policyVersionId`
+  (default `null`) and echoes it straight back onto the result, on both the priced and
+  `NO_DATA` return paths — mirrors the existing `matchedTier` pass-through pattern.
+- `src/services/DispatchService.js`: `evaluate()` now calls
+  `spreadConfigService.getActivePolicyVersionId()` and passes it into `calculateSpread()`;
+  `dispatch()` writes `spreadResult.policyVersionId` onto the `Submission` via
+  `updateFields()` on both the auto-dispatch and manual-approval branches, pinning the policy
+  version active at the moment of pricing.
+- `src/models/Submission.js`: added optional `policyVersionId` (string or null; validated,
+  defaults to `null`). `LeadInboxController.approveAndSend()`'s later `updateFields()` call
+  doesn't touch it, so the version pinned at intake survives manual approval untouched (it
+  spreads the existing `Submission` instance's own properties before applying the patch).
+
+**Edge cases handled:** malformed/missing `previousConfig` on the ledger chains to the genesis
+hash (`'0'.repeat(64)`) rather than throwing; `bumpPolicyVersion()` falls back to
+`v1.0.0` for missing/malformed version strings; tampering with any prior block is detectable
+via `verifyChainIntegrity()`; two tenants keep fully separate ledgers and policy versions in
+shared storage; an injected `auditLedgerService` (e.g. a test double) is honored instead of the
+default.
+
+**Files touched:** `src/services/AuditLedgerService.js` (new), `src/models/PolicySnapshot.js`
+(new), `src/services/SpreadConfigService.js`, `src/services/SpreadService.js`,
+`src/services/DispatchService.js`, `src/models/Submission.js`, plus new/extended tests in
+`tests/auditLedgerService.test.js` (new), `tests/policySnapshot.test.js` (new),
+`tests/spreadConfigService.test.js`, `tests/spreadService.test.js`, `tests/dispatchService.test.js`,
+`tests/submission.test.js`.
+
+**Verification:** `npm test` → 541/541 passing (506 existing + 35 new, zero regressions).
+Coverage on new/modified services and models (`node --test --experimental-test-coverage`):
+`AuditLedgerService.js` 97.82%/91.67% (line/branch), `PolicySnapshot.js` 100%/94.74%,
+`SpreadConfigService.js` 94.77%/91.23%, `SpreadService.js` 100%/93.10%, `DispatchService.js`
+100%/97.06%, `Submission.js` 100%/100% — all clear the 80% line/branch gate.

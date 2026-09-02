@@ -91,6 +91,7 @@ export class DispatchService {
       fairMarketValue,
       competitorOfferAmount: submission.competitorOfferAmount,
       tierConfig,
+      policyVersionId: this.spreadConfigService.getActivePolicyVersionId(),
     });
     const autoApprove = spreadResult.matchedTier?.autoApprove ?? false;
     const shouldAutoDispatch = autoApprove && spreadResult.status === DealScoreStatus.GREENLIGHT;
@@ -121,6 +122,7 @@ export class DispatchService {
         priceBracket,
         approvalType: 'AUTO_DISPATCH',
         timeToCounterMs,
+        policyVersionId: spreadResult.policyVersionId,
       });
       const message = formatCounterOfferMessage({
         submission: updated,
@@ -139,6 +141,7 @@ export class DispatchService {
       finalCounterOffer: calculatedCounterOffer,
       expectedMargin,
       priceBracket,
+      policyVersionId: spreadResult.policyVersionId,
     });
     const notification = buildApprovalNotification({
       submission: updated,

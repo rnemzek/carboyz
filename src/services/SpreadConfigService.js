@@ -1,4 +1,19 @@
 import { COMPETITORS } from '../models/Submission.js';
+import { AuditLedgerService, hashConfig } from './AuditLedgerService.js';
+import { PolicySnapshot } from '../models/PolicySnapshot.js';
+
+export const INITIAL_POLICY_VERSION_ID = 'v1.0.0';
+
+const POLICY_VERSION_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
+
+export function bumpPolicyVersion(policyVersionId) {
+  const match = POLICY_VERSION_PATTERN.exec(policyVersionId ?? '');
+  if (!match) {
+    return INITIAL_POLICY_VERSION_ID;
+  }
+  const [, major, minor] = match;
+  return `v${major}.${Number(minor) + 1}.0`;
+}
 
 export const TIER_STRATEGIES = Object.freeze({
   MAX: 'MAX',
@@ -20,6 +35,7 @@ export function buildDefaultConfig(tenantId) {
   return {
     tenantId,
     tiersByCompetitor: Object.fromEntries(COMPETITORS.map((competitor) => [competitor, cloneTiers(DEFAULT_TIERS)])),
+    policyVersionId: INITIAL_POLICY_VERSION_ID,
   };
 }
 
@@ -77,7 +93,8 @@ function readConfig(storage, tenantId) {
     if (!raw) {
       return null;
     }
-    return validateConfig(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    return { ...validateConfig(parsed), policyVersionId: parsed.policyVersionId ?? INITIAL_POLICY_VERSION_ID };
   } catch {
     return null;
   }
@@ -93,13 +110,14 @@ function writeConfig(storage, tenantId, config) {
 }
 
 export class SpreadConfigService {
-  constructor({ tenantId, storage = null } = {}) {
+  constructor({ tenantId, storage = null, auditLedgerService = null } = {}) {
     if (!tenantId) {
       throw new Error('SpreadConfigService requires a tenantId');
     }
 
     this.tenantId = tenantId;
     this.storage = storage;
+    this.auditLedgerService = auditLedgerService ?? new AuditLedgerService({ tenantId, storage });
     this.config = readConfig(storage, tenantId) ?? buildDefaultConfig(tenantId);
   }
 
@@ -109,6 +127,7 @@ export class SpreadConfigService {
       tiersByCompetitor: Object.fromEntries(
         Object.entries(this.config.tiersByCompetitor).map(([competitor, tiers]) => [competitor, cloneTiers(tiers)]),
       ),
+      policyVersionId: this.config.policyVersionId,
     };
   }
 
@@ -116,16 +135,38 @@ export class SpreadConfigService {
     return cloneTiers(this.config.tiersByCompetitor[competitor] ?? []);
   }
 
-  saveConfig(nextConfig) {
-    const validated = validateConfig({ ...nextConfig, tenantId: this.tenantId });
-    this.config = validated;
-    writeConfig(this.storage, this.tenantId, validated);
+  getActivePolicyVersionId() {
+    return this.config.policyVersionId;
+  }
+
+  getActivePolicySnapshot() {
+    return new PolicySnapshot({
+      policyVersionId: this.config.policyVersionId,
+      tenantId: this.tenantId,
+      tiersByCompetitor: this.config.tiersByCompetitor,
+      configHash: hashConfig(this.config),
+    });
+  }
+
+  applyConfig(nextState, authorId) {
+    this.auditLedgerService.recordMutation({
+      authorId,
+      previousConfig: this.config,
+      newConfig: nextState,
+    });
+    this.config = nextState;
+    writeConfig(this.storage, this.tenantId, nextState);
     return this.getConfig();
   }
 
-  resetToDefault() {
-    this.config = buildDefaultConfig(this.tenantId);
-    writeConfig(this.storage, this.tenantId, this.config);
-    return this.getConfig();
+  saveConfig(nextConfig, { authorId = 'system' } = {}) {
+    const validated = validateConfig({ ...nextConfig, tenantId: this.tenantId });
+    const nextState = { ...validated, policyVersionId: bumpPolicyVersion(this.config.policyVersionId) };
+    return this.applyConfig(nextState, authorId);
+  }
+
+  resetToDefault(authorId = 'system') {
+    const nextState = { ...buildDefaultConfig(this.tenantId), policyVersionId: bumpPolicyVersion(this.config.policyVersionId) };
+    return this.applyConfig(nextState, authorId);
   }
 }

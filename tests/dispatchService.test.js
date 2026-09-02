@@ -147,6 +147,33 @@ test('dispatch: auto path marks AUTO_COUNTER_SENT and returns a formatted messag
   assert.match(result.message, /2021 Honda Civic/);
 });
 
+test('dispatch: auto path pins the spreadConfigService active policyVersionId onto the submission', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  spreadConfigService.saveConfig({
+    tiersByCompetitor: { CarMax: [{ minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, autoApprove: true }] },
+  });
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 20000 });
+  const submission = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const result = dispatchService.dispatch(submission);
+
+  assert.equal(spreadConfigService.getActivePolicyVersionId(), 'v1.1.0');
+  assert.equal(result.submission.policyVersionId, 'v1.1.0');
+  assert.equal(result.spreadResult.policyVersionId, 'v1.1.0');
+});
+
+test('dispatch: manual path also pins the active policyVersionId onto the submission', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 40000 });
+  const submission = submissionService.submit(baseSubmission({ competitorOfferAmount: 32000 }));
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const result = dispatchService.dispatch(submission);
+
+  assert.equal(result.submission.policyVersionId, spreadConfigService.getActivePolicyVersionId());
+});
+
 test('dispatch: manual path marks PENDING_APPROVAL and notifies the distro group', () => {
   const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
   ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 40000 });

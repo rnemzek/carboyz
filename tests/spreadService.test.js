@@ -160,3 +160,16 @@ test('matchedTier is populated even when fairMarketValue is missing (NO_DATA)', 
   assert.equal(result.status, DealScoreStatus.NO_DATA);
   assert.deepEqual(result.matchedTier, tier);
 });
+
+test('policyVersionId defaults to null when not provided', () => {
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000 });
+  assert.equal(result.policyVersionId, null);
+});
+
+test('policyVersionId is echoed back on the result, including the NO_DATA path', () => {
+  const priced = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000, policyVersionId: 'v1.2.0' });
+  assert.equal(priced.policyVersionId, 'v1.2.0');
+
+  const noData = calculateSpread({ competitorOfferAmount: 15000, policyVersionId: 'v1.2.0' });
+  assert.equal(noData.policyVersionId, 'v1.2.0');
+});
