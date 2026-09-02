@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SubmissionService } from '../src/services/SubmissionService.js';
+import { SubmissionService, SYNC_STATES } from '../src/services/SubmissionService.js';
 
 function makeFakeStorage() {
   const data = new Map();
@@ -112,6 +112,91 @@ test('receiveExternalSubmission ignores a duplicate id already present locally',
 
   assert.equal(result, null);
   assert.equal(service.getSubmissions().length, 1);
+});
+
+test('submit() while offline queues the submission for sync and marks it PENDING_SYNC', () => {
+  const service = new SubmissionService({ tenantId: 't1', isOnline: () => false });
+
+  const submission = service.submit(baseData());
+
+  assert.equal(service.getSyncState(submission.id), SYNC_STATES.PENDING_SYNC);
+  assert.deepEqual(
+    service.getPendingSyncSubmissions().map((s) => s.id),
+    [submission.id],
+  );
+});
+
+test('submit() while online does not queue the submission', () => {
+  const service = new SubmissionService({ tenantId: 't1', isOnline: () => true });
+
+  const submission = service.submit(baseData());
+
+  assert.equal(service.getSyncState(submission.id), SYNC_STATES.SYNCED);
+  assert.equal(service.getPendingSyncSubmissions().length, 0);
+});
+
+test('the offline queue persists across reload and rehydrates filtered to submissions that still exist', () => {
+  const storage = makeFakeStorage();
+  const service = new SubmissionService({ tenantId: 't1', storage, isOnline: () => false });
+  const submission = service.submit(baseData());
+
+  const rehydrated = new SubmissionService({ tenantId: 't1', storage, isOnline: () => true });
+  assert.deepEqual(
+    rehydrated.getPendingSyncSubmissions().map((s) => s.id),
+    [submission.id],
+  );
+});
+
+test('flushPendingSync() replays every queued submission through syncFn and clears the queue', () => {
+  const storage = makeFakeStorage();
+  const service = new SubmissionService({ tenantId: 't1', storage, isOnline: () => false });
+  const first = service.submit(baseData({ vin: 'VIN1' }));
+  const second = service.submit(baseData({ vin: 'VIN2' }));
+
+  const calls = [];
+  const { flushed, remaining } = service.flushPendingSync((submission) => calls.push(submission.id));
+
+  assert.deepEqual(calls, [first.id, second.id]);
+  assert.deepEqual(flushed.map((s) => s.id), [first.id, second.id]);
+  assert.deepEqual(remaining, []);
+  assert.equal(service.getPendingSyncSubmissions().length, 0);
+  assert.equal(service.getSyncState(first.id), SYNC_STATES.SYNCED);
+
+  const rehydrated = new SubmissionService({ tenantId: 't1', storage });
+  assert.equal(rehydrated.getPendingSyncSubmissions().length, 0);
+});
+
+test('flushPendingSync() keeps a submission queued when syncFn throws, so a flaky reconnect can retry it', () => {
+  const service = new SubmissionService({ tenantId: 't1', isOnline: () => false });
+  const ok = service.submit(baseData({ vin: 'VIN1' }));
+  const flaky = service.submit(baseData({ vin: 'VIN2' }));
+
+  const { flushed, remaining } = service.flushPendingSync((submission) => {
+    if (submission.id === flaky.id) {
+      throw new Error('relay unreachable');
+    }
+  });
+
+  assert.deepEqual(flushed.map((s) => s.id), [ok.id]);
+  assert.deepEqual(remaining.map((s) => s.id), [flaky.id]);
+  assert.equal(service.getSyncState(flaky.id), SYNC_STATES.PENDING_SYNC);
+});
+
+test('flushPendingSync() is a safe no-op with an empty queue or without a syncFn', () => {
+  const service = new SubmissionService({ tenantId: 't1', isOnline: () => true });
+  service.submit(baseData());
+
+  assert.deepEqual(service.flushPendingSync(() => {}), { flushed: [], remaining: [] });
+  assert.deepEqual(service.flushPendingSync(), { flushed: [], remaining: [] });
+});
+
+test('enqueueForSync() does not duplicate an id already queued', () => {
+  const service = new SubmissionService({ tenantId: 't1', isOnline: () => false });
+  const submission = service.submit(baseData());
+
+  service.enqueueForSync(submission.id);
+
+  assert.equal(service.getPendingSyncSubmissions().length, 1);
 });
 
 test('receiveExternalSubmission ignores payloads without an id or that fail Submission validation', () => {

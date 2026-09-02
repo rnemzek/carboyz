@@ -380,6 +380,15 @@ body {
   margin-bottom: 12px;
 }
 
+.offline-banner {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--color-fair);
+  padding: 8px var(--spacing);
+  text-align: center;
+}
+
 .card__counter-input {
   font-size: 1rem;
   padding: 8px 10px;

@@ -142,3 +142,50 @@ test('TenantConfigService.applyTenant is a safe no-op when no document is availa
   const service = new TenantConfigService({ document: null });
   assert.doesNotThrow(() => service.applyTenant(createTenantConfig()));
 });
+
+test('registerServiceWorker() registers sw.js at root scope as a module', async () => {
+  const calls = [];
+  const navigator = {
+    serviceWorker: {
+      register: (url, options) => {
+        calls.push({ url, options });
+        return Promise.resolve({ scope: '/' });
+      },
+    },
+  };
+  const service = new TenantConfigService({ document: null, navigator });
+
+  const registration = await service.registerServiceWorker();
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/src/sw.js');
+  assert.deepEqual(calls[0].options, { type: 'module', scope: '/' });
+  assert.deepEqual(registration, { scope: '/' });
+});
+
+test('registerServiceWorker() accepts a custom sw url', async () => {
+  const calls = [];
+  const navigator = { serviceWorker: { register: (url) => { calls.push(url); return Promise.resolve(); } } };
+  const service = new TenantConfigService({ document: null, navigator });
+
+  await service.registerServiceWorker('/custom-sw.js');
+
+  assert.deepEqual(calls, ['/custom-sw.js']);
+});
+
+test('registerServiceWorker() resolves to null instead of throwing when registration is rejected', async () => {
+  const navigator = { serviceWorker: { register: () => Promise.reject(new Error('disallowed scope')) } };
+  const service = new TenantConfigService({ document: null, navigator });
+
+  const registration = await service.registerServiceWorker();
+
+  assert.equal(registration, null);
+});
+
+test('registerServiceWorker() is a safe no-op returning null when serviceWorker is unsupported', () => {
+  const service = new TenantConfigService({ document: null, navigator: {} });
+  assert.equal(service.registerServiceWorker(), null);
+
+  const noNavigatorService = new TenantConfigService({ document: null, navigator: null });
+  assert.equal(noNavigatorService.registerServiceWorker(), null);
+});

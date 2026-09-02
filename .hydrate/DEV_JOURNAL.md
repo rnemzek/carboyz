@@ -1,5 +1,64 @@
 # Developer Journal — CarBoyZ
 
+## [UOW-25] Offline Workbox PWA Service Worker & Background Sync Queue — 2026-09-02
+
+**Approach:** No `workbox` npm dependency was added — kept the zero-dependency/ESM-first
+precedent by hand-rolling the two Workbox patterns the UOW actually needed: app-shell
+precaching on `install` and cache-first-with-background-revalidate (stale-while-revalidate)
+runtime caching on `fetch`, both cleaned up on `activate`.
+
+The pure, testable caching decisions (which URLs to precache, which requests are cacheable,
+which old cache names to evict) live in a new `src/services/OfflineCachePolicy.js` so they're
+unit-testable in Node without `self`/`caches` globals. `src/sw.js` is the thin browser-only
+orchestration layer that wires those helpers to the real `install`/`activate`/`fetch` service
+worker lifecycle events — consistent with the project's existing precedent of leaving DOM/worker
+glue (e.g. `App.js`, View files) untested at that layer while the logic underneath is covered.
+
+`TenantConfigService.registerServiceWorker(swUrl = '/src/sw.js')` registers it with
+`{ type: 'module', scope: '/' }` (an injectable `navigator`, mirroring the existing `document`
+DI pattern) and swallows registration failures via `.catch(() => null)` — same graceful-
+degradation precedent as `PwaInstallPromptView`'s platform detection. `App.js` calls it once in
+`mountApp()`.
+
+**Offline submission queue:** Rather than repurposing `Submission.status` (whose enum is
+validated by the `Submission` model, out of this UOW's surgical scope) into a `PENDING_SYNC`
+value, `SubmissionService` tracks queue membership as a separate id list persisted under its own
+`carboyz:submissions:pendingSync:<tenantId>` storage key. `submit()` auto-enqueues when an
+injectable `isOnline()` (defaults to `navigator.onLine`) reports offline;
+`getSyncState(id)` exposes the `PENDING_SYNC`/`SYNCED` state machine described in the UOW without
+touching the `Submission` model or its validation. `flushPendingSync(syncFn)` replays each queued
+submission through `syncFn` (in practice `syncAdapter.submitSubmissionCreated`) and leaves an
+entry queued (for retry) if `syncFn` throws, rather than dropping it.
+
+**Auto-resync on reconnect:** `App.js` listens for `window`'s `online`/`offline` events. `online`
+flushes every cached tenant's queue through its `SyncAdapter` and re-renders; `offline` just
+re-renders to show the banner. A tenant's queue is also flushed once at first `getTenantState()`
+construction (covers reload-while-online with a stale queue left over from a prior offline
+session).
+
+**Offline status indicator:** New `renderOfflineBanner()` in `App.js` (new `.offline-banner` CSS
+rule, styled like the existing `.sync-toast` pattern) shown in the app shell whenever `isOffline`
+is true.
+
+**Edge cases handled:** queued ids for submissions that no longer exist are filtered out on
+rehydrate; duplicate `enqueueForSync` calls for the same id are no-ops; `flushPendingSync` with an
+empty queue or no `syncFn` is a safe no-op; `registerServiceWorker` degrades to `null` with no
+`navigator`/`serviceWorker`/on a rejected registration promise; `isCacheableRequest` rejects
+non-GET requests, the `/ws` relay upgrade path, and malformed URLs.
+
+**Files touched:** new `src/sw.js`, new `src/services/OfflineCachePolicy.js`,
+`src/services/SubmissionService.js`, `src/services/TenantConfigService.js`, `src/ui/App.js`,
+`src/ui/styles.css`, plus new/extended unit tests in `tests/offlineCachePolicy.test.js`,
+`tests/submissionService.test.js`, `tests/tenantConfigService.test.js`.
+
+**Verification:** `npm test` → 506/506 passing (zero regressions). Coverage on new/modified
+modules: `OfflineCachePolicy.js` 100%/100% (line/branch), `SubmissionService.js` 93.51%/91.94%,
+`TenantConfigService.js` 94.53%/95.00% — all above the 80% gate. `App.js` (DOM-mounting glue) is
+untested at that layer, consistent with the project-wide convention documented in prior UOW
+journals; the service worker's own lifecycle (`install`/`activate`/`fetch` against real `self`/
+`caches`) was not exercised in a browser this session — flagging as unverified in a live PWA
+install/offline round-trip.
+
 ## [UOW-22] LocationAdapter Network Assertion Repair — 2026-09-01
 
 **Root cause:** Not an adapter logic bug — a test-isolation gap. `resolveApiKey()` in

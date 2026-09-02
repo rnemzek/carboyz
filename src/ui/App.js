@@ -186,6 +186,18 @@ function renderHeader(tenantConfig) {
   return h('header', { class: 'app__header' }, [renderBrandLogo(tenantConfig), titleGroup]);
 }
 
+function renderOfflineBanner(isOffline) {
+  if (!isOffline) {
+    return null;
+  }
+  return h('div', {
+    class: 'offline-banner',
+    role: 'status',
+    'aria-live': 'polite',
+    text: "You're offline — submissions are saved on this device and will sync automatically once you're back online.",
+  });
+}
+
 function renderBrandSwitcher(presets, activeTenantId, onSwitch) {
   const select = h(
     'select',
@@ -527,6 +539,7 @@ export function mountApp(root) {
   const hapticsService = new HapticsService();
   const shareService = new ShareService();
   const tenantConfigService = new TenantConfigService();
+  tenantConfigService.registerServiceWorker();
   const tenantStateByTenantId = new Map();
   const mapView = renderMapView();
 
@@ -537,6 +550,25 @@ export function mountApp(root) {
   });
   let pendingPrefill = parsePrefillFromSearch(window.location.search);
   let activeTab = 'sell';
+  let isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  function flushPendingSync(tenantId) {
+    const state = tenantStateByTenantId.get(tenantId);
+    if (!state?.syncAdapter) {
+      return;
+    }
+    state.submissionService.flushPendingSync((submission) => state.syncAdapter.submitSubmissionCreated(submission));
+  }
+
+  window.addEventListener('online', () => {
+    isOffline = false;
+    tenantStateByTenantId.forEach((_, tenantId) => flushPendingSync(tenantId));
+    render();
+  });
+  window.addEventListener('offline', () => {
+    isOffline = true;
+    render();
+  });
 
   function getTenantState(tenantId) {
     if (!tenantStateByTenantId.has(tenantId)) {
@@ -579,6 +611,9 @@ export function mountApp(root) {
       syncAdapter.connect();
       state.syncAdapter = syncAdapter;
       tenantStateByTenantId.set(tenantId, state);
+      if (!isOffline) {
+        flushPendingSync(tenantId);
+      }
       if (tenantId === CARBOYZ_TENANT_ID) {
         seedDirectInventory(ingestService);
         seedLocalDealers(ingestService);
@@ -750,6 +785,7 @@ export function mountApp(root) {
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
+      renderOfflineBanner(isOffline),
       nav,
       sellView,
       dealerView,

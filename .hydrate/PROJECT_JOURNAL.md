@@ -22,3 +22,4 @@
 - [x] **[UOW-23]** Structural Codebase Audit & RECONSTRUCTED_STATE.md — 2026-09-02 | Pass: 476/476 tests
 
 - [x] **[UOW-24]** Mobile QR Session Stash & Live Desktop Inbox Relay Handoff — 2026-09-02 | Pass: 488/488 tests
+- [x] **[UOW-25]** Offline Workbox PWA Service Worker & Background Sync Queue — 2026-09-02 | Pass: 506/506 tests

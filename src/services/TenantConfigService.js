@@ -61,16 +61,36 @@ function defaultDocument() {
   return typeof document !== 'undefined' ? document : null;
 }
 
+function defaultNavigator() {
+  return typeof navigator !== 'undefined' ? navigator : null;
+}
+
 export class TenantConfigService {
   constructor({
     document = defaultDocument(),
+    navigator = defaultNavigator(),
     createManifestUrl = defaultCreateManifestUrl,
     revokeManifestUrl = defaultRevokeManifestUrl,
   } = {}) {
     this.document = document;
+    this.navigator = navigator;
     this.createManifestUrl = createManifestUrl;
     this.revokeManifestUrl = revokeManifestUrl;
     this.lastManifestUrl = null;
+  }
+
+  /**
+   * Registers the offline-caching / background-sync service worker. Swallows registration
+   * failures (unsupported browser, disallowed scope on the host) so PWA install/offline support
+   * degrades gracefully instead of breaking the rest of the app — same precedent as
+   * PwaInstallPromptView's feature detection.
+   */
+  registerServiceWorker(swUrl = '/src/sw.js') {
+    const register = this.navigator?.serviceWorker?.register;
+    if (typeof register !== 'function') {
+      return null;
+    }
+    return register.call(this.navigator.serviceWorker, swUrl, { type: 'module', scope: '/' }).catch(() => null);
   }
 
   applyTenant(tenantConfig) {

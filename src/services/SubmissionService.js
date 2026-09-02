@@ -1,7 +1,38 @@
 import { Submission } from '../models/Submission.js';
 
+export const SYNC_STATES = Object.freeze({
+  PENDING_SYNC: 'PENDING_SYNC',
+  SYNCED: 'SYNCED',
+});
+
 function storageKey(tenantId) {
   return `carboyz:submissions:${tenantId}`;
+}
+
+function pendingSyncStorageKey(tenantId) {
+  return `carboyz:submissions:pendingSync:${tenantId}`;
+}
+
+function defaultIsOnline() {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function readPendingSyncIds(storage, tenantId) {
+  try {
+    const raw = storage?.getItem?.(pendingSyncStorageKey(tenantId));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingSyncIds(storage, tenantId, ids) {
+  try {
+    storage?.setItem?.(pendingSyncStorageKey(tenantId), JSON.stringify(ids));
+  } catch {
+    // Storage may be unavailable — the queue still works for this session, it just won't
+    // survive a reload, same tradeoff as writeSubmissions() below.
+  }
 }
 
 function readSubmissions(storage, tenantId) {
@@ -26,15 +57,19 @@ function writeSubmissions(storage, tenantId, submissions) {
 }
 
 export class SubmissionService {
-  constructor({ tenantId, storage = null } = {}) {
+  constructor({ tenantId, storage = null, isOnline = defaultIsOnline } = {}) {
     if (!tenantId) {
       throw new Error('SubmissionService requires a tenantId');
     }
 
     this.tenantId = tenantId;
     this.storage = storage;
+    this.isOnline = isOnline;
     this.submissions = readSubmissions(storage, tenantId);
     this.sequence = this.submissions.length;
+    this.pendingSyncIds = readPendingSyncIds(storage, tenantId).filter((id) =>
+      this.submissions.some((submission) => submission.id === id),
+    );
   }
 
   generateId() {
@@ -54,11 +89,64 @@ export class SubmissionService {
     this.submissions.push(submission);
     writeSubmissions(this.storage, this.tenantId, this.submissions);
 
+    if (!this.isOnline()) {
+      this.enqueueForSync(submission.id);
+    }
+
     return submission;
   }
 
   getSubmissions() {
     return [...this.submissions];
+  }
+
+  enqueueForSync(id) {
+    if (this.pendingSyncIds.includes(id)) {
+      return;
+    }
+    this.pendingSyncIds.push(id);
+    writePendingSyncIds(this.storage, this.tenantId, this.pendingSyncIds);
+  }
+
+  getSyncState(id) {
+    return this.pendingSyncIds.includes(id) ? SYNC_STATES.PENDING_SYNC : SYNC_STATES.SYNCED;
+  }
+
+  getPendingSyncSubmissions() {
+    return this.pendingSyncIds
+      .map((id) => this.submissions.find((submission) => submission.id === id))
+      .filter(Boolean);
+  }
+
+  /**
+   * Replays every queued offline submission through `syncFn` (typically
+   * `syncAdapter.submitSubmissionCreated`). A submission stays queued if `syncFn` throws, so a
+   * reconnect that itself flakes doesn't silently drop it — the next 'online' event retries it.
+   */
+  flushPendingSync(syncFn) {
+    if (typeof syncFn !== 'function' || this.pendingSyncIds.length === 0) {
+      return { flushed: [], remaining: this.getPendingSyncSubmissions() };
+    }
+
+    const flushed = [];
+    const remaining = [];
+    for (const id of this.pendingSyncIds) {
+      const submission = this.submissions.find((candidate) => candidate.id === id);
+      if (!submission) {
+        continue;
+      }
+      try {
+        syncFn(submission);
+        flushed.push(submission);
+      } catch {
+        remaining.push(id);
+      }
+    }
+
+    this.pendingSyncIds = remaining;
+    writePendingSyncIds(this.storage, this.tenantId, this.pendingSyncIds);
+
+    return { flushed, remaining: this.getPendingSyncSubmissions() };
   }
 
   receiveExternalSubmission(data) {
