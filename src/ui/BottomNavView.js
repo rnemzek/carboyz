@@ -2,6 +2,7 @@ export const BOTTOM_NAV_ITEMS = [
   { tab: 'sell', label: 'Intake' },
   { tab: 'leads', label: 'Lead Inbox' },
   { tab: 'analytics', label: 'Analytics' },
+  { tab: 'simulation', label: 'Simulation' },
   { tab: 'admin', label: 'Admin' },
 ];
 

@@ -320,4 +320,71 @@ node scripts/vendor-spatial-core.js && npx serve .`) and confirmed `index.html` 
 modified modules serve without error. No headless-browser driver (`chromium-cli`, Playwright,
 Puppeteer) was available in this environment, so the rendered chart/filter UI was **not**
 visually verified in an actual browser — only unit-tested and code-reviewed. Flagging this
+
+## [UOW-CARBOYZ-29] Counterfactual "What-If" Scenario Simulation Engine — 2026-09-02
+
+**New files:** `src/services/SimulationService.js`, `src/ui/SimulationController.js`,
+`src/ui/SimulationView.js`. **Modified:** `src/ui/App.js` (nav wiring), `src/ui/BottomNavView.js`
+(new `simulation` tab), `src/ui/styles.css` (`.comparison-row`/`.comparison-card` for the
+side-by-side KPI layout).
+
+**Core design problem:** a historical `Submission` only records the counter offer it actually
+received, not the `fairMarketValue` `SpreadService.calculateSpread()` used to derive it — and
+`SpreadService.js` is out of this UOW's target scope, so it couldn't be changed to carry FMV
+forward. Solved by inverting the already-established relationship
+`expectedMargin = estimatedWholesaleValue - finalCounterOffer` (see `DispatchService.dispatch()` /
+`LeadInboxController.approveAndSend()`) to reconstruct `fairMarketValue` from each closed
+submission's own stored fields. Only WON/LOST submissions with both `expectedMargin` and
+`finalCounterOffer` present are replayable (`isSimulatable()`); everything else is counted in
+`excludedCount` but skipped.
+
+**Second design problem — win-rate had to actually respond to policy changes:**
+`calculateSpread()`'s `status` (GREENLIGHT/MARGINAL/PASS) is derived purely from
+`fairMarketValue` and `competitorOfferAmount` — it never varies with `tierConfig`, only
+`recommendedCounterOffer`/`matchedTier` do. A projection that called `calculateSpread()` once and
+read `.status` off it would report a Win Rate Shift of exactly 0% for every candidate config,
+which would make the whole feature look broken. Fixed by scoring viability on what's left over
+*after* paying the candidate's recommended counter offer: a second `calculateSpread()` call
+treats that counter offer as the amount paid out (`tierConfig: []`, `counterOfferOffset: 0`, so
+nothing further stacks on top), reusing `calculateSpread()`'s own GREENLIGHT/MARGINAL/PASS
+thresholds instead of duplicating the magic 1000/300 constants. A projected deal counts as "won"
+when that leftover margin clears PASS. This measures projected deal profitability under the
+candidate policy, not seller-acceptance odds — there's no seller-behavior model anywhere in this
+codebase to project the latter, and inventing one would be well outside surgical scope. Documented
+inline in `SimulationService.js` so a future reader doesn't mistake it for an acceptance-
+probability model.
+
+Auto-approval volume delta mirrors `DispatchService.evaluate()`'s live rule exactly
+(`matchedTier.autoApprove && spreadResult.status === GREENLIGHT`, using the *first*, real
+`calculateSpread()` call) — so it responds directly to the candidate tier's own `autoApprove` flag
+per price bracket, same as production dispatch would.
+
+**Reuse over new abstractions:** `simulateCandidatePolicy()` validates the candidate config via
+`SpreadConfigService.validateConfig()` rather than duplicating tier-shape validation.
+`SimulationController.buildCandidateSeed()` reads the live config off `spreadConfigService` to
+seed the candidate editor, but `simulateCandidatePolicy()` never calls `saveConfig()`/
+`applyConfig()` — nothing mutates active policy state. `SimulationView.js`'s tier-row form
+controls are a trimmed copy of `SpreadConfigView.js`'s `renderTierRow()`/`renderCompetitorSection()`
+pattern (candidate-only, no remove/add-row or persistence, since this editor is scratch space for
+a single run, not a saved config).
+
+**Acceptance criteria — "margin caps":** the UOW text mentions margin caps as a candidate lever
+alongside tier offsets and auto-approval thresholds, but no margin-cap concept exists anywhere in
+`SpreadConfigService`/`SpreadService` today (only flat/percent tier offsets + `autoApprove`).
+Introducing a new margin-cap field would mean extending `SpreadConfigService`'s config schema,
+which is out of this UOW's target scope (`SpreadService.js`/`SpreadController.js`/`SpreadView.js`
+were not listed) — deferring rather than inventing a schema change unilaterally.
+
+**Verification:** `npm test` → 574/574 passing (563 existing + 11 new, zero regressions).
+`node --test --experimental-test-coverage` on the new service/controller:
+`SimulationService.js` 100%/84.85% line/branch, `SimulationController.js` 100%/90.91% — both clear
+the 80% gate. `SimulationView.js` is intentionally excluded from the coverage gate, matching this
+repo's existing convention (no `*View.js` has a dedicated unit test suite — DOM rendering is
+covered by syntax-checking + manual reasoning only, not `document`-dependent unit tests, since the
+test runner has no DOM available).
+
+**Not done:** no headless-browser driver was available in this environment, so the new Simulation
+tab's rendered UI (tier-row inputs, Run Simulation button, side-by-side comparison cards) was
+**not** visually verified in an actual browser — only unit-tested (service/controller) and
+syntax-checked (`node --check` on all four touched/new files).
 explicitly per the UI-testing guideline rather than claiming a browser check that didn't happen.

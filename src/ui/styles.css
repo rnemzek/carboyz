@@ -1353,3 +1353,25 @@ body {
   display: flex;
   justify-content: center;
 }
+
+.comparison-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing);
+  margin-bottom: calc(var(--spacing) * 1.5);
+}
+
+.comparison-card {
+  padding: var(--spacing);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.comparison-card__title {
+  margin: 0 0 var(--spacing);
+}
+
+.simulation__results .kpi-row {
+  margin-bottom: 0;
+}

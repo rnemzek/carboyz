@@ -2,6 +2,7 @@
 
 - [x] **[UOW-01]** Core Architecture & Hono Server Setup — 2026-08-01 | Pass: 12/12 tests
 - [x] **[UOW-02]** MapLibre GL Integration & Spatial Layering — 2026-08-05 | Pass: 18/18 tests
+- [x] **[UOW-CARBOYZ-29]** Counterfactual "What-If" Scenario Simulation Engine — 2026-09-02 | Pass: 574/574 tests
 - [x] **UOW-01:** Scaffold Repository & Core Architecture (Iterated: 0)
 - [x] **UOW-02:** Core Vehicle & Competitor Telemetry Domain
 - [x] **UOW-03:** Buyer Search & Dealer Ingest Engine

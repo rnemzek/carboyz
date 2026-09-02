@@ -20,6 +20,9 @@ import { SpreadConfigController } from './SpreadConfigController.js';
 import { renderSpreadConfigView } from './SpreadConfigView.js';
 import { AnalyticsController } from './AnalyticsController.js';
 import { renderAnalyticsView } from './AnalyticsView.js';
+import { SimulationService } from '../services/SimulationService.js';
+import { SimulationController } from './SimulationController.js';
+import { renderSimulationView } from './SimulationView.js';
 import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
 import { TenantConfigService } from '../services/TenantConfigService.js';
 import { SyncAdapter } from '../services/SyncAdapter.js';
@@ -267,6 +270,14 @@ function renderTabs(activeTab, onSelect) {
     text: 'Analytics',
     onClick: () => onSelect('analytics'),
   });
+  const simulationBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'simulation'),
+    text: 'Simulation',
+    onClick: () => onSelect('simulation'),
+  });
   const harnessBtn = h('button', {
     class: 'tabs__button',
     type: 'button',
@@ -283,9 +294,21 @@ function renderTabs(activeTab, onSelect) {
     leadsBtn,
     adminBtn,
     analyticsBtn,
+    simulationBtn,
     harnessBtn,
   ]);
-  return { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, analyticsBtn, harnessBtn };
+  return {
+    nav,
+    sellBtn,
+    dealerBtn,
+    buyerBtn,
+    mapBtn,
+    leadsBtn,
+    adminBtn,
+    analyticsBtn,
+    simulationBtn,
+    harnessBtn,
+  };
 }
 
 function renderVehicleCard(card, { onShare } = {}) {
@@ -590,6 +613,7 @@ export function mountApp(root) {
         submissionService,
         auditLedgerService: spreadConfigService.auditLedgerService,
       });
+      const simulationService = new SimulationService({ submissionService });
       const state = {
         dealers,
         telemetryService,
@@ -600,6 +624,7 @@ export function mountApp(root) {
         sessionStashService,
         dispatchService,
         analyticsService,
+        simulationService,
         syncAdapter: null,
         syncToast: null,
       };
@@ -706,6 +731,10 @@ export function mountApp(root) {
     });
     const spreadConfigController = new SpreadConfigController({ spreadConfigService: state.spreadConfigService });
     const analyticsController = new AnalyticsController({ analyticsService: state.analyticsService });
+    const simulationController = new SimulationController({
+      simulationService: state.simulationService,
+      spreadConfigService: state.spreadConfigService,
+    });
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
@@ -724,6 +753,7 @@ export function mountApp(root) {
     });
     const adminView = renderSpreadConfigView(spreadConfigController);
     const { section: analyticsView, refresh: refreshAnalyticsView } = renderAnalyticsView(analyticsController);
+    const simulationView = renderSimulationView(simulationController);
     const harnessView = renderTestHarnessView({
       sellerController,
       submissionService: state.submissionService,
@@ -754,6 +784,7 @@ export function mountApp(root) {
       leadsView.hidden = tab !== 'leads';
       adminView.hidden = tab !== 'admin';
       analyticsView.hidden = tab !== 'analytics';
+      simulationView.hidden = tab !== 'simulation';
       harnessView.hidden = tab !== 'harness';
       sellBtn.setAttribute('aria-selected', String(tab === 'sell'));
       dealerBtn.setAttribute('aria-selected', String(tab === 'dealer'));
@@ -762,6 +793,7 @@ export function mountApp(root) {
       leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
       adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
       analyticsBtn.setAttribute('aria-selected', String(tab === 'analytics'));
+      simulationBtn.setAttribute('aria-selected', String(tab === 'simulation'));
       harnessBtn.setAttribute('aria-selected', String(tab === 'harness'));
       bottomNavButtons.forEach((button, buttonTab) => {
         button.setAttribute('aria-selected', String(tab === buttonTab));
@@ -771,10 +803,18 @@ export function mountApp(root) {
       if (tab === 'analytics') refreshAnalyticsView();
     }
 
-    const { nav, sellBtn, dealerBtn, buyerBtn, mapBtn, leadsBtn, adminBtn, analyticsBtn, harnessBtn } = renderTabs(
-      activeTab,
-      (tab) => handleTabSelect(tab),
-    );
+    const {
+      nav,
+      sellBtn,
+      dealerBtn,
+      buyerBtn,
+      mapBtn,
+      leadsBtn,
+      adminBtn,
+      analyticsBtn,
+      simulationBtn,
+      harnessBtn,
+    } = renderTabs(activeTab, (tab) => handleTabSelect(tab));
     const { nav: bottomNav, buttons: bottomNavButtons } = renderBottomNavView(activeTab, (tab) => handleTabSelect(tab));
     sellView.hidden = activeTab !== 'sell';
     dealerView.hidden = activeTab !== 'dealer';
@@ -783,6 +823,7 @@ export function mountApp(root) {
     leadsView.hidden = activeTab !== 'leads';
     adminView.hidden = activeTab !== 'admin';
     analyticsView.hidden = activeTab !== 'analytics';
+    simulationView.hidden = activeTab !== 'simulation';
     harnessView.hidden = activeTab !== 'harness';
 
     const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
@@ -798,6 +839,7 @@ export function mountApp(root) {
       leadsView,
       adminView,
       analyticsView,
+      simulationView,
       harnessView,
       bottomNav,
       a2hsPrompt?.el,

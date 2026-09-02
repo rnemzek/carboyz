@@ -140,3 +140,52 @@ namespaced SVG elements, so this project's convention for any SVG content is mar
 `.innerHTML`, not `h()`. Worth a template-level note if a second/third chart type gets added
 later: consider a small shared SVG-string builder rather than duplicating the axis/scale math per
 chart.
+
+## UOW-CARBOYZ-29: Counterfactual "What-If" Scenario Simulation Engine
+
+Closes the "counterfactual/what-if simulator" gap flagged as open back in the UOW-23 audit and
+referenced again in UOW-27's `TestHarnessView` policy-timeline note. New `SimulationService.js`
+exports `simulateCandidatePolicy(historicalSubmissions, candidateConfig)` (pure function) plus a
+thin `SimulationService` class wrapping it against a `submissionService`. Contract:
+
+```
+simulateCandidatePolicy(historicalSubmissions, candidateConfig) -> {
+  sampleSize: number,        // replayed (closed + FMV-derivable) submissions
+  excludedCount: number,     // pool.length - sampleSize
+  current:   { volume, wonCount, winRate, totalGrossMargin, avgMarginPerWonDeal, autoApprovalVolume },
+  candidate: { volume, wonCount, winRate, totalGrossMargin, avgMarginPerWonDeal, autoApprovalVolume },
+  delta:     { winRate, totalGrossMargin, avgMarginPerWonDeal, autoApprovalVolume },  // candidate - current
+  projections: { submissionId, spreadResult, won, autoApprove, expectedMargin }[],
+}
+```
+
+`candidateConfig` is validated via `SpreadConfigService.validateConfig()` (reused, not
+duplicated) so it's the same `{ tenantId?, tiersByCompetitor }` shape the Admin tier editor
+already produces — a candidate config is structurally just an unsaved `SpreadConfigService`
+config, never written back via `saveConfig()`/`applyConfig()`.
+
+**Architectural trade-off worth flagging for whoever touches `SpreadService.js` next:**
+`calculateSpread()`'s `DealScoreStatus` is a function of `fairMarketValue` and
+`competitorOfferAmount` only — `tierConfig` never influences it, only the recommended counter
+offer and matched tier do. That makes a naive "was the raw status GREENLIGHT/MARGINAL" win
+projection completely policy-invariant, which defeats the point of a policy simulator. Worked
+around without touching `SpreadService.js` (out of scope) by calling `calculateSpread()` a second
+time per submission, feeding the candidate's own `recommendedCounterOffer` back in as the
+"competitor offer" with `tierConfig: []`/`counterOfferOffset: 0` — this reuses
+`calculateSpread()`'s internal GREENLIGHT/MARGINAL/PASS scoring to grade the *post-counter-offer*
+margin instead of the pre-offset spread, which does vary with `tierConfig`. If `SpreadService.js`
+ever exposes its `scoreSpread()`/threshold constants directly, `SimulationService.projectSubmission()`
+should switch to calling that instead of the double-`calculateSpread()` trick — same result, one
+fewer indirection.
+
+**Also flagged, not built:** the UOW's acceptance text mentions "margin caps" as a candidate lever
+alongside tier offsets and auto-approval thresholds. No margin-cap concept exists in
+`SpreadConfigService`'s tier schema (only `flatAmount`/`percent`/`strategy`/`autoApprove`).
+Adding one is a `SpreadConfigService`/`SpreadService` schema change — out of this UOW's target
+scope — so `SimulationService` only models what the existing tier schema already supports.
+Candidate for a future UOW if margin-cap policy levers are actually wanted.
+
+`App.js` gained a `simulation` tab (between Analytics and Test Harness in the top nav, in the
+bottom nav after Analytics) and a per-tenant `SimulationService` instance alongside the existing
+`analyticsService`/`spreadConfigService` — no new cross-tenant state, follows the existing
+`getTenantState()` per-tenant-singleton pattern exactly.
