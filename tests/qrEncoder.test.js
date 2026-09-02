@@ -108,17 +108,46 @@ test('renderQrSvg renders a well-formed SVG matching matrix dimensions and dark-
     [true, false],
     [false, true],
   ];
+  // margin (1) is below the 4-module quiet zone floor for cellSize 1, so it's clamped to 4.
   const svg = renderQrSvg(matrix, { cellSize: 1, margin: 1 });
   assert.match(svg, /^<svg /);
-  assert.match(svg, /viewBox="0 0 4 4"/);
-  assert.match(svg, /width="4" height="4"/);
+  assert.match(svg, /viewBox="0 0 10 10"/);
+  assert.match(svg, /width="10" height="10"/);
   const darkRectCount = (svg.match(/fill="#000000"/g) ?? []).length;
   assert.equal(darkRectCount, 2);
 });
 
 test('renderQrSvg output scales with a real encoded matrix', () => {
   const matrix = encodeQrMatrix('svg sizing check', { errorCorrectionLevel: 'L' });
+  // margin (8) is below the 4-module quiet zone floor for cellSize 4 (16), so it's clamped up.
   const svg = renderQrSvg(matrix, { cellSize: 4, margin: 8 });
-  const expectedDimension = matrix.length * 4 + 16;
+  const expectedDimension = matrix.length * 4 + 32;
   assert.match(svg, new RegExp(`viewBox="0 0 ${expectedDimension} ${expectedDimension}"`));
+});
+
+test('renderQrSvg defaults to a solid white background with a mandatory 4-module quiet zone', () => {
+  const matrix = encodeQrMatrix('quiet zone check', { errorCorrectionLevel: 'L' });
+  const svg = renderQrSvg(matrix, { cellSize: 5 });
+  const expectedMargin = 5 * 4;
+  const expectedDimension = matrix.length * 5 + expectedMargin * 2;
+  assert.match(svg, new RegExp(`viewBox="0 0 ${expectedDimension} ${expectedDimension}"`));
+  assert.match(svg, /<rect x="0" y="0" width="\d+" height="\d+" fill="#FFFFFF"\/>/);
+  const firstDarkRect = svg.match(/<rect x="(\d+)" y="(\d+)"[^>]*fill="#000000"/);
+  assert.ok(firstDarkRect, 'expected at least one dark module rect');
+  assert.ok(Number(firstDarkRect[1]) >= expectedMargin, 'dark modules must not intrude on the quiet zone (x)');
+  assert.ok(Number(firstDarkRect[2]) >= expectedMargin, 'dark modules must not intrude on the quiet zone (y)');
+});
+
+test('renderQrSvg enforces the quiet zone even when a smaller margin is requested', () => {
+  const matrix = encodeQrMatrix('clamp check', { errorCorrectionLevel: 'L' });
+  const svg = renderQrSvg(matrix, { cellSize: 3, margin: 1 });
+  const expectedMargin = 3 * 4;
+  const expectedDimension = matrix.length * 3 + expectedMargin * 2;
+  assert.match(svg, new RegExp(`viewBox="0 0 ${expectedDimension} ${expectedDimension}"`));
+});
+
+test('renderQrSvg marks the root SVG for crisp, unblurred edge rendering', () => {
+  const matrix = encodeQrMatrix('crisp edges check', { errorCorrectionLevel: 'L' });
+  const svg = renderQrSvg(matrix);
+  assert.match(svg, /^<svg[^>]*\sshape-rendering="crispEdges"/);
 });

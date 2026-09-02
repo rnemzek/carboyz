@@ -1037,6 +1037,26 @@ body {
   height: auto;
 }
 
+.pairing-card__qr {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  margin-bottom: var(--spacing);
+}
+
+.pairing-card__qr:empty {
+  display: none;
+}
+
+.pairing-card__qr svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .analytics__filters {
   margin-bottom: var(--spacing);
   flex-wrap: wrap;

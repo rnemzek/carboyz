@@ -27,3 +27,4 @@
 - [x] **[UOW-26]** Policy Versioning & Immutable Cryptographic Audit Ledger — 2026-09-02 | Pass: 541/541 tests
 - [x] **[UOW-27]** Synthetic Submission Generator & Time-Series Historical Policy State Seeder — 2026-09-02 | Pass: 550/550 tests
 - [x] **[UOW-28]** Analytics Policy Version Pinning, Dynamic Filters & Responsive Layout — 2026-09-02 | Pass: 563/563 tests
+- [x] **[UOW-CARBOYZ-30]** QR Code Rendering Hotfix: Standard Palette Contrast & Quiet Zone — 2026-09-02 | Pass: 577/577 tests

@@ -499,26 +499,37 @@ export function encodeQrMatrix(text, { errorCorrectionLevel = 'L' } = {}) {
   return best.matrix;
 }
 
+// Standard high-contrast palette: dark modules on a light background, regardless of caller
+// theme, so mobile camera scanners get reliable optical contrast.
+const QR_DARK_MODULE_COLOR = '#000000';
+const QR_LIGHT_BACKGROUND_COLOR = '#FFFFFF';
+
+// ISO/IEC 18004 recommends a minimum 4-module quiet zone around the symbol so scanners can
+// distinguish the finder patterns from surrounding content.
+const QUIET_ZONE_MODULES = 4;
+
 /**
  * Renders a QR module matrix (from `encodeQrMatrix`) as a standalone SVG markup string.
  * Pure string builder — no DOM access, safe to call in any environment.
  */
-export function renderQrSvg(matrix, { cellSize = 6, margin = 4 } = {}) {
+export function renderQrSvg(matrix, { cellSize = 6, margin = cellSize * QUIET_ZONE_MODULES } = {}) {
   const size = matrix.length;
-  const dimension = size * cellSize + margin * 2;
+  const quietZone = cellSize * QUIET_ZONE_MODULES;
+  const effectiveMargin = Math.max(margin, quietZone);
+  const dimension = size * cellSize + effectiveMargin * 2;
   const rects = [];
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       if (matrix[r][c]) {
         rects.push(
-          `<rect x="${margin + c * cellSize}" y="${margin + r * cellSize}" width="${cellSize}" height="${cellSize}" fill="#000000"/>`,
+          `<rect x="${effectiveMargin + c * cellSize}" y="${effectiveMargin + r * cellSize}" width="${cellSize}" height="${cellSize}" fill="${QR_DARK_MODULE_COLOR}"/>`,
         );
       }
     }
   }
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dimension} ${dimension}" width="${dimension}" height="${dimension}" role="img">` +
-    `<rect x="0" y="0" width="${dimension}" height="${dimension}" fill="#ffffff"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dimension} ${dimension}" width="${dimension}" height="${dimension}" shape-rendering="crispEdges" role="img">` +
+    `<rect x="0" y="0" width="${dimension}" height="${dimension}" fill="${QR_LIGHT_BACKGROUND_COLOR}"/>` +
     `${rects.join('')}</svg>`
   );
 }

@@ -388,3 +388,42 @@ tab's rendered UI (tier-row inputs, Run Simulation button, side-by-side comparis
 **not** visually verified in an actual browser — only unit-tested (service/controller) and
 syntax-checked (`node --check` on all four touched/new files).
 explicitly per the UI-testing guideline rather than claiming a browser check that didn't happen.
+
+## [UOW-CARBOYZ-30] QR Code Rendering Hotfix — 2026-09-02
+
+**Files touched:** `src/utils/qrEncoder.js`, `src/ui/styles.css`, `tests/qrEncoder.test.js`
+(`src/ui/LeadInboxView.js` needed no JS change — its existing `.pairing-card__qr` class picked up
+the new CSS below).
+
+**Root cause:** `renderQrSvg()`'s `margin` option was a flat pixel value (default `4`) independent
+of `cellSize`, so at the default `cellSize: 6` the quiet zone was ~0.67 modules — well under the
+ISO/IEC 18004-recommended 4-module minimum — and every other call site (`TestHarnessView.js`
+`margin: 8`/`cellSize: 4`, `appraisalPdfGenerator.js` `margin: 6`/`cellSize: 3`) was also under the
+4-module floor (2 modules each). The dark-on-light palette itself (`#000000` modules, `#ffffff`
+background) was already correct in the existing code.
+
+**Fix:** `renderQrSvg()` now derives its default margin from `cellSize * 4` and additionally clamps
+any caller-supplied `margin` up to that 4-module floor via `Math.max(margin, cellSize * 4)` — so
+the mandatory quiet zone is enforced inside the encoder itself, fixing every call site
+(`LeadInboxView.js`, `TestHarnessView.js`, `appraisalPdfGenerator.js`) without touching them
+individually, consistent with this UOW's target scope of `qrEncoder.js` only. Also added
+`shape-rendering="crispEdges"` to the root `<svg>` element and named the palette constants
+(`QR_DARK_MODULE_COLOR`/`QR_LIGHT_BACKGROUND_COLOR`) for clarity.
+
+**Container isolation:** Added a `.pairing-card__qr` rule to `styles.css` — solid white background,
+bordered card, `margin-bottom: var(--spacing)` for vertical separation above the pairing status
+text, and `:empty { display: none }` so the box doesn't render as a bare border before a QR is
+generated. `LeadInboxView.js` already applied this class to the QR container; no JS edit needed.
+
+**Verified no regression in the appraisal PDF:** `appraisalPdfGenerator.js`'s `renderQrBlock()`
+passes `cellSize: 3`/`margin: 6`, now clamped to a 12px quiet zone (was 6px) — checked the QR block
+still fits inside its allotted vertical space (`translate(..., 620)` to the "Scan to verify" label
+at `y: 790`, well within `DOCUMENT_HEIGHT: 1056`) with no overlap.
+
+**Tests:** Updated the two existing `renderQrSvg` tests whose literal margin/dimension expectations
+predated the quiet-zone clamp, and added three new tests: default quiet zone + white background,
+clamp-enforcement when a smaller margin is requested, and the `shape-rendering="crispEdges"`
+attribute. `npm test` → 577/577 passing (574 existing + 3 new, zero regressions).
+
+**Not done:** no browser was available to visually confirm the rendered pairing card in
+`LeadInboxView.js`; verified via unit tests and `node --check` syntax checking only.

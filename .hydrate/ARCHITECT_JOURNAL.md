@@ -189,3 +189,14 @@ Candidate for a future UOW if margin-cap policy levers are actually wanted.
 bottom nav after Analytics) and a per-tenant `SimulationService` instance alongside the existing
 `analyticsService`/`spreadConfigService` — no new cross-tenant state, follows the existing
 `getTenantState()` per-tenant-singleton pattern exactly.
+
+## [UOW-CARBOYZ-30] QR Code Rendering Hotfix — 2026-09-02
+
+`qrEncoder.js`'s `renderQrSvg(matrix, { cellSize, margin })` contract changed: `margin` is no
+longer taken as a literal pixel value — it's now a *floor request* that gets clamped up to a
+mandatory 4-module quiet zone (`Math.max(margin, cellSize * 4)`), and omitting it defaults to
+exactly that 4-module floor. This is a behavioral (not signature) change, so every existing caller
+(`LeadInboxView.js`, `TestHarnessView.js`, `appraisalPdfGenerator.js`) now renders a larger quiet
+zone automatically with no call-site edits required. Any future caller that needs a *larger* quiet
+zone than 4 modules can still pass a bigger `margin`; nothing can request smaller than the floor
+anymore. The root `<svg>` also now always carries `shape-rendering="crispEdges"`.
