@@ -724,6 +724,7 @@ export function mountApp(root) {
     const harnessView = renderTestHarnessView({
       sellerController,
       submissionService: state.submissionService,
+      spreadConfigService: state.spreadConfigService,
     }).section;
     const dealerView = renderDealerStudioView(
       dealerController,

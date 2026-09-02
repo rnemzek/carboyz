@@ -222,3 +222,41 @@ Coverage on new/modified services and models (`node --test --experimental-test-c
 `AuditLedgerService.js` 97.82%/91.67% (line/branch), `PolicySnapshot.js` 100%/94.74%,
 `SpreadConfigService.js` 94.77%/91.23%, `SpreadService.js` 100%/93.10%, `DispatchService.js`
 100%/97.06%, `Submission.js` 100%/100% — all clear the 80% line/branch gate.
+
+## UOW-27: Synthetic Submission Generator & Time-Series Historical Policy State Seeder
+
+**Files touched:** `src/ui/TestHarnessView.js`, `src/ui/App.js`, `tests/ui.testHarnessView.test.js`.
+`src/utils/seedInventory.js` and `src/services/AuditLedgerService.js` were left unmodified —
+the generator/seeder logic fits the existing pure-function tier already established in
+`TestHarnessView.js` (`buildMockAppraisal`, `buildHistoricalSubmissionPatch`,
+`seedHistoricalLeads`), and the timeline seeder reuses `AuditLedgerService`/`SpreadConfigService`
+as-is rather than adding new surface area to either.
+
+**Implementation:**
+- `buildSyntheticSubmission(seedIndex, config)` / `buildSyntheticSubmissions(count, config)` —
+  deterministic generator producing schema-valid `Submission` payloads across a selectable
+  `daysBack` date range, a selectable `makes` filter (falls back to the full pool if the filter
+  matches nothing), and `competitorSources` (`CarMax`, `Carvana`, `Hendrick`). `Hendrick` isn't in
+  the `Submission` model's fixed `COMPETITORS` enum, so it maps to `competitor: 'Other'` +
+  `competitorDealerName: 'Hendrick'`, mirroring how a real seller reports an unlisted competitor.
+- `seedHistoricalPolicyTimeline(...)` — seeds a sequential `v1.0.0 -> v1.1.0 -> v1.2.0` chain into
+  `AuditLedgerService` via `SpreadConfigService`, backdating each mutation across `daysBack` by
+  temporarily overriding `auditLedgerService.now` per entry (restored in a `finally`). Returns
+  `segments` (`{ policyVersionId, daysAgo }`), each the version active from `daysAgo` days ago up
+  to the next segment.
+- `resolveActivePolicyVersion(segments, daysAgo)` — pure lookup used to tag each generated
+  submission with the policy version that was actually active at its own timestamp.
+- `seedHistoricalSubmissionPool(...)` — the one-click orchestrator: seeds the policy timeline,
+  generates `count` synthetic submissions across the same window, and submits each one tagged
+  with its resolved `policyVersionId`.
+- Test Harness UI: three new "Seed {30,60,90}-Day Pool" buttons wired to
+  `seedHistoricalSubmissionPool`. `renderTestHarnessView` now also accepts an optional
+  `spreadConfigService` so pool seeding mutates the tenant's real audit ledger (visible in the
+  Spread Config / Analytics views) instead of a disconnected instance; `App.js` now passes
+  `state.spreadConfigService` through at the call site.
+
+**Verification:** `npm test` → 550/550 passing (541 existing + 9 new, zero regressions).
+`node --test --experimental-test-coverage`: all new business logic in `TestHarnessView.js` is
+covered (only the pre-existing, already-untested DOM-rendering `renderTestHarnessView`/
+`renderAppraisalPreview` functions are uncovered, unchanged from before this UOW — same
+untested-by-convention tier as `App.js`/`renderLeadInboxView`).

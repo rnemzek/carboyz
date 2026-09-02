@@ -84,3 +84,23 @@ shape — `authorId` is an additive, defaulted second-argument option (`{ author
 Roadmap: Epic 2 (Policy Governance) and Epic 3 (Offline Support) are both now closed. Remaining
 gap per the UOW-23 audit is analytics version-pinning / counterfactual "what-if" simulation
 against the new `PolicySnapshot`/audit ledger — no UOW opened yet.
+
+## UOW-27: Synthetic Submission Generator & Time-Series Historical Policy State Seeder
+
+New pub/sub-free contract in `TestHarnessView.js`: a policy timeline is represented as an array
+of `{ policyVersionId, daysAgo }` segments (oldest-to-newest by construction, `daysAgo` = days
+before now the version became active), produced by `seedHistoricalPolicyTimeline()` and consumed
+by `resolveActivePolicyVersion(segments, daysAgo)`. This is the same shape the UOW-23-flagged
+counterfactual/what-if simulator would need to walk "what was the active policy at time T" —
+no new abstraction was introduced there, this reuses `PolicySnapshot`/`AuditLedgerService`
+as-is and only adds the segment-lookup convention on top.
+
+Backdating ledger entries required temporarily reassigning `auditLedgerService.now` (a plain
+instance property holding the timestamp-provider closure) around each `recordMutation` call,
+restored via `finally`. No change to `AuditLedgerService`'s constructor contract — `now` was
+already designed as an injectable/overridable function, just not previously mutated
+post-construction.
+
+`renderTestHarnessView` now takes an optional `spreadConfigService` so harness-seeded policy
+history lands in the tenant's real audit ledger (visible to `SpreadConfigController`/analytics)
+rather than a disconnected instance — additive, defaults to `null` (lazily constructs its own).

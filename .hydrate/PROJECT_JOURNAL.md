@@ -24,3 +24,4 @@
 - [x] **[UOW-24]** Mobile QR Session Stash & Live Desktop Inbox Relay Handoff — 2026-09-02 | Pass: 488/488 tests
 - [x] **[UOW-25]** Offline Workbox PWA Service Worker & Background Sync Queue — 2026-09-02 | Pass: 506/506 tests
 - [x] **[UOW-26]** Policy Versioning & Immutable Cryptographic Audit Ledger — 2026-09-02 | Pass: 541/541 tests
+- [x] **[UOW-27]** Synthetic Submission Generator & Time-Series Historical Policy State Seeder — 2026-09-02 | Pass: 550/550 tests

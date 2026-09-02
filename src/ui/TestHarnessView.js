@@ -1,5 +1,7 @@
 import { h } from './App.js';
 import { encodeQrMatrix, renderQrSvg } from '../utils/qrEncoder.js';
+import { COMPETITORS } from '../models/Submission.js';
+import { SpreadConfigService } from '../services/SpreadConfigService.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -227,6 +229,142 @@ export function seedHistoricalLeads(submissionService, { count = 50 } = {}) {
   return created;
 }
 
+export const SYNTHETIC_MAKE_MODELS = [
+  { make: 'Honda', model: 'Accord' },
+  { make: 'Toyota', model: 'Camry' },
+  { make: 'Ford', model: 'F-150' },
+  { make: 'Chevrolet', model: 'Equinox' },
+  { make: 'Jeep', model: 'Grand Cherokee' },
+  { make: 'Subaru', model: 'Outback' },
+  { make: 'Nissan', model: 'Rogue' },
+  { make: 'Ram', model: '1500' },
+];
+
+// 'Hendrick' isn't in the Submission model's fixed COMPETITORS enum, so it maps to
+// competitor: 'Other' with competitorDealerName: 'Hendrick' — the same shape a real seller
+// submission takes when reporting an offer from an unlisted competitor.
+export const SYNTHETIC_COMPETITOR_SOURCES = ['CarMax', 'Carvana', 'Hendrick'];
+
+export const HISTORICAL_POOL_WINDOW_DAYS = [30, 60, 90];
+
+function pseudoRandomInt(seed, max) {
+  const hash = Math.imul(seed + 1, 2654435761) >>> 0;
+  return hash % max;
+}
+
+/**
+ * Builds one deterministic synthetic submission payload: same seedIndex + config always
+ * produces the same output. `config.makes` (an array of make strings) filters
+ * SYNTHETIC_MAKE_MODELS down to a selectable subset; an empty/omitted filter uses the full pool.
+ */
+export function buildSyntheticSubmission(seedIndex, { daysBack = 90, makes = null, competitorSources = SYNTHETIC_COMPETITOR_SOURCES } = {}) {
+  const filteredPool = makes && makes.length > 0 ? SYNTHETIC_MAKE_MODELS.filter((entry) => makes.includes(entry.make)) : SYNTHETIC_MAKE_MODELS;
+  const pool = filteredPool.length > 0 ? filteredPool : SYNTHETIC_MAKE_MODELS;
+  const vehicle = pool[seedIndex % pool.length];
+  const source = competitorSources[seedIndex % competitorSources.length];
+  const isListedCompetitor = COMPETITORS.includes(source) && source !== 'Other';
+  const competitor = isListedCompetitor ? source : 'Other';
+  const competitorDealerName = isListedCompetitor ? null : source;
+
+  const year = 2024 - (seedIndex % 9);
+  const mileage = 6000 + pseudoRandomInt(seedIndex, 95) * 1000;
+  const competitorOfferAmount = 11000 + pseudoRandomInt(seedIndex + 1, 380) * 100;
+  const daysAgo = daysBack <= 1 ? 0 : pseudoRandomInt(seedIndex + 2, daysBack);
+  const timestamp = new Date(Date.now() - daysAgo * MS_PER_DAY).toISOString();
+
+  return {
+    vin: generateVin(seedIndex + 100000),
+    year,
+    make: vehicle.make,
+    model: vehicle.model,
+    trim: null,
+    mileage,
+    zipCode: '28451',
+    competitor,
+    competitorDealerName,
+    competitorOfferAmount,
+    offerDocument: null,
+    timestamp,
+    daysAgo,
+  };
+}
+
+/**
+ * Builds `count` synthetic submission payloads across selectable date ranges (`daysBack`),
+ * vehicle makes (`makes`), and competitor sources (`competitorSources`).
+ */
+export function buildSyntheticSubmissions(count, config = {}) {
+  return Array.from({ length: count }, (_, seedIndex) => buildSyntheticSubmission(seedIndex, config));
+}
+
+/**
+ * Seeds a sequential policy version timeline (v1.0.0 -> v1.1.0 -> v1.2.0, when starting from a
+ * fresh/default config) into AuditLedgerService via SpreadConfigService, backdating each mutation
+ * across `daysBack` so the ledger reads as real history. Returns the resulting segments — each
+ * the policyVersionId active from `daysAgo` days ago up to the next (more recent) segment — used
+ * by resolveActivePolicyVersion() to tag generated submissions with the version that was active
+ * at their timestamp.
+ */
+export function seedHistoricalPolicyTimeline({ tenantId, storage = null, spreadConfigService = null, daysBack = 90, authorId = 'system-seed', versionCount = 3 } = {}) {
+  const service = spreadConfigService ?? new SpreadConfigService({ tenantId, storage });
+  const auditLedgerService = service.auditLedgerService;
+  const originalNow = auditLedgerService.now;
+  const segments = [];
+
+  try {
+    for (let index = 0; index < versionCount; index++) {
+      const daysAgo = Math.round((daysBack * (versionCount - index)) / versionCount);
+      const backdatedTimestamp = new Date(Date.now() - daysAgo * MS_PER_DAY).toISOString();
+      auditLedgerService.now = () => backdatedTimestamp;
+
+      if (index === 0) {
+        // Establishes the starting version as an explicit ledger entry rather than leaving it
+        // as an untimestamped constructor default.
+        service.applyConfig(service.getConfig(), authorId);
+      } else {
+        service.saveConfig(service.getConfig(), { authorId });
+      }
+
+      segments.push({ policyVersionId: service.getActivePolicyVersionId(), daysAgo });
+    }
+  } finally {
+    auditLedgerService.now = originalNow;
+  }
+
+  return { spreadConfigService: service, segments };
+}
+
+/** The policyVersionId active `daysAgo` days before now, per the segments from seedHistoricalPolicyTimeline(). */
+export function resolveActivePolicyVersion(segments, daysAgo) {
+  const oldestFirst = [...segments].sort((a, b) => b.daysAgo - a.daysAgo);
+  const newestFirst = [...segments].sort((a, b) => a.daysAgo - b.daysAgo);
+  const match = newestFirst.find((segment) => segment.daysAgo >= daysAgo);
+  return (match ?? oldestFirst[0]).policyVersionId;
+}
+
+/**
+ * One-click historical population: seeds a policy version timeline across `days`, generates
+ * `count` synthetic submissions across that same window, and submits each one tagged with the
+ * policyVersionId that was active at its timestamp.
+ */
+export function seedHistoricalSubmissionPool({ submissionService, tenantId, storage = null, spreadConfigService = null, days = 90, count = 60, config = {} } = {}) {
+  if (!submissionService) {
+    throw new Error('seedHistoricalSubmissionPool requires a submissionService');
+  }
+
+  const { segments } = seedHistoricalPolicyTimeline({
+    tenantId: tenantId ?? submissionService.tenantId,
+    storage: storage ?? submissionService.storage,
+    spreadConfigService,
+    daysBack: days,
+  });
+  const generated = buildSyntheticSubmissions(count, { ...config, daysBack: days });
+
+  return generated.map(({ daysAgo, ...submitData }) =>
+    submissionService.submit({ ...submitData, policyVersionId: resolveActivePolicyVersion(segments, daysAgo) }),
+  );
+}
+
 function renderAppraisalPreview(appraisal) {
   return h('dl', { class: 'harness__preview-list' }, [
     h('dt', { text: 'VIN' }),
@@ -247,7 +385,7 @@ function renderAppraisalPreview(appraisal) {
  * and the batch historical seeder. Untested (DOM-rendering function), same tier as
  * `renderLeadInboxView`/`renderSellerSubmissionView`.
  */
-export function renderTestHarnessView({ sellerController, submissionService }) {
+export function renderTestHarnessView({ sellerController, submissionService, spreadConfigService = null }) {
   let seedCounter = 0;
   let currentAppraisal = null;
 
@@ -306,6 +444,23 @@ export function renderTestHarnessView({ sellerController, submissionService }) {
     seedStatusEl.textContent = `Seeded ${created.length} historical leads.`;
   });
 
+  const poolStatusEl = h('p', { class: 'form__status', role: 'status', 'aria-live': 'polite' });
+  const poolButtons = h(
+    'div',
+    { class: 'harness__pool-buttons' },
+    HISTORICAL_POOL_WINDOW_DAYS.map((days) =>
+      h('button', {
+        class: 'button button--secondary',
+        type: 'button',
+        text: `Seed ${days}-Day Pool`,
+        onClick: () => {
+          const created = seedHistoricalSubmissionPool({ submissionService, spreadConfigService, days, count: days });
+          poolStatusEl.textContent = `Seeded ${created.length} submissions across a ${days}-day policy timeline.`;
+        },
+      }),
+    ),
+  );
+
   const section = h('section', { class: 'view', id: 'view-harness' }, [
     h('h2', { text: 'Test Harness' }),
     h('p', {
@@ -321,6 +476,9 @@ export function renderTestHarnessView({ sellerController, submissionService }) {
     h('h3', { text: 'Batch Historical Data Seeder' }),
     seedBtn,
     seedStatusEl,
+    h('h3', { text: 'Historical Submission + Policy Timeline Pool' }),
+    poolButtons,
+    poolStatusEl,
   ]);
 
   return { section };
