@@ -213,3 +213,25 @@ pinned to the exact spec (280px square card, 16px margin/padding, 12px radius, S
 Noting for the roadmap: the UOW's target-scope path `public/styles.css` doesn't exist in this
 repo; the actual stylesheet is `src/ui/styles.css`. Future UOW payloads referencing the stylesheet
 should use that path.
+
+## [UOW-CARBOYZ-32] Adopt @nemzilla/qr-core for Lead Inbox Pairing QR — 2026-09-02
+
+**Dependency-boundary exception granted (CLAUDE.md §2):** `@nemzilla/qr-core` (`file:../qr-core`,
+transitively pulling the third-party `qrcode` package) is now an authorized production dependency
+of `carboyz`, scoped strictly to the pairing-card QR in `LeadInboxView.js`. The zero-dependency/
+ESM-first precedent otherwise holds for the rest of the client codebase.
+
+**Scope narrowed from the original ask:** the sibling package exposes only a single async
+`renderQrSvg(text, options) -> Promise<string>` with no matrix-level API and no `cellSize`/`margin`
+controls. Two other consumers of the existing hand-rolled `src/utils/qrEncoder.js` were identified
+as incompatible with a full migration: `TestHarnessView.js` relies on matrix-level `cellSize`/
+`margin` options for its live preview, and `appraisalPdfGenerator.js`'s `renderQrBlock` is a
+documented synchronous, DOM-free string builder embedded into appraisal PDF SVGs — forcing it
+async to match `qr-core`'s contract would break that guarantee. Decision: `qrEncoder.js` and its
+other two consumers are left untouched; only `LeadInboxView.js`'s pairing-card QR now goes through
+`@nemzilla/qr-core`, imported aliased (`renderQrSvg as renderPairingQrSvg`) to avoid symbol
+collision with the (no-longer-imported-in-this-file) `qrEncoder.js` export of the same name.
+
+**No payload/contract changes** to `LeadInboxController` or the pairing-session flow — only the
+QR-rendering call inside `renderPairingCard`'s click handler changed, which became `async` to
+`await` the new call.

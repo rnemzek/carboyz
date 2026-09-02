@@ -1,6 +1,6 @@
 import { h } from './App.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
-import { encodeQrMatrix, renderQrSvg } from '../utils/qrEncoder.js';
+import { renderQrSvg as renderPairingQrSvg } from '@nemzilla/qr-core';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -174,7 +174,7 @@ function renderPairingCard(controller) {
     statusEl.textContent = '';
   }
 
-  generateBtn.addEventListener('click', () => {
+  generateBtn.addEventListener('click', async () => {
     reset();
     let pairingSessionId;
     let url;
@@ -188,7 +188,7 @@ function renderPairingCard(controller) {
 
     // Lowest supported error-correction level keeps the payload at the smallest QR
     // version for a given URL length, producing large, camera-friendly modules.
-    const svgMarkup = renderQrSvg(encodeQrMatrix(url, { errorCorrectionLevel: 'L' }));
+    const svgMarkup = await renderPairingQrSvg(url, { errorCorrectionLevel: 'L' });
     qrContainer.innerHTML = svgMarkup;
     statusEl.textContent = 'Waiting for a mobile device to scan...';
 

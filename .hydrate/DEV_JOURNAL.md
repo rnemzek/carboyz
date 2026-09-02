@@ -460,3 +460,34 @@ regressions).
 
 **Not done:** no browser was available to visually confirm the centered/scaled QR card; verified
 via unit tests (including direct CSS-rule assertions) only.
+
+## [UOW-CARBOYZ-32] Adopt @nemzilla/qr-core for Lead Inbox Pairing QR — 2026-09-02
+
+**Files touched:** `package.json`, `package-lock.json` (PO-run `npm install file:../qr-core`,
+verified before implementing via `node -e "import('@nemzilla/qr-core')"`), `src/ui/LeadInboxView.js`.
+
+**Implementation:** Replaced the `encodeQrMatrix`/`renderQrSvg` import from `../utils/qrEncoder.js`
+with `import { renderQrSvg as renderPairingQrSvg } from '@nemzilla/qr-core';` (aliased to avoid
+collision with the unrelated `qrEncoder.js` export of the same name, which is no longer imported
+in this file). The `generateBtn` click handler in `renderPairingCard` is now `async`; the matrix
+step is gone entirely since `@nemzilla/qr-core`'s `renderQrSvg(text, options)` takes the URL
+directly — replaced `renderQrSvg(encodeQrMatrix(url, { errorCorrectionLevel: 'L' }))` with
+`await renderPairingQrSvg(url, { errorCorrectionLevel: 'L' })`. The EC-level comment was kept as-is
+since it still applies (passed straight through to the underlying `qrcode` package).
+
+**Scope discipline:** `src/utils/qrEncoder.js`, `src/ui/TestHarnessView.js`, and
+`src/utils/appraisalPdfGenerator.js` were left untouched per the UOW's blast-radius analysis —
+`qr-core` has no matrix-level API, no `cellSize`/`margin` controls, and is async-only, which is
+incompatible with `appraisalPdfGenerator.js`'s documented sync, DOM-free contract.
+
+**Tests:** No existing test exercises `renderPairingCard`'s click handler directly (searched
+`tests/` for `renderLeadInboxView`, `generateBtn`, `Pair Mobile Device` — only
+`tests/ui.leadInboxController.test.js` exists, and it tests `LeadInboxController.createPairingSession`
+directly, not the DOM click flow), so no test updates were required per the UOW's conditional AC.
+`npm test` → 581/581 passing (one pre-existing, unrelated 1ms timestamp flake in
+`tests/ui.testHarnessView.test.js`'s `buildSyntheticSubmission` determinism test failed on first
+run and passed clean on immediate re-run — confirmed unrelated to this change, not touching QR
+code or `TestHarnessView.js`).
+
+**Smoke-checked** `@nemzilla/qr-core`'s `renderQrSvg` directly via `node -e`, confirming it returns
+a valid `<svg>` string for a sample pairing URL.

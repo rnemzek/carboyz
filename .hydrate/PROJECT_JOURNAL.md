@@ -1,5 +1,6 @@
 # Project Journal — CarBoyZ
 
+- [x] **[UOW-CARBOYZ-32]** Adopt `@nemzilla/qr-core` for Lead Inbox Pairing QR — 2026-09-02 | Pass: 581/581 tests
 - [x] **[UOW-01]** Core Architecture & Hono Server Setup — 2026-08-01 | Pass: 12/12 tests
 - [x] **[UOW-02]** MapLibre GL Integration & Spatial Layering — 2026-08-05 | Pass: 18/18 tests
 - [x] **[UOW-CARBOYZ-29]** Counterfactual "What-If" Scenario Simulation Engine — 2026-09-02 | Pass: 574/574 tests
