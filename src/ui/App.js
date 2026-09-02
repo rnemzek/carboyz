@@ -586,7 +586,10 @@ export function mountApp(root) {
         ingestService,
         notifier: createDistroNotifier(),
       });
-      const analyticsService = new AnalyticsService({ submissionService });
+      const analyticsService = new AnalyticsService({
+        submissionService,
+        auditLedgerService: spreadConfigService.auditLedgerService,
+      });
       const state = {
         dealers,
         telemetryService,

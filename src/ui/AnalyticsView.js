@@ -10,7 +10,14 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 const DATE_RANGE_LABELS = {
   [DATE_RANGE_PRESETS.LAST_7_DAYS]: 'Last 7 Days',
   [DATE_RANGE_PRESETS.LAST_30_DAYS]: 'Last 30 Days',
+  [DATE_RANGE_PRESETS.LAST_60_DAYS]: 'Last 60 Days',
+  [DATE_RANGE_PRESETS.LAST_90_DAYS]: 'Last 90 Days',
   [DATE_RANGE_PRESETS.ALL_TIME]: 'All Time',
+};
+
+const APPROVAL_TYPE_LABELS = {
+  AUTO_DISPATCH: 'Auto-Dispatched',
+  HUMAN_APPROVED: 'Human-Approved',
 };
 
 function formatPercent(fraction) {
@@ -111,6 +118,95 @@ function renderApprovalSplit(approvalSplit) {
   ]);
 }
 
+function escapeSvgText(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildLinearScale(values, range) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return (value) => range * ((value - min) / span);
+}
+
+/**
+ * Renders a responsive SVG line chart (as a markup string, matching the qrEncoder.js precedent
+ * for SVG in this codebase, since `h()` builds plain HTML elements and can't create real SVG
+ * nodes) with vertical policy-version-pin overlays positioned on the same time axis as the line.
+ */
+function renderTimeSeriesChartSvg({ timeSeries, versionPins, valueKey, formatValue }) {
+  const width = 640;
+  const height = 200;
+  const padding = 28;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+
+  if (timeSeries.length === 0) {
+    return null;
+  }
+
+  const points = timeSeries.map((bucket) => ({
+    time: new Date(`${bucket.date}T00:00:00.000Z`).getTime(),
+    value: bucket[valueKey],
+  }));
+  const pinTimes = versionPins.map((pin) => new Date(pin.timestamp).getTime());
+  const xScale = buildLinearScale([...points.map((p) => p.time), ...pinTimes], chartWidth);
+  const yScale = buildLinearScale([0, ...points.map((p) => p.value)], chartHeight);
+
+  const linePoints = points.map((p) => `${padding + xScale(p.time)},${padding + chartHeight - yScale(p.value)}`).join(' ');
+
+  const dots = points
+    .map(
+      (p) =>
+        `<circle cx="${padding + xScale(p.time)}" cy="${padding + chartHeight - yScale(p.value)}" r="3" class="analytics-chart__point"/>`,
+    )
+    .join('');
+
+  const pins = versionPins
+    .map((pin) => {
+      const x = padding + xScale(new Date(pin.timestamp).getTime());
+      return (
+        `<g class="analytics-chart__pin">` +
+        `<line x1="${x}" x2="${x}" y1="${padding}" y2="${padding + chartHeight}" class="analytics-chart__pin-line"/>` +
+        `<text x="${x + 4}" y="${padding + 12}" class="analytics-chart__pin-label">${escapeSvgText(pin.policyVersionId)}</text>` +
+        `</g>`
+      );
+    })
+    .join('');
+
+  const lastPoint = points[points.length - 1];
+  const lastLabel = formatValue(lastPoint.value);
+
+  return (
+    `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeSvgText(lastLabel)} latest">` +
+    `<line x1="${padding}" x2="${padding}" y1="${padding}" y2="${padding + chartHeight}" class="analytics-chart__axis"/>` +
+    `<line x1="${padding}" x2="${width - padding}" y1="${padding + chartHeight}" y2="${padding + chartHeight}" class="analytics-chart__axis"/>` +
+    `${pins}` +
+    `<polyline points="${linePoints}" class="analytics-chart__line" fill="none"/>` +
+    `${dots}` +
+    `</svg>`
+  );
+}
+
+function renderTimeSeriesChart(title, timeSeries, versionPins, valueKey, formatValue) {
+  const svgMarkup = renderTimeSeriesChartSvg({ timeSeries, versionPins, valueKey, formatValue });
+  const container = h('div', { class: 'analytics__chart' }, [h('h3', { text: title })]);
+
+  if (!svgMarkup) {
+    container.appendChild(h('p', { class: 'empty-state', text: 'No time-series data for this filter yet.' }));
+    return container;
+  }
+
+  const chartHost = h('div', { class: 'analytics-chart__host' });
+  chartHost.innerHTML = svgMarkup;
+  container.appendChild(chartHost);
+  return container;
+}
+
 export function renderAnalyticsView(controller) {
   const dateRangeSelect = h(
     'select',
@@ -123,7 +219,18 @@ export function renderAnalyticsView(controller) {
     h('option', { value: '', text: 'All Competitors' }),
   ]);
 
+  const priceTierSelect = h('select', { 'aria-label': 'Price Band' }, [
+    h('option', { value: '', text: 'All Price Bands' }),
+    ...controller.getPriceTierOptions().map(({ key, label }) => h('option', { value: key, text: label })),
+  ]);
+
+  const approvalTypeSelect = h('select', { 'aria-label': 'Approval Type' }, [
+    h('option', { value: '', text: 'All Approval Types' }),
+    ...controller.getApprovalTypeOptions().map((type) => h('option', { value: type, text: APPROVAL_TYPE_LABELS[type] ?? type })),
+  ]);
+
   const kpiRow = h('div', { class: 'kpi-row' });
+  const chartsContainer = h('div', { class: 'analytics__charts' });
   const competitorTableContainer = h('div', { class: 'analytics__table-container' });
   const priceTierTableContainer = h('div', { class: 'analytics__table-container' });
   const approvalSplitContainer = h('div', { class: 'analytics__table-container' });
@@ -142,13 +249,23 @@ export function renderAnalyticsView(controller) {
     const metrics = controller.buildViewModel({
       dateRange: dateRangeSelect.value,
       competitor: competitorSelect.value,
+      priceTier: priceTierSelect.value,
+      approvalType: approvalTypeSelect.value,
     });
+    const versionPins = controller.getPolicyVersionPins();
 
     kpiRow.replaceChildren(
       renderKpiCard('Total Volume', String(metrics.totalVolume)),
       renderKpiCard('Win Rate', formatPercent(metrics.winRate)),
       renderKpiCard('Avg Response Time', formatSeconds(metrics.avgResponseTimeMs)),
       renderKpiCard('Total Expected Margin', currencyFormatter.format(metrics.totalExpectedMargin)),
+    );
+
+    chartsContainer.replaceChildren(
+      renderTimeSeriesChart('Conversion Trend', metrics.timeSeries, versionPins, 'winRate', formatPercent),
+      renderTimeSeriesChart('Margin Trend', metrics.timeSeries, versionPins, 'totalExpectedMargin', (value) =>
+        currencyFormatter.format(value),
+      ),
     );
 
     competitorTableContainer.replaceChildren(
@@ -167,6 +284,8 @@ export function renderAnalyticsView(controller) {
 
   dateRangeSelect.addEventListener('change', refresh);
   competitorSelect.addEventListener('change', refresh);
+  priceTierSelect.addEventListener('change', refresh);
+  approvalTypeSelect.addEventListener('change', refresh);
 
   refresh();
 
@@ -179,8 +298,11 @@ export function renderAnalyticsView(controller) {
     h('div', { class: 'analytics__filters form__row form__row--split' }, [
       h('div', {}, [h('label', { text: 'Date Range' }), dateRangeSelect]),
       h('div', {}, [h('label', { text: 'Competitor' }), competitorSelect]),
+      h('div', {}, [h('label', { text: 'Price Band' }), priceTierSelect]),
+      h('div', {}, [h('label', { text: 'Approval Type' }), approvalTypeSelect]),
     ]),
     kpiRow,
+    chartsContainer,
     competitorTableContainer,
     priceTierTableContainer,
     approvalSplitContainer,

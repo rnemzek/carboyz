@@ -1,3 +1,6 @@
+import { APPROVAL_TYPES } from '../models/Submission.js';
+import { INITIAL_POLICY_VERSION_ID, bumpPolicyVersion } from './SpreadConfigService.js';
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export const PRICE_TIERS = [
@@ -6,9 +9,13 @@ export const PRICE_TIERS = [
   { key: 'tier-30k-plus', label: '$30k+', min: 30000, max: null },
 ];
 
+export { APPROVAL_TYPES };
+
 export const DATE_RANGE_PRESETS = Object.freeze({
   LAST_7_DAYS: 'LAST_7_DAYS',
   LAST_30_DAYS: 'LAST_30_DAYS',
+  LAST_60_DAYS: 'LAST_60_DAYS',
+  LAST_90_DAYS: 'LAST_90_DAYS',
   ALL_TIME: 'ALL_TIME',
 });
 
@@ -18,6 +25,10 @@ export function resolveSinceDate(preset, now = new Date()) {
       return new Date(now.getTime() - 7 * MS_PER_DAY);
     case DATE_RANGE_PRESETS.LAST_30_DAYS:
       return new Date(now.getTime() - 30 * MS_PER_DAY);
+    case DATE_RANGE_PRESETS.LAST_60_DAYS:
+      return new Date(now.getTime() - 60 * MS_PER_DAY);
+    case DATE_RANGE_PRESETS.LAST_90_DAYS:
+      return new Date(now.getTime() - 90 * MS_PER_DAY);
     default:
       return null;
   }
@@ -34,12 +45,18 @@ export function competitorLabel(submission) {
   return submission.competitor;
 }
 
-export function filterSubmissions(submissions, { since = null, competitor = null } = {}) {
+export function filterSubmissions(submissions, { since = null, competitor = null, priceTier = null, approvalType = null } = {}) {
   return submissions.filter((submission) => {
     if (since && new Date(submission.timestamp) < since) {
       return false;
     }
     if (competitor && competitorLabel(submission) !== competitor) {
+      return false;
+    }
+    if (priceTier && priceTierForAmount(submission.competitorOfferAmount)?.key !== priceTier) {
+      return false;
+    }
+    if (approvalType && submission.approvalType !== approvalType) {
       return false;
     }
     return true;
@@ -122,6 +139,48 @@ export function computeApprovalSplit(submissions) {
   };
 }
 
+/**
+ * Buckets submissions by calendar day (UTC) and aggregates per-day conversion/margin figures,
+ * ascending by date, so the analytics view can plot a time-series trend line.
+ */
+export function computeTimeSeries(submissions) {
+  const byDate = new Map();
+  for (const submission of submissions) {
+    const dateKey = new Date(submission.timestamp).toISOString().slice(0, 10);
+    if (!byDate.has(dateKey)) {
+      byDate.set(dateKey, []);
+    }
+    byDate.get(dateKey).push(submission);
+  }
+
+  return [...byDate.keys()].sort().map((date) => {
+    const group = byDate.get(date);
+    const conversion = computeConversionMetrics(group);
+    const margin = computeMarginTotals(group);
+    return {
+      date,
+      volume: group.length,
+      winRate: conversion.winRate,
+      totalExpectedMargin: margin.totalExpectedMargin,
+    };
+  });
+}
+
+/**
+ * Derives a {policyVersionId, timestamp} pin for each AuditLedgerService ledger entry. The chain
+ * only stores config hashes (not the raw policyVersionId), so the version is reconstructed by
+ * replaying SpreadConfigService's own minor-version bump (see bumpPolicyVersion) once per entry,
+ * starting from INITIAL_POLICY_VERSION_ID — matching how saveConfig()/resetToDefault() actually
+ * advance the version on every recorded mutation.
+ */
+export function derivePolicyVersionPins(chain) {
+  let versionId = INITIAL_POLICY_VERSION_ID;
+  return chain.map((entry) => {
+    versionId = bumpPolicyVersion(versionId);
+    return { policyVersionId: versionId, timestamp: entry.timestamp, sequence: entry.sequence };
+  });
+}
+
 export function computeMetrics(submissions) {
   const conversion = computeConversionMetrics(submissions);
   const speed = computeSpeedToLead(submissions);
@@ -138,23 +197,37 @@ export function computeMetrics(submissions) {
     competitorMatrix: computeCompetitorMatrix(submissions),
     priceTierDistribution: computePriceTierDistribution(submissions),
     approvalSplit: computeApprovalSplit(submissions),
+    timeSeries: computeTimeSeries(submissions),
   };
 }
 
 export class AnalyticsService {
-  constructor({ submissionService } = {}) {
+  constructor({ submissionService, auditLedgerService = null } = {}) {
     if (!submissionService) {
       throw new Error('AnalyticsService requires a submissionService');
     }
     this.submissionService = submissionService;
+    this.auditLedgerService = auditLedgerService;
   }
 
-  getMetrics({ since = null, competitor = null } = {}) {
-    const filtered = filterSubmissions(this.submissionService.getSubmissions(), { since, competitor });
+  getMetrics({ since = null, competitor = null, priceTier = null, approvalType = null } = {}) {
+    const filtered = filterSubmissions(this.submissionService.getSubmissions(), {
+      since,
+      competitor,
+      priceTier,
+      approvalType,
+    });
     return computeMetrics(filtered);
   }
 
   getCompetitorLabels() {
     return [...new Set(this.submissionService.getSubmissions().map(competitorLabel))].sort();
+  }
+
+  getPolicyVersionPins() {
+    if (!this.auditLedgerService) {
+      return [];
+    }
+    return derivePolicyVersionPins(this.auditLedgerService.getChain());
   }
 }

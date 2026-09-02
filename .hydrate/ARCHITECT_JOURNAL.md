@@ -104,3 +104,39 @@ post-construction.
 `renderTestHarnessView` now takes an optional `spreadConfigService` so harness-seeded policy
 history lands in the tenant's real audit ledger (visible to `SpreadConfigController`/analytics)
 rather than a disconnected instance — additive, defaults to `null` (lazily constructs its own).
+
+## UOW-28: Analytics Policy Version Pinning, Dynamic Filters & Responsive Layout
+
+Closes the analytics-version-pinning gap the UOW-23 audit and UOW-27 both flagged as open.
+`AnalyticsService` gains an optional `auditLedgerService` constructor dependency (`null`-safe,
+mirrors the `submissionService` required-dependency pattern already in place) and a new
+`getPolicyVersionPins()` contract returning `{ policyVersionId, timestamp, sequence }[]`.
+
+Deliberate boundary decision: `AuditLedgerService` and `SpreadConfigService` were **not**
+modified, even though the ledger's `recordMutation()` entries don't carry the raw
+`policyVersionId` string (only hashes of the full config, which embeds it). Adding that field to
+the ledger schema would be the architecturally cleaner fix, but it's outside this UOW's target
+scope (`AnalyticsView.js`/`AnalyticsController.js`/`AnalyticsService.js` only). Instead,
+`derivePolicyVersionPins()` reconstructs each entry's version by replaying
+`SpreadConfigService.bumpPolicyVersion()` once per ledger entry in sequence, starting from
+`INITIAL_POLICY_VERSION_ID` — a faithful model of `saveConfig()`/`resetToDefault()`'s real
+behavior, with one known edge case: `TestHarnessView.seedHistoricalPolicyTimeline()`'s first
+entry calls `applyConfig()` directly to record the *unchanged* starting version (no bump), which
+this replay can't distinguish from a real bump. Flagging for whoever picks up the ledger schema
+next: the durable fix is to have `AuditLedgerService.recordMutation()` accept and store the
+new `policyVersionId` alongside `newConfigHash`, which would make pin derivation exact instead of
+replayed. Same rationale applies to `AnalyticsService` importing `INITIAL_POLICY_VERSION_ID`/
+`bumpPolicyVersion` from `SpreadConfigService.js` — a new cross-service dependency, but read-only
+against already-exported pure functions, not a schema/contract change.
+
+`AnalyticsService.filterSubmissions()`'s new `priceTier`/`approvalType` predicates and
+`DATE_RANGE_PRESETS.LAST_60_DAYS`/`LAST_90_DAYS` are both purely additive to existing contracts —
+no caller of the old 2-argument filter shape or the 3-preset enum breaks.
+
+`AnalyticsView.js`'s time-series charts are hand-built SVG markup strings assigned via
+`.innerHTML`, following the `qrEncoder.js`/`renderQrSvg()` precedent already established in this
+codebase — the shared `h()` helper builds via `document.createElement`, which cannot produce
+namespaced SVG elements, so this project's convention for any SVG content is markup-string + 
+`.innerHTML`, not `h()`. Worth a template-level note if a second/third chart type gets added
+later: consider a small shared SVG-string builder rather than duplicating the axis/scale math per
+chart.

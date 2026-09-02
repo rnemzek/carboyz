@@ -1039,6 +1039,58 @@ body {
 
 .analytics__filters {
   margin-bottom: var(--spacing);
+  flex-wrap: wrap;
+}
+
+.analytics__filters > div {
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+
+.analytics__charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing);
+  margin-bottom: calc(var(--spacing) * 1.5);
+}
+
+.analytics__chart {
+  padding: var(--spacing);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.analytics-chart__host svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.analytics-chart__axis {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.analytics-chart__line {
+  stroke: var(--color-primary);
+  stroke-width: 2;
+}
+
+.analytics-chart__point {
+  fill: var(--color-primary);
+}
+
+.analytics-chart__pin-line {
+  stroke: var(--color-secondary);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.analytics-chart__pin-label {
+  fill: var(--color-secondary);
+  font-size: 9px;
 }
 
 .kpi-row {

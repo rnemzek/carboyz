@@ -260,3 +260,64 @@ as-is rather than adding new surface area to either.
 covered (only the pre-existing, already-untested DOM-rendering `renderTestHarnessView`/
 `renderAppraisalPreview` functions are uncovered, unchanged from before this UOW — same
 untested-by-convention tier as `App.js`/`renderLeadInboxView`).
+
+## UOW-28: Analytics Policy Version Pinning, Dynamic Filters & Responsive Layout
+
+**Files touched:** `src/services/AnalyticsService.js`, `src/ui/AnalyticsController.js`,
+`src/ui/AnalyticsView.js`, `src/ui/styles.css`, `src/ui/App.js`, `tests/analyticsService.test.js`,
+`tests/ui.analyticsController.test.js`.
+
+**Implementation:**
+- `AnalyticsService.js`:
+  - `DATE_RANGE_PRESETS` gains `LAST_60_DAYS`/`LAST_90_DAYS` (additive — `LAST_7_DAYS`/
+    `LAST_30_DAYS`/`ALL_TIME` untouched) with matching `resolveSinceDate()` branches.
+  - `filterSubmissions()` gains `priceTier` (matched via the existing `priceTierForAmount()`) and
+    `approvalType` predicates, threaded through `AnalyticsService.getMetrics()`.
+  - `computeTimeSeries(submissions)` buckets by calendar day (UTC) into
+    `{ date, volume, winRate, totalExpectedMargin }`, ascending — feeds the new chart. Folded into
+    `computeMetrics()` as `metrics.timeSeries`.
+  - `derivePolicyVersionPins(chain)` + `AnalyticsService.getPolicyVersionPins()` (new optional
+    `auditLedgerService` constructor dependency, defaults to `null` → `[]`). `AuditLedgerService`'s
+    ledger entries only carry config hashes, not the raw `policyVersionId`, so the version per
+    entry is reconstructed by replaying `SpreadConfigService.bumpPolicyVersion()` once per entry
+    starting from `INITIAL_POLICY_VERSION_ID` — mirroring exactly how `saveConfig()`/
+    `resetToDefault()` already advance the version on every mutation they record. `AuditLedgerService`
+    and `SpreadConfigService` were left unmodified (out of this UOW's target scope); only their
+    already-exported pure helpers/getters are reused.
+  - Re-exports `APPROVAL_TYPES` from `models/Submission.js` so the controller/view have one import
+    surface for filter option constants (mirrors the existing `PRICE_TIERS` pattern).
+- `AnalyticsController.js`: `getPriceTierOptions()`, `getApprovalTypeOptions()`,
+  `getPolicyVersionPins()` (delegates), and `buildViewModel()` now threads `priceTier`/
+  `approvalType` alongside the existing `dateRange`/`competitor`.
+- `AnalyticsView.js`: added Price Band and Approval Type filter `<select>`s alongside the existing
+  two; added a "Conversion Trend" and "Margin Trend" chart pair rendered as hand-built SVG markup
+  strings set via `.innerHTML` (matching the existing `qrEncoder.js` → `renderQrSvg()` precedent in
+  this codebase for SVG, since the shared `h()` DOM builder uses `document.createElement` and can't
+  produce real namespaced SVG nodes). Each chart overlays dashed vertical lines + labels for every
+  policy version pin, positioned on the same linear time axis as the data line.
+- `styles.css`: `.analytics__filters` now wraps (`flex-wrap` + `flex: 1 1 140px` per filter) so 4
+  filters reflow on narrow viewports instead of overflowing; new `.analytics__charts` grid
+  (`auto-fit, minmax(280px, 1fr)`) stacks the two charts to one column on mobile automatically;
+  new `.analytics-chart__*` rules style the SVG line/points/pin overlay.
+- `App.js`: `AnalyticsService` now receives `spreadConfigService.auditLedgerService` — reusing the
+  existing public `auditLedgerService` instance property `SpreadConfigService` already exposes
+  (same access pattern `TestHarnessView.seedHistoricalPolicyTimeline()` already relies on), no new
+  service instance created.
+
+**Verification:** `npm test` → 563/563 passing (550 existing — 1 pre-existing assertion updated
+for the new preset count, see below — + 13 new, zero regressions). `node --test
+--experimental-test-coverage` on the three modified controller/service files:
+`AnalyticsService.js` 100%/98.73% line/branch, `AnalyticsController.js` 100%/100% — both clear the
+80% gate. `AnalyticsView.js` (DOM-rendering, presentational) is intentionally excluded from the
+coverage gate per the UOW's own acceptance criterion wording ("controller and service logic") and
+this repo's existing convention — no `*View.js` file has a dedicated unit test suite.
+`tests/ui.analyticsController.test.js`'s `getDateRangePresets returns all 3 presets` test was
+updated (not just added-to) to assert all 5 presets, since it exact-matches the enum by design —
+extending `DATE_RANGE_PRESETS` necessarily changes that expectation.
+
+**Manual smoke test:** started the static server (`node scripts/generate-runtime-config.js &&
+node scripts/vendor-spatial-core.js && npx serve .`) and confirmed `index.html` and all three
+modified modules serve without error. No headless-browser driver (`chromium-cli`, Playwright,
+Puppeteer) was available in this environment, so the rendered chart/filter UI was **not**
+visually verified in an actual browser — only unit-tested and code-reviewed. Flagging this
+explicitly per the UI-testing guideline rather than claiming a browser check that didn't happen.

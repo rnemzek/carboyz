@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SubmissionService } from '../src/services/SubmissionService.js';
+import { AuditLedgerService } from '../src/services/AuditLedgerService.js';
 import {
   AnalyticsService,
   PRICE_TIERS,
+  APPROVAL_TYPES,
   DATE_RANGE_PRESETS,
   resolveSinceDate,
   priceTierForAmount,
@@ -15,6 +17,8 @@ import {
   computeCompetitorMatrix,
   computePriceTierDistribution,
   computeApprovalSplit,
+  computeTimeSeries,
+  derivePolicyVersionPins,
   computeMetrics,
 } from '../src/services/AnalyticsService.js';
 
@@ -40,6 +44,12 @@ test('resolveSinceDate returns a lower bound for 7/30-day presets and null for a
   assert.equal(resolveSinceDate(DATE_RANGE_PRESETS.LAST_30_DAYS, now).toISOString(), '2026-07-28T00:00:00.000Z');
   assert.equal(resolveSinceDate(DATE_RANGE_PRESETS.ALL_TIME, now), null);
   assert.equal(resolveSinceDate('UNKNOWN', now), null);
+});
+
+test('resolveSinceDate returns a lower bound for 60/90-day presets', () => {
+  const now = new Date('2026-08-27T00:00:00.000Z');
+  assert.equal(resolveSinceDate(DATE_RANGE_PRESETS.LAST_60_DAYS, now).toISOString(), '2026-06-28T00:00:00.000Z');
+  assert.equal(resolveSinceDate(DATE_RANGE_PRESETS.LAST_90_DAYS, now).toISOString(), '2026-05-29T00:00:00.000Z');
 });
 
 test('priceTierForAmount buckets at the documented boundaries', () => {
@@ -82,6 +92,20 @@ test('filterSubmissions filters by since date and by competitor label', () => {
   assert.deepEqual(otherFiltered.map((s) => s.id), ['c']);
 
   assert.deepEqual(filterSubmissions(submissions, {}).map((s) => s.id), ['a', 'b', 'c']);
+});
+
+test('filterSubmissions filters by price tier and by approval type', () => {
+  const submissions = [
+    baseSubmission({ id: 'a', competitorOfferAmount: 5000, approvalType: 'AUTO_DISPATCH' }),
+    baseSubmission({ id: 'b', competitorOfferAmount: 20000, approvalType: 'HUMAN_APPROVED' }),
+    baseSubmission({ id: 'c', competitorOfferAmount: 40000, approvalType: null }),
+  ];
+
+  const tierFiltered = filterSubmissions(submissions, { priceTier: 'tier-15-30k' });
+  assert.deepEqual(tierFiltered.map((s) => s.id), ['b']);
+
+  const approvalFiltered = filterSubmissions(submissions, { approvalType: 'AUTO_DISPATCH' });
+  assert.deepEqual(approvalFiltered.map((s) => s.id), ['a']);
 });
 
 test('computeConversionMetrics is empty-safe and computes winRate over closed deals only', () => {
@@ -203,6 +227,46 @@ test('computeMetrics aggregates all slices into one shape', () => {
     autoDispatchPct: 0,
     humanApprovedPct: 0,
   });
+  assert.deepEqual(metrics.timeSeries, []);
+});
+
+test('computeTimeSeries buckets submissions by calendar day, ascending, with per-day conversion and margin', () => {
+  const submissions = [
+    baseSubmission({ id: 'a', timestamp: '2026-08-02T09:00:00.000Z', winLossStatus: 'WON', expectedMargin: 100 }),
+    baseSubmission({ id: 'b', timestamp: '2026-08-02T18:00:00.000Z', winLossStatus: 'LOST' }),
+    baseSubmission({ id: 'c', timestamp: '2026-08-01T00:00:00.000Z', winLossStatus: 'WON', expectedMargin: 50 }),
+  ];
+
+  const series = computeTimeSeries(submissions);
+  assert.deepEqual(
+    series.map((bucket) => bucket.date),
+    ['2026-08-01', '2026-08-02'],
+  );
+  assert.deepEqual(series[1], { date: '2026-08-02', volume: 2, winRate: 0.5, totalExpectedMargin: 100 });
+  assert.equal(series[0].totalExpectedMargin, 50);
+});
+
+test('computeTimeSeries is empty-safe', () => {
+  assert.deepEqual(computeTimeSeries([]), []);
+});
+
+test('derivePolicyVersionPins bumps the minor version once per ledger entry, in order', () => {
+  const chain = [
+    { sequence: 1, timestamp: '2026-01-01T00:00:00.000Z' },
+    { sequence: 2, timestamp: '2026-02-01T00:00:00.000Z' },
+  ];
+  assert.deepEqual(derivePolicyVersionPins(chain), [
+    { policyVersionId: 'v1.1.0', timestamp: '2026-01-01T00:00:00.000Z', sequence: 1 },
+    { policyVersionId: 'v1.2.0', timestamp: '2026-02-01T00:00:00.000Z', sequence: 2 },
+  ]);
+});
+
+test('derivePolicyVersionPins is empty-safe', () => {
+  assert.deepEqual(derivePolicyVersionPins([]), []);
+});
+
+test('APPROVAL_TYPES re-exports the Submission model approval types', () => {
+  assert.deepEqual(APPROVAL_TYPES, ['AUTO_DISPATCH', 'HUMAN_APPROVED']);
 });
 
 test('AnalyticsService requires a submissionService', () => {
@@ -235,4 +299,31 @@ test('AnalyticsService.getCompetitorLabels dedupes and sorts distinct competitor
 
   const analyticsService = new AnalyticsService({ submissionService });
   assert.deepEqual(analyticsService.getCompetitorLabels(), ['CarMax', 'Carvana', 'Other (WeBuyAnyCar)']);
+});
+
+test('AnalyticsService.getMetrics applies price tier and approval type filters', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  submissionService.submit(baseSubmission({ id: undefined, competitorOfferAmount: 5000, approvalType: 'AUTO_DISPATCH' }));
+  submissionService.submit(baseSubmission({ id: undefined, competitorOfferAmount: 40000, approvalType: 'HUMAN_APPROVED' }));
+
+  const analyticsService = new AnalyticsService({ submissionService });
+  assert.equal(analyticsService.getMetrics({ priceTier: 'tier-0-15k' }).totalVolume, 1);
+  assert.equal(analyticsService.getMetrics({ approvalType: 'HUMAN_APPROVED' }).totalVolume, 1);
+});
+
+test('AnalyticsService.getPolicyVersionPins returns an empty list without an auditLedgerService', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const analyticsService = new AnalyticsService({ submissionService });
+  assert.deepEqual(analyticsService.getPolicyVersionPins(), []);
+});
+
+test('AnalyticsService.getPolicyVersionPins derives pins from the audit ledger chain', () => {
+  const submissionService = new SubmissionService({ tenantId: 't1' });
+  const auditLedgerService = new AuditLedgerService({ tenantId: 't1', now: () => '2026-03-01T00:00:00.000Z' });
+  auditLedgerService.recordMutation({ authorId: 'system', newConfig: { tenantId: 't1', tiersByCompetitor: {} } });
+
+  const analyticsService = new AnalyticsService({ submissionService, auditLedgerService });
+  assert.deepEqual(analyticsService.getPolicyVersionPins(), [
+    { policyVersionId: 'v1.1.0', timestamp: '2026-03-01T00:00:00.000Z', sequence: 1 },
+  ]);
 });
