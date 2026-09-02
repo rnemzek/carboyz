@@ -1,0 +1,1 @@
+Perform a structural codebase audit across src/ and tests/. Generate a comprehensive inventory of all implemented domain models, services, UI components, and API adapters. Summarize what is fully implemented with test coverage versus what is stubbed or unintegrated. Write this inventory to docs/RECONSTRUCTED_STATE.md.
