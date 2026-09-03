@@ -1040,6 +1040,90 @@ body {
   height: auto;
 }
 
+.testbed {
+  position: fixed;
+  right: var(--spacing);
+  bottom: var(--spacing);
+  z-index: 40;
+}
+
+.testbed__toggle {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-secondary);
+  color: var(--color-on-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.testbed__panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(340px, calc(100vw - 2 * var(--spacing)));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--spacing);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.testbed__panel[hidden] {
+  display: none;
+}
+
+.testbed__preset-select {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: var(--spacing);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.testbed__vin-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.testbed__vin-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-background);
+  color: var(--color-text);
+  text-transform: uppercase;
+}
+
+.testbed__spec-list,
+.testbed__offer-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px var(--spacing);
+  margin: 0 0 var(--spacing);
+}
+
+.testbed__spec-list dt,
+.testbed__offer-list dt {
+  color: var(--color-secondary);
+  font-size: 0.85rem;
+}
+
+.testbed__spec-list dd,
+.testbed__offer-list dd {
+  margin: 0;
+  font-weight: 600;
+}
+
 .pairing-card__qr {
   display: flex;
   justify-content: center;

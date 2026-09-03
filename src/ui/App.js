@@ -24,6 +24,7 @@ import { SimulationService } from '../services/SimulationService.js';
 import { SimulationController } from './SimulationController.js';
 import { renderSimulationView } from './SimulationView.js';
 import { renderTestHarnessView, parsePrefillFromSearch } from './TestHarnessView.js';
+import { renderTestBedDrawer } from '../components/dev/TestBedDrawer.js';
 import { TenantConfigService } from '../services/TenantConfigService.js';
 import { SyncAdapter } from '../services/SyncAdapter.js';
 import { renderBottomNavView } from './BottomNavView.js';
@@ -827,6 +828,7 @@ export function mountApp(root) {
     harnessView.hidden = activeTab !== 'harness';
 
     const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
+    const testBedDrawer = renderTestBedDrawer({ spreadConfigService: state.spreadConfigService });
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),
@@ -843,6 +845,7 @@ export function mountApp(root) {
       harnessView,
       bottomNav,
       a2hsPrompt?.el,
+      testBedDrawer.el,
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();

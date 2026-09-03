@@ -4,6 +4,14 @@
 
 ## OPEN ROADMAP ITEMS
 
+### Epic Auth.0
+We need to be able to secure who can update the Dealer configuration and it needs captured in the audit log so we have governance over the solution. We also probably need the ability to set up security around who can approve a counter offer and who can adjust a counter offer. Standard ACLs.
+
+### Testing
+Need to be able to generate some testing tools.
+
+* **Real VINs:** You can easily grab real, active VINs directly from public online dealer inventory listings (e.g., searching for any vehicle on A    utoTrader, CarGurus, or local dealership websites, where VINs are listed publicly on the Vehicle Details Page).
+
 
 
 ---
