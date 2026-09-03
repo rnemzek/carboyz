@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CarBoyZ VIN Barcode Test Bed</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 2rem;
+      margin: 0;
+    }
+    h1 {
+      margin-bottom: 0.5rem;
+      font-size: 1.5rem;
+      color: #38bdf8;
+    }
+    p {
+      color: #94a3b8;
+      margin-bottom: 2rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.5rem;
+      text-align: center;
+      box-sizing: border-box;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .card h2 {
+      font-size: 1.1rem;
+      margin-top: 0;
+      color: #f1f5f9;
+    }
+    .specs {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-bottom: 1rem;
+    }
+    .barcode-container {
+      background: #ffffff;
+      padding: 1.25rem;
+      border-radius: 8px;
+      display: block;
+      margin: 0.5rem auto;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .barcode-container svg {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    .vin-text {
+      font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 1.05rem;
+      letter-spacing: 2.5px;
+      color: #f8fafc;
+      font-weight: bold;
+      margin-top: 0.75rem;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+</head>
+<body>
+
+  <h1>CarBoyZ VIN Scanner Test Bed</h1>
+  <p>Point your device camera / barcode scanner directly at any card below.</p>
+
+  <div class="grid" id="testbed-grid"></div>
+
+  <script>
+    const testVehicles = [
+      {
+        title: "2021 Ford F-150 SuperCrew",
+        specs: "Truck • 3.5L EcoBoost V6 • 4WD",
+        vin: "1FTFW1ED4MF123456",
+        sampleOffer: "$28,500 (CarMax)"
+      },
+      {
+        title: "2023 Tesla Model Y Long Range",
+        specs: "EV • Dual Motor AWD • Performance",
+        vin: "7SAYGDEF0PF612345",
+        sampleOffer: "$32,000 (Carvana)"
+      },
+      {
+        title: "2022 Honda Civic EX",
+        specs: "Sedan • 1.5L Turbo 4-Cyl • FWD",
+        vin: "1HGFE2F06NE000123",
+        sampleOffer: "$18,200 (KBB ICO)"
+      },
+      {
+        title: "2020 Toyota RAV4 XLE",
+        specs: "SUV • 2.5L 4-Cyl • AWD",
+        vin: "4T3C1RFV2LU123456",
+        sampleOffer: "$21,400 (CarMax)"
+      }
+    ];
+
+    const grid = document.getElementById("testbed-grid");
+
+    testVehicles.forEach((item, index) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      const svgId = `barcode-${index}`;
+
+      card.innerHTML = `
+        <h2>${item.title}</h2>
+        <div class="specs">${item.specs}<br><strong>Sample Offer:</strong> ${item.sampleOffer}</div>
+        <div class="barcode-container">
+          <svg id="${svgId}"></svg>
+        </div>
+        <div class="vin-text">${item.vin}</div>
+      `;
+
+      grid.appendChild(card);
+
+      JsBarcode(`#${svgId}`, item.vin, {
+        format: "CODE39",
+        width: 2.5,
+        height: 80,
+        margin: 12,
+        displayValue: false
+      });
+    });
+  </script>
+</body>
+</html>
+

@@ -597,3 +597,34 @@ browser loads), and `vendor/test-core/src/index.js` no longer exports `generateF
   `node:*` or unresolvable specifiers found. `vin-testbed.html` and `offer-gallery.html` don't
   import `@nemzilla/test-core` at all (inline scripts / fetch-based fixture loading), so they were
   never part of the crash surface, but their HTTP 200 status was confirmed directly.
+
+## [UOW-CARBOYZ-36] Optimize Code 39 Barcode Rendering for Mobile Camera Scanners — 2026-09-03
+
+**Approach:** Bumped the JsBarcode config on `vin-testbed.html` (`width: 2.5`, `height: 80`,
+`margin: 12`) for a wider quiet zone and taller bars, restyled `.barcode-container` with
+`padding: 1.25rem` on the existing white background/rounded-corner/`max-width:100%`/
+`overflow:hidden` containment, and switched `.vin-text` to a bolder monospace stack
+(`ui-monospace`/Menlo/Consolas) at higher letter-spacing and full-white (`#f8fafc`) for
+contrast against the `#1e293b` card background.
+
+Also added `min-width: 0` to `.card` as a defensive guard against the classic CSS Grid item
+content-blowout (a grid item's default `min-width: auto` can force its track wider than the
+explicit `minmax()` track size when a replaced child, like the barcode SVG, has a large
+intrinsic size) — not required by the measured behavior here (see Verification), but cheap
+insurance since `.card` is a grid item hosting a wide SVG.
+
+**Verification:**
+- Live-rendered `vin-testbed.html` via a headless Chrome screenshot at both a desktop width
+  (1280px) and a phone width (390px) against `npm start` (`serve .` on :8080). Visually,
+  barcodes are well-spaced and non-overflowing on both; VIN text is bold, high-contrast, and
+  legible.
+- The 390px render initially looked clipped at the card's right edge. Instrumented the live page
+  (temporary inline script, not committed) to read `document.body.scrollWidth` vs
+  `document.documentElement.clientWidth` and the `getBoundingClientRect()` of `.grid`, `.card`,
+  `.barcode-container`, and the barcode `<svg>`. Confirmed `scrollWidth === clientWidth` (no
+  horizontal overflow anywhere in the tree) and that the SVG's rendered width (346px) was
+  correctly scaled down from its intrinsic `viewBox` size (784×104) by the existing
+  `max-width:100%; height:auto` rule — the "clipped" look was the barcode legitimately filling
+  most of a single-column card at that width, not a layout bug.
+- `npm test` → 597/597 passing, zero regressions (this UOW touches only static HTML/CSS/inline
+  script in `vin-testbed.html`, not covered by the Node test suite).
