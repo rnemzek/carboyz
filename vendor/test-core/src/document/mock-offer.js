@@ -36,12 +36,22 @@ const OFFER_TEMPLATES = {
       `VIN: ${data.vin}`,
       `Valid Through: ${data.expiresOn}`,
     ].join('\n'),
+  Hendrick: (data) =>
+    [
+      'HENDRICK AUTOMOTIVE GROUP - APPRAISAL OFFER',
+      `Location: ${data.storeName}`,
+      `Vehicle: ${[data.year, data.make, data.model].filter(Boolean).join(' ')}`,
+      `VIN: ${data.vin}`,
+      `Mileage: ${Number(data.mileage).toLocaleString('en-US')}`,
+      `Guaranteed Trade Value: ${formatCurrency(data.offerAmount)}`,
+      `Offer Valid Until: ${data.expiresOn}`,
+    ].join('\n'),
 };
 
 export const SUPPORTED_COMPETITORS = Object.keys(OFFER_TEMPLATES);
 
 /**
- * Builds a synthetic offer sheet for `competitor` (CarMax/Carvana/KBB) from an appraisal-shaped
+ * Builds a synthetic offer sheet for `competitor` (CarMax/Carvana/KBB/Hendrick) from an appraisal-shaped
  * payload. Returns both the rendered `text` (for OCR/parser fixtures) and the structured `payload`
  * that produced it (for assertions against the parser's expected extraction).
  */
@@ -56,6 +66,7 @@ export function generateMockOffer(competitor, appraisal) {
 
   const data = {
     storeNumber: '7042',
+    storeName: 'Hendrick Chevrolet',
     offerCode: `KBB-${appraisal.vin.slice(-6)}`,
     expiresOn: defaultExpiresOn(),
     ...appraisal,

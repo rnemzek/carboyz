@@ -247,3 +247,33 @@ by `SellerSubmissionView`, `App.js`'s inventory form, `SpreadConfigView`, and `A
 filter bar. Future views needing a responsive multi-column field row should reuse this class rather
 than hand-rolling flex layouts, to avoid reintroducing the min-width:auto overflow class of bug
 fixed here.
+
+## UOW-CARBOYZ-34: Competitor Offer Fixture Miner & Web Document Test Gallery — 2026-09-03
+
+**No production contract changes to carboyz's own domain models/services.** This UOW extends the
+sibling dev-tooling package `@nemzilla/test-core` and adds a static dev-only gallery page in
+carboyz; nothing in `src/models`, `src/services`, or `src/adapters` changed.
+
+**New `@nemzilla/test-core` surface (additive, non-breaking):**
+- `SUPPORTED_COMPETITORS` grows from `['CarMax', 'Carvana', 'KBB']` to also include `'Hendrick'`
+  (Hendrick Automotive Group) — same `generateMockOffer(competitor, appraisal) -> { competitor,
+  text, payload }` contract, no shape change.
+- New export `generateFixtures(targetDir) -> { generatedAt, documents: [{ competitor, textFile,
+  metadataFile, groundTruth }] }` — the manifest shape is now the established contract between the
+  miner (`bin/mine-pdfs.js`) and any consumer (carboyz's `offer-gallery.html` and
+  `tests/offerGalleryFixtures.test.js`). Any future vendor added to `mock-offer.js`'s
+  `OFFER_TEMPLATES` should also get a `FIXTURE_APPRAISALS` entry in `fixtures.js` to appear in the
+  gallery automatically — no gallery-side code change needed since it renders off the manifest.
+- `bin/mine-pdfs.js` is a new CLI entry point (`package.json` `bin.mine-pdfs`), establishing the
+  precedent that `@nemzilla/test-core` can ship executables, not just an importable library.
+
+**carboyz side:** `offer-gallery.html` is a standalone, unbundled dev page (like `vin-testbed.html`)
+— not part of the tenant PWA's `index.html` app shell or nav, and not vendored through the
+importmap (it fetches the manifest/text over HTTP at runtime instead of importing test-core's JS
+directly). `vendor/test-core/` was refreshed via the existing `scripts/vendor-test-core.js` since
+the app shell's importmap does consume `mock-offer.js`/`index.js` from that vendored copy.
+
+**Fixtures are committed, not generated on the fly:** `public/fixtures/offers/*` is checked into
+git (deterministic/seeded, so regenerating via `mine-pdfs.js` produces byte-identical VINs). This
+mirrors how `vendor/test-core/` and `vendor/spatial-core/` are already committed copies of sibling
+deps — no build-time codegen step was added to `npm start`'s existing `prestart` pipeline.

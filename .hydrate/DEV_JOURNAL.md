@@ -519,3 +519,40 @@ change needed there. `.tier-row__field` (`SpreadConfigView.js`) already had an e
 attributes touched in any `.js` view/controller file, per the UOW's preserve-logic constraint.
 
 **Tests:** `npm test` → 581/581 passing, no regressions.
+
+## UOW-CARBOYZ-34: Competitor Offer Fixture Miner & Web Document Test Gallery — 2026-09-03
+
+**Sibling repo (`@nemzilla/test-core`):** Added a 4th mock-offer template, `Hendrick` (Hendrick
+Automotive Group), to `src/document/mock-offer.js` alongside the existing CarMax/Carvana/KBB
+templates — same synthetic-document pattern, no change to `generateMockOffer`'s return shape.
+Added `src/document/fixtures.js` exporting `generateFixtures(targetDir)`, which renders one seeded
+(deterministic, via `generateVin({ seed })`) appraisal per competitor, writes a `<slug>-offer.txt`
+(raw OCR/parser fixture) and `<slug>-offer.json` (ground-truth metadata) per vendor, and a
+`manifest.json` indexing all four. Added the executable CLI `bin/mine-pdfs.js`
+(`#!/usr/bin/env node`), defaulting its output to the sibling `../carboyz/public/fixtures/offers`
+and accepting an optional path override argument; wired up as the `mine-pdfs` bin entry in
+`package.json`. New tests: `tests/fixtures.test.js` (fixture write + reproducibility) and updated
+`tests/mock-offer.test.js` (Hendrick coverage; the old "Hendrick is unsupported" throw-case now
+asserts on `Unknown` instead, since Hendrick is now a real competitor). `@nemzilla/test-core`
+`npm test` → 23/23 passing.
+
+**carboyz:** Ran `node ../test-core/bin/mine-pdfs.js` to populate `public/fixtures/offers/` (4
+`.txt` + 4 `.json` + `manifest.json`, committed as static fixtures — not generated at build time).
+Added `offer-gallery.html` at the repo root: fetches `/public/fixtures/offers/manifest.json` and
+each document's `.txt` text client-side, renders one card per vendor with a high-contrast
+white-on-black monospace preview (sized for mobile camera/OCR test photography) and download links
+for both the raw text and the ground-truth JSON. No build step or bundler involved, matching the
+rest of the app's plain-ESM/importmap setup. Added `tests/offerGalleryFixtures.test.js`, which
+reads the committed manifest and asserts every entry's text + metadata files exist, parse cleanly,
+and agree with the manifest's ground truth. Refreshed `vendor/test-core/` via the existing
+`scripts/vendor-test-core.js` so the browser-side importmap copy
+(`@nemzilla/test-core` → `/vendor/test-core/src/index.js`) picks up the Hendrick template and the
+new `generateFixtures` export.
+
+**Verified in-browser:** served the repo root (`npx serve .`) and loaded `/offer-gallery.html` in
+headless Chrome — all 4 cards render with correct vendor text, VINs, and download buttons; status
+line confirms the manifest load.
+
+**Tests:** carboyz `npm test` → 597/597 passing, zero regressions (this UOW's own contribution is
+the 2 new tests in `tests/offerGalleryFixtures.test.js`; the gap from the 581 logged in
+UOW-CARBOYZ-33 reflects test files added in unrelated commits since then, not this UOW).

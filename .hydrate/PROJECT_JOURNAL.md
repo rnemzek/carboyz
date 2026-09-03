@@ -31,3 +31,4 @@
 - [x] **[UOW-CARBOYZ-30]** QR Code Rendering Hotfix: Standard Palette Contrast & Quiet Zone — 2026-09-02 | Pass: 577/577 tests
 - [x] **[UOW-CARBOYZ-31]** QR Code Layout Refinement & Payload Density Reduction — 2026-09-02 | Pass: 581/581 tests
 - [x] **[UOW-CARBOYZ-33]** Mobile Viewport & CSS Responsiveness Audit Across All UI Views — 2026-09-02 | Pass: 581/581 tests
+- [x] **[UOW-CARBOYZ-34]** Competitor Offer Fixture Miner & Web Document Test Gallery — 2026-09-03 | Pass: 597/597 tests
