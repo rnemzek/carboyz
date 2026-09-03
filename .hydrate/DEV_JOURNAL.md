@@ -556,3 +556,44 @@ line confirms the manifest load.
 **Tests:** carboyz `npm test` → 597/597 passing, zero regressions (this UOW's own contribution is
 the 2 new tests in `tests/offerGalleryFixtures.test.js`; the gap from the 581 logged in
 UOW-CARBOYZ-33 reflects test files added in unrelated commits since then, not this UOW).
+
+## UOW-CARBOYZ-35 — Fix Browser CORS / node:fs Crash on @nemzilla/test-core Import (2026-09-03)
+
+**Root cause:** `../test-core/src/index.js` (the module carboyz's importmap resolves
+`@nemzilla/test-core` to) statically re-exported `generateFixtures` from
+`src/document/fixtures.js`, which imports `node:fs`/`node:path`. Any browser page importing
+`@nemzilla/test-core` (i.e. `index.html` → `src/ui/App.js` → `TestBedDrawer.js`) triggered a
+module-resolution failure trying to load those Node built-ins client-side.
+
+**Fix (in `../test-core`):** moved `src/document/fixtures.js` → `src/node/fixtures.js` (git mv,
+history preserved) and dropped its export from `src/index.js`, which is now 100% free of Node
+built-ins — it only re-exports `vin/generator.js`, `vin/nhtsa.js`, `presets/vehicle-seeds.js`, and
+`document/mock-offer.js`, none of which import `node:*`. Updated `bin/mine-pdfs.js` and
+`tests/fixtures.test.js` to import `generateFixtures` from the new `src/node/fixtures.js` path
+directly (relative import, not through the package entry point). Committed in `test-core` as
+`64a1c61`.
+
+**Fix (in carboyz):** re-ran `node scripts/vendor-test-core.js` to refresh
+`vendor/test-core/src/` — `vendor/test-core/src/document/fixtures.js` is gone,
+`vendor/test-core/src/node/fixtures.js` now exists (harmless: never imported by anything the
+browser loads), and `vendor/test-core/src/index.js` no longer exports `generateFixtures`. No
+`index.html` importmap change was needed — `@nemzilla/test-core` already pointed at
+`/vendor/test-core/src/index.js`, which is now clean.
+
+**Verification:**
+- `../test-core` `npm test` → 23/23 passing.
+- `../test-core` `node bin/mine-pdfs.js <tmp-dir>` → CLI still writes fixtures correctly from its
+  new import path.
+- carboyz `npm test` → 597/597 passing, zero regressions.
+- `npm start` (`serve .` on :8080), then `curl -sL` → `/`, `/vin-testbed`, `/offer-gallery` all
+  HTTP 200 (serve redirects `*.html` → extensionless paths).
+- No headless browser (puppeteer/chromium) is installed in this environment, so in place of a
+  literal browser run, wrote a small ESM-module-graph crawler
+  (`scripts/vendor-test-core.js`-adjacent, scratch-only, not committed) that starts at each
+  entry page's `<script type="module">`, follows every `import`/`export ... from` statement,
+  resolves specifiers exactly as a browser would (importmap first, else relative-only), and flags
+  any bare/unresolvable specifier such as `node:fs`. Crawled all 151 modules reachable from
+  `index.html` → `App.js` (the only entry point that imports `@nemzilla/test-core`); zero
+  `node:*` or unresolvable specifiers found. `vin-testbed.html` and `offer-gallery.html` don't
+  import `@nemzilla/test-core` at all (inline scripts / fetch-based fixture loading), so they were
+  never part of the crash surface, but their HTTP 200 status was confirmed directly.

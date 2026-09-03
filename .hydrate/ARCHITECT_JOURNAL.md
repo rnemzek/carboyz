@@ -277,3 +277,21 @@ the app shell's importmap does consume `mock-offer.js`/`index.js` from that vend
 git (deterministic/seeded, so regenerating via `mine-pdfs.js` produces byte-identical VINs). This
 mirrors how `vendor/test-core/` and `vendor/spatial-core/` are already committed copies of sibling
 deps — no build-time codegen step was added to `npm start`'s existing `prestart` pipeline.
+
+## UOW-CARBOYZ-35 — Node/browser boundary established in @nemzilla/test-core
+
+`@nemzilla/test-core`'s package entry (`src/index.js`) is now a hard contract: browser-safe domain
+logic only (VIN generation/validation, NHTSA decoding, vehicle presets, mock offer formatting) —
+zero Node built-ins, zero `fs`/`path` access. Node-only CLI utilities (file-generating code, used
+by `bin/mine-pdfs.js`) now live under a separate `src/node/` subtree and are never re-exported from
+the package entry point; consumers of that Node-only code must import the file directly
+(`../test-core/src/node/fixtures.js`), not through the `@nemzilla/test-core` package specifier.
+No `package.json` `exports` subpath was added for `./node/fixtures.js` since the only consumer
+(`bin/mine-pdfs.js`) already uses a relative import — scope was kept surgical per this UOW.
+
+This boundary should hold for any future Node-only addition to test-core (e.g. more CLI miners):
+new fs/path-dependent code belongs under `src/node/`, never re-exported from `src/index.js`.
+carboyz's `scripts/vendor-test-core.js` still copies test-core's entire `src/` tree verbatim
+(including `src/node/`) into `vendor/test-core/src/` — that's fine, since nothing browser-reachable
+imports it, but it does mean the vendored copy is not itself proof of browser-safety; that
+guarantee comes from `src/index.js`'s export list, which this UOW is what enforces.

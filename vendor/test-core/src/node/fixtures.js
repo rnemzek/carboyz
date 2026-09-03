@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateVin } from '../vin/generator.js';
-import { generateMockOffer } from './mock-offer.js';
+import { generateMockOffer } from '../document/mock-offer.js';
 
 // One deterministic sample appraisal per competitor, seeded so mine-pdfs.js produces the same
 // fixtures on every run (stable diffs, reproducible OCR ground truth).
