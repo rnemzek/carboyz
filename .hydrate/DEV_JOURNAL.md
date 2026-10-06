@@ -628,3 +628,65 @@ insurance since `.card` is a grid item hosting a wide SVG.
   most of a single-column card at that width, not a layout bug.
 - `npm test` → 597/597 passing, zero regressions (this UOW touches only static HTML/CSS/inline
   script in `vin-testbed.html`, not covered by the Node test suite).
+
+## [UOW-40] Server-Side Offer Document Extraction & Auto-Population — 2026-10-06
+
+**Files touched:**
+- `src/server/offerParser.js` (new) — `parseOfferDocument({ documentBase64 })`.
+- `src/server/index.js` — registered `POST /api/offers/parse`.
+- `src/ui/offerAutoPopulate.js` (new) — `requestOfferParse()` (fetch wrapper) and
+  `mapExtractedOfferToFormValues()` (pure mapping), the DOM-free/testable half of the client wire.
+- `src/ui/SellerSubmissionView.js` — dropzone drop + file-picker `change` now funnel through a new
+  `handleFileSelected()` that reads the file once, POSTs it to the parser, and applies the result
+  via `applyExtractedOffer()`; the submit handler reuses the same base64 read instead of re-reading
+  the file.
+- `tests/offerParser.test.js`, `tests/ui.offerAutoPopulate.test.js` (new); `tests/server.test.js`
+  extended with 4 integration cases for the new route.
+
+**Approach:**
+- No OCR/PDF-parsing dependency was added — `offerParser.js`'s own header comment documents why,
+  echoing the identical precedent already recorded in `vinScanner.js`'s `createVinScanner` doc
+  comment (zero-dependency-per-module boundary). The "document" is decoded as UTF-8 text
+  (stripping a `data:<mime>;base64,` prefix if present) and scanned with regexes; a real
+  photo/scan decodes to binary noise and correctly produces an empty/low-confidence `extracted`
+  rather than a thrown error — this is the intended graceful-fallback path, not a gap.
+- VIN extraction reuses `findValidVin`/`decodeWmiMake` from `vinScanner.js` directly rather than
+  reimplementing VIN logic. Deliberately did **not** reuse `decodeModelYear` for the `year` field:
+  its position-10 code repeats every 30 years, and a spot-check against this UOW's own fixtures
+  (`public/fixtures/offers/*.txt`) showed it guessing the wrong decade twice (e.g. the Carvana VIN
+  decodes to 2000, not 2020). `year`/`model` are instead extracted only from an explicit
+  "`<year> <make> <model>`" text line (`extractVehicleLine`) when the document states it outright
+  — absent for CarMax/KBB's offer sheets, so those two fixtures correctly report no `year`/`model`
+  rather than a plausible-looking wrong guess.
+- `competitorName` matches a fixed brand-keyword list (CarMax/Carvana/KBB/Driveway) at 0.95
+  confidence, else falls back to the document's own first legible heading line at 0.4 confidence
+  (the "generic dealership offer sheet" case, e.g. the Hendrick fixture) — guarded to require
+  printable-ASCII + at least one letter so binary-noise documents don't produce a garbage name.
+- Client-side, the parse call and the field-mapping logic are both pure/DOM-free in
+  `offerAutoPopulate.js` so they get full `node --test` coverage without jsdom/happy-dom (no such
+  dependency exists in this repo, and none was added). `SellerSubmissionView.js` itself stays thin
+  glue, consistent with the existing precedent that View-rendering functions (`h()` →
+  `document.createElement`) aren't directly unit-tested here.
+- `mapExtractedOfferToFormValues` only routes a `competitorName` into the `competitor` select when
+  it case-insensitively matches a real `COMPETITORS` entry; anything else (including a generic
+  dealership heading) falls back to `competitor: null` + `competitorDealerName`, which
+  `applyExtractedOffer()` turns into selecting "Other" and revealing the dealer-name row — the
+  same path a seller typing it in manually would hit.
+- Acceptance criterion "`SpreadService`/`SpreadConfigService` auto-calculate the counter offer as
+  soon as the parsed `competitorOffer` populates" required no new wiring: `DispatchService.dispatch()`
+  already calls `calculateSpread()` against `submission.competitorOfferAmount` at submit time
+  (`src/services/DispatchService.js`), and auto-population now sets `offerAmountInput.value`
+  before submit, so the existing submit-time flow picks it up unchanged.
+
+**Verification:**
+- `npm test` → 620/620 passing (597 prior + 23 new), zero regressions.
+- `node --test --experimental-test-coverage`: `offerParser.js` 95.89% line / 91.49% branch;
+  `offerAutoPopulate.js` 100% line / 92.86% branch; `src/server/index.js` 92.59% line / 92.86%
+  branch (new route included) — all clear the 80% line/branch gate.
+- Ran `parseOfferDocument` directly against all four committed fixtures
+  (`public/fixtures/offers/{carmax,carvana,hendrick,kbb}-offer.txt`) and asserted VIN/offer
+  amount/mileage/competitor name against their known values; Carvana and Hendrick (which embed an
+  explicit "`<year> <make> <model>`" line) additionally assert on `year`/`make`/`model`.
+- Confirmed malformed input never throws: non-base64 garbage, a missing `documentBase64`, and a
+  non-JSON POST body each return a 200/400 JSON body instead of a 500, both at the
+  `parseOfferDocument()` unit level and through `app.request()` against the live Hono app.

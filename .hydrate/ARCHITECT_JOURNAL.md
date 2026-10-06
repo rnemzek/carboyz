@@ -295,3 +295,48 @@ carboyz's `scripts/vendor-test-core.js` still copies test-core's entire `src/` t
 (including `src/node/`) into `vendor/test-core/src/` — that's fine, since nothing browser-reachable
 imports it, but it does mean the vendored copy is not itself proof of browser-safety; that
 guarantee comes from `src/index.js`'s export list, which this UOW is what enforces.
+
+## UOW-40 — Offer-document extraction lands on the Hono server, not the client
+
+**New contract:** `POST /api/offers/parse` — request `{ documentBase64, mimeType }`, response
+`{ success, extracted, confidence }` where `extracted` may contain any subset of
+`{ vin, year, make, model, mileage, competitorOffer, competitorName }` and `confidence` mirrors
+whichever keys were populated (0–1 per field). `success` is `true` for any decodable payload,
+including one where nothing was found — "nothing extracted" and "request failed" are distinct;
+only a missing `documentBase64` or unparsable JSON body returns `success: false` (HTTP 400).
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Document parsing engine | Heuristic regex over UTF-8-decoded text | A real OCR/PDF-text library | Matches the zero-dependency-per-module precedent already documented in `vinScanner.js`; this UOW's own fixtures (`public/fixtures/offers/*.txt`) are themselves plain text, so no OCR is needed to satisfy them |
+| Where extraction runs | Server (`src/server/offerParser.js`) | Client, inline in `SellerSubmissionView.js` | UOW's explicit client zero-dependency boundary; also keeps the (future) real OCR swap-in a server-only change |
+| `year` source | Explicit "`<year> <make> <model>`" text line only | `vinScanner.js`'s `decodeModelYear` (VIN position-10 code) | The position-10 code repeats every 30 years and measurably guessed wrong on 2 of 4 fixtures; a wrong auto-filled year is worse than no year |
+| Unrecognized competitor (generic dealership offer sheet) | Document's own heading line, routed to `competitor: null` + `competitorDealerName` | Reject/omit entirely | Lets the existing "Other" + dealer-name path (already in `SellerSubmissionView.js`/`Submission` model) absorb it without a new field or enum value |
+
+**Sequence — drop-to-populate:**
+```mermaid
+sequenceDiagram
+    participant Seller
+    participant View as SellerSubmissionView
+    participant Client as offerAutoPopulate.js
+    participant Server as POST /api/offers/parse
+    participant Parser as offerParser.js
+
+    Seller->>View: drop/select offer document
+    View->>View: readFileAsBase64(file)
+    View->>Client: requestOfferParse({ documentBase64, mimeType })
+    Client->>Server: fetch POST (JSON)
+    Server->>Parser: parseOfferDocument({ documentBase64 })
+    Parser-->>Server: { success, extracted, confidence }
+    Server-->>Client: 200 JSON (or 400 on malformed request)
+    Client-->>View: { success, extracted, confidence } (never throws)
+    View->>View: mapExtractedOfferToFormValues(extracted)
+    View->>View: set input.value for each populated field (form stays editable)
+    Note over View: On submit, DispatchService.dispatch() already runs calculateSpread()<br/>against the now-populated competitorOfferAmount — no new wiring needed.
+```
+
+**Architectural wisdom:** The form-auto-population boundary deliberately sits at "set `.value` on
+existing inputs," not "replace the form's state model." That's why acceptance criterion #4 (spread
+auto-calculates on populate) needed zero new code — `DispatchService` already reads
+`submission.competitorOfferAmount` from whatever's in the input at submit time, whether a seller
+typed it or the parser filled it in. Any future change to how the form reads its own state should
+preserve that property, or this UOW's auto-population silently stops feeding the spread calc.

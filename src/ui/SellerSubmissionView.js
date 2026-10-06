@@ -2,6 +2,7 @@ import { h } from './App.js';
 import { COMPETITORS } from '../models/Submission.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
 import { createVinScanner, findValidVin, decodeModelYear, decodeWmiMake } from '../utils/vinScanner.js';
+import { requestOfferParse, mapExtractedOfferToFormValues } from './offerAutoPopulate.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -185,6 +186,52 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   const dropzoneLabel = h('span', { class: 'dropzone__label', text: 'Tap to take a photo or drop a PDF' });
   const dropzone = h('label', { class: 'dropzone' }, [fileInput, dropzoneLabel]);
 
+  let pendingOfferDocumentBase64 = null;
+
+  function applyExtractedOffer({ success, extracted } = {}) {
+    if (!success) return;
+    const values = mapExtractedOfferToFormValues(extracted ?? {});
+
+    if (values.vin) vinInput.value = values.vin;
+    if (values.year != null) yearInput.value = values.year;
+    if (values.make) makeInput.value = values.make;
+    if (values.model) modelInput.value = values.model;
+    if (values.mileage != null) mileageInput.value = values.mileage;
+    if (values.competitorOfferAmount != null) offerAmountInput.value = values.competitorOfferAmount;
+
+    if (values.competitor) {
+      competitorSelect.value = values.competitor;
+      dealerNameRow.hidden = true;
+      dealerNameInput.required = false;
+    } else if (values.competitorDealerName) {
+      competitorSelect.value = 'Other';
+      dealerNameInput.value = values.competitorDealerName;
+      dealerNameRow.hidden = false;
+      dealerNameInput.required = true;
+    }
+  }
+
+  // Auto-population is best-effort: a parse failure (network down, low-confidence document)
+  // leaves the dropzone upload intact and the form ready for manual entry.
+  async function handleFileSelected(file) {
+    dropzoneLabel.textContent = file?.name ?? 'Tap to take a photo or drop a PDF';
+    pendingOfferDocumentBase64 = null;
+    if (!file) return;
+
+    try {
+      pendingOfferDocumentBase64 = await readFileAsBase64(file);
+    } catch {
+      return;
+    }
+
+    try {
+      const result = await requestOfferParse({ documentBase64: pendingOfferDocumentBase64, mimeType: file.type });
+      applyExtractedOffer(result);
+    } catch {
+      // Leave the form for manual entry.
+    }
+  }
+
   dropzone.addEventListener('dragover', (event) => {
     event.preventDefault();
     dropzone.classList.add('dropzone--active');
@@ -195,10 +242,11 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     dropzone.classList.remove('dropzone--active');
     if (event.dataTransfer?.files?.length) {
       fileInput.files = event.dataTransfer.files;
+      handleFileSelected(fileInput.files[0]);
     }
   });
   fileInput.addEventListener('change', () => {
-    dropzoneLabel.textContent = fileInput.files?.[0]?.name ?? 'Tap to take a photo or drop a PDF';
+    handleFileSelected(fileInput.files?.[0] ?? null);
   });
 
   const statusEl = h('p', { class: 'form__status', role: 'status', 'aria-live': 'polite' });
@@ -283,7 +331,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
 
     try {
       const file = fileInput.files?.[0] ?? null;
-      const offerDocument = file ? await readFileAsBase64(file) : null;
+      const offerDocument = pendingOfferDocumentBase64 ?? (file ? await readFileAsBase64(file) : null);
       const data = new FormData(form);
 
       const { pendingSessionId } = controller.submitSubmission({
@@ -303,6 +351,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       form.reset();
       dealerNameRow.hidden = true;
       dropzoneLabel.textContent = 'Tap to take a photo or drop a PDF';
+      pendingOfferDocumentBase64 = null;
       statusEl.textContent = "Submitted! We'll let you know if we can beat that offer.";
       statusEl.classList.remove('form__status--error');
 

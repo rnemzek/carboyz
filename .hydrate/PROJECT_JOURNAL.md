@@ -34,3 +34,8 @@
 - [x] **[UOW-CARBOYZ-34]** Competitor Offer Fixture Miner & Web Document Test Gallery — 2026-09-03 | Pass: 597/597 tests
 - [x] **[UOW-CARBOYZ-35]** Fix Browser CORS / node:fs Crash on @nemzilla/test-core Import — 2026-09-03 | Pass: 597/597 tests
 - [x] **[UOW-CARBOYZ-36]** Optimize Code 39 Barcode Rendering for Mobile Camera Scanners — 2026-09-03 | Pass: 597/597 tests
+
+### UOW-00 — completed 2026-10-06
+- Iterations logged: 0
+- Suggested commit: `feat: complete UOW-00`
+- [x] **[UOW-40]** Server-Side Offer Document Extraction & Auto-Population — 2026-10-06 | Pass: 620/620 tests

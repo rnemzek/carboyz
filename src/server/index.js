@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { createWsRelay } from './wsRelay.js';
+import { parseOfferDocument } from './offerParser.js';
 
 const DEFAULT_PORT = 8787;
 
@@ -50,6 +51,14 @@ export function createApp({ startedAt = Date.now() } = {}) {
   app.get('/api/v1/tenants/:tenantId', (c) => {
     const tenantId = c.req.param('tenantId');
     return c.json({ tenantId });
+  });
+
+  app.post('/api/offers/parse', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.documentBase64 !== 'string') {
+      return c.json({ success: false, extracted: {}, confidence: {} }, 400);
+    }
+    return c.json(parseOfferDocument(body));
   });
 
   return app;

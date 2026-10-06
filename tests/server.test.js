@@ -76,6 +76,68 @@ test('GET /api/v1/tenants/:tenantId resolves the tenant cell from the route', as
   assert.equal(body.tenantId, 'acme');
 });
 
+test('POST /api/offers/parse extracts fields from a well-formed offer document', async () => {
+  const app = createApp();
+  const text = 'CARMAX WRITTEN OFFER\nVIN: 1HGCM82633A004352\n7-Day Offer Amount: $15,250\nMileage: 32,450';
+  const documentBase64 = `data:text/plain;base64,${Buffer.from(text, 'utf8').toString('base64')}`;
+
+  const res = await app.request('/api/offers/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentBase64, mimeType: 'text/plain' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.extracted.vin, '1HGCM82633A004352');
+  assert.equal(body.extracted.competitorOffer, 15250);
+  assert.equal(body.extracted.competitorName, 'CarMax');
+});
+
+test('POST /api/offers/parse falls back gracefully for a malformed document without failing the request', async () => {
+  const app = createApp();
+
+  const res = await app.request('/api/offers/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentBase64: '%%%not-base64%%%', mimeType: 'application/pdf' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.deepEqual(body.extracted, {});
+});
+
+test('POST /api/offers/parse rejects a request missing documentBase64 without crashing the server', async () => {
+  const app = createApp();
+
+  const res = await app.request('/api/offers/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mimeType: 'application/pdf' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+});
+
+test('POST /api/offers/parse rejects a non-JSON body without crashing the server', async () => {
+  const app = createApp();
+
+  const res = await app.request('/api/offers/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not json',
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 400);
+  assert.equal(body.success, false);
+});
+
 test('wsRelay: broadcast to an unknown tenant room delivers to nobody and getRoomSize is 0', () => {
   const relay = createWsRelay({ server: null });
   assert.equal(relay.broadcast('nobody-here', { type: 'SUBMISSION_CREATED' }), 0);
