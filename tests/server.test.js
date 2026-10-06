@@ -1,9 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createApp, resolveTenantId, startServer } from '../src/server/index.js';
 import { createWsRelay } from '../src/server/wsRelay.js';
+
+async function withTempStaticRoot(files, run) {
+  const root = mkdtempSync(join(tmpdir(), 'carboyz-static-'));
+  try {
+    for (const [path, contents] of Object.entries(files)) {
+      writeFileSync(join(root, path), contents);
+    }
+    await run(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 function fakeContext({ param = {}, query = {}, header = {} } = {}) {
   return {
@@ -74,6 +89,73 @@ test('GET /api/v1/tenants/:tenantId resolves the tenant cell from the route', as
 
   assert.equal(res.status, 200);
   assert.equal(body.tenantId, 'acme');
+});
+
+test('createApp serves static files from staticRoot, with index.html as the directory fallback', async () => {
+  await withTempStaticRoot(
+    { 'index.html': '<!doctype html><title>shell</title>', 'manifest.webmanifest': '{"name":"carboyz"}' },
+    async (staticRoot) => {
+      const app = createApp({ staticRoot });
+
+      const rootRes = await app.request('/');
+      assert.equal(rootRes.status, 200);
+      assert.match(rootRes.headers.get('content-type'), /text\/html/);
+      assert.equal(await rootRes.text(), '<!doctype html><title>shell</title>');
+
+      const manifestRes = await app.request('/manifest.webmanifest');
+      assert.equal(manifestRes.status, 200);
+      assert.match(manifestRes.headers.get('content-type'), /application\/manifest\+json/);
+    },
+  );
+});
+
+test('createApp serves nested static assets (src/, public/, vendor/ style paths)', async () => {
+  await withTempStaticRoot({}, async (staticRoot) => {
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(staticRoot, 'src', 'ui'), { recursive: true });
+    writeFileSync(join(staticRoot, 'src', 'ui', 'App.js'), 'export const app = true;');
+
+    const app = createApp({ staticRoot });
+    const res = await app.request('/src/ui/App.js');
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /javascript/);
+    assert.equal(await res.text(), 'export const app = true;');
+  });
+});
+
+test('createApp returns a plain 404 for a static path that matches no API route and no file', async () => {
+  await withTempStaticRoot({}, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+    const res = await app.request('/no-such-file.txt');
+    assert.equal(res.status, 404);
+  });
+});
+
+test('createApp gives explicit API routes precedence over the static fallback even when a same-path file does not exist', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot, startedAt: Date.now() - 1000 });
+
+    const healthRes = await app.request('/api/v1/health');
+    assert.equal(healthRes.status, 200);
+    assert.equal((await healthRes.json()).status, 'ok');
+
+    const parseRes = await app.request('/api/offers/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentBase64: 'data:text/plain;base64,aGk=' }),
+    });
+    assert.equal(parseRes.status, 200);
+    assert.equal((await parseRes.json()).success, true);
+  });
+});
+
+test('createApp defaults staticRoot to the repo root, serving the real index.html', async () => {
+  const app = createApp();
+  const res = await app.request('/');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/html/);
+  assert.match(await res.text(), /<div id="app-root">/);
 });
 
 test('POST /api/offers/parse extracts fields from a well-formed offer document', async () => {

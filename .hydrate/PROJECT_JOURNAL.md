@@ -39,3 +39,4 @@
 - Iterations logged: 0
 - Suggested commit: `feat: complete UOW-00`
 - [x] **[UOW-40]** Server-Side Offer Document Extraction & Auto-Population — 2026-10-06 | Pass: 620/620 tests
+- [x] **[UOW-41]** Unify Static and API Server Runtime — 2026-10-06 | Pass: 625/625 tests

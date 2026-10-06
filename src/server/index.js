@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { createWsRelay } from './wsRelay.js';
 import { parseOfferDocument } from './offerParser.js';
 
-const DEFAULT_PORT = 8787;
+const DEFAULT_PORT = 8080;
+// Repo root (two levels up from this file, src/server/index.js), resolved absolutely so static
+// serving works regardless of the process's current working directory.
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function isIpLikeHost(host) {
   return /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(host) || host.startsWith('localhost') || host.startsWith('127.0.0.1');
@@ -38,7 +44,7 @@ export function resolveTenantId(c) {
   return labels.length > 2 ? labels[0] : null;
 }
 
-export function createApp({ startedAt = Date.now() } = {}) {
+export function createApp({ startedAt = Date.now(), staticRoot = REPO_ROOT } = {}) {
   const app = new Hono();
 
   app.use('*', async (c, next) => {
@@ -61,6 +67,12 @@ export function createApp({ startedAt = Date.now() } = {}) {
     return c.json(parseOfferDocument(body));
   });
 
+  // Catch-all static fallback for the PWA shell (index.html, manifest, src/, public/, vendor/).
+  // Registered last so it only runs for requests the explicit API routes above didn't already
+  // handle — serveStatic calls next() on a 404 rather than responding itself, but since this is
+  // the last handler in the chain, an unmatched static path still ends in a normal 404 response.
+  app.use('*', serveStatic({ root: staticRoot }));
+
   return app;
 }
 
@@ -76,6 +88,6 @@ if (isMainModule) {
   const { server } = startServer();
   server.on('listening', () => {
     const address = server.address();
-    console.log(`carboyz sync server listening on port ${typeof address === 'object' ? address.port : address}`);
+    console.log(`carboyz server (PWA + API + sync) listening on port ${typeof address === 'object' ? address.port : address}`);
   });
 }

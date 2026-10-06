@@ -340,3 +340,30 @@ auto-calculates on populate) needed zero new code — `DispatchService` already 
 `submission.competitorOfferAmount` from whatever's in the input at submit time, whether a seller
 typed it or the parser filled it in. Any future change to how the form reads its own state should
 preserve that property, or this UOW's auto-population silently stops feeding the spread calc.
+
+## UOW-41 — One process, one port: `src/server/index.js` now serves the PWA shell too
+
+**Decision:** `npm start` no longer boots two processes (`npx serve .` on 8080 + `node
+src/server/index.js` on 8787). There is now exactly one process, one port (`PORT` env or `8080`
+default), one `Hono` app: API routes first, then `@hono/node-server/serve-static` as a trailing
+catch-all over the repo root. `npm run start:server` is gone — `npm start` is it.
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Static file serving | `@hono/node-server/serve-static` | `npx serve` as a second process | Already a sub-export of the existing `@hono/node-server` dependency — zero new packages; also removes the CORS requirement for `/api/*` since the frontend and API now share an origin |
+| Route ordering | API routes registered, *then* static catch-all | Static first, API as 404 fallback | Matches the UOW's literal precedence wording; also skips a filesystem stat for every API request, since Hono's handler chain short-circuits once a non-middleware route responds |
+| `staticRoot` resolution | `import.meta.url`-derived absolute repo path | `process.cwd()` | Correct regardless of which directory the process (or `node --test`) was launched from |
+
+**Consequence for any future route:** a new API route must be registered in `createApp()` *before*
+the `serveStatic` catch-all at the bottom of the function, or it will never be reached for a path
+that happens to not exist on disk — it'll just 404 via the static middleware's fallthrough instead
+of ever running. This mirrors the existing precedent (`/api/v1/health`, `/api/v1/tenants/:tenantId`,
+`/api/offers/parse` are all above the `serveStatic` line); keep new routes above that line too.
+
+**Now-dead assumption to retire:** `.hydrate/archive/UOW-15.md`'s note that "this app has no
+server/backend component" and `docs/RECONSTRUCTED_STATE.md`'s description of `src/server/index.js`
+as "independent of the static PWA bundle" were both true when written (UOW-15, UOW-23) but are
+superseded as of UOW-40 (the `/api/offers/parse` backend) and this UOW (the merged runtime). Left
+those historical documents un-edited, since they're point-in-time snapshots/journals, not living
+docs — but anyone reasoning from them about "no backend" or "two processes" should check `npm
+start`'s current behavior instead.

@@ -8,8 +8,7 @@
   "scripts": {
     "test": "node --test",
     "prestart": "node scripts/generate-runtime-config.js && node scripts/vendor-spatial-core.js && node scripts/vendor-test-core.js",
-    "start": "npx serve . -p ${PORT:-8080}",
-    "start:server": "node src/server/index.js"
+    "start": "node src/server/index.js"
   },
   "engines": {
     "node": ">=20"

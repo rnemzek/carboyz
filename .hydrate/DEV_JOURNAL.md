@@ -690,3 +690,46 @@ insurance since `.card` is a grid item hosting a wide SVG.
 - Confirmed malformed input never throws: non-base64 garbage, a missing `documentBase64`, and a
   non-JSON POST body each return a 200/400 JSON body instead of a 500, both at the
   `parseOfferDocument()` unit level and through `app.request()` against the live Hono app.
+
+## [UOW-41] Unify Static and API Server Runtime — 2026-10-06
+
+**Files touched:**
+- `src/server/index.js` — mounted `@hono/node-server/serve-static` (already a transitive export
+  of the existing `@hono/node-server` dependency, so this is zero new dependencies) as a catch-all
+  `app.use('*', serveStatic({ root: staticRoot }))`, registered *after* every explicit API route.
+  `createApp()` now accepts a `staticRoot` option (defaults to the repo root, resolved from
+  `import.meta.url` via two `..` segments so it's correct regardless of process CWD) for
+  testability. `DEFAULT_PORT` changed from `8787` to `8080` per the UOW's port contract.
+- `package.json` — `"start"` is now `node src/server/index.js`; removed `"start:server"` (now
+  redundant — `npm start` does the same thing). `"prestart"` untouched.
+- `tests/server.test.js` — 5 new cases using a `withTempStaticRoot()` helper (writes fixture files
+  into a throwaway `mkdtemp` dir) plus one case against the real repo-root default.
+
+**Approach:**
+- Confirmed precedence works for free rather than needing manual ordering logic: `serveStatic`'s
+  own implementation (`node_modules/@hono/node-server/dist/serve-static.mjs`) calls `next()` and
+  returns, without responding, on a 404 — so even if it were registered *before* the API routes it
+  would still fall through to them. Registering it *last* was still the right call: it means a
+  request that actually matches an API route handler never touches the filesystem at all (Hono's
+  composed middleware chain short-circuits once a handler returns a response without calling
+  `next()`), and it matches the UOW's literal "explicit API routes take precedence" wording.
+- No MIME-type configuration was added: `hono/utils/mime`'s built-in table already maps
+  `.js`/`.mjs` → `text/javascript; charset=utf-8` (a correct ES-module content type — browsers
+  don't distinguish it from `application/javascript` for `<script type="module">`) and
+  `.webmanifest` → `application/manifest+json`. Verified both directly against a running server.
+- `staticRoot` is computed from `import.meta.url`, not `process.cwd()`, specifically so `npm test`
+  (which also constructs `createApp()` without arguments in several tests) resolves the real repo
+  root regardless of which directory the test runner was invoked from.
+
+**Verification:**
+- `npm test` → 625/625 passing (620 prior + 5 new), zero regressions.
+- `node --test --experimental-test-coverage`: `src/server/index.js` 93.55% line / 93.10% branch —
+  clears the 80% gate.
+- Live smoke test: ran `npm start` for real (port 8080) and curled every acceptance-criteria path —
+  `GET /` (200, the actual `index.html` shell, `text/html`), `GET /manifest.webmanifest` (200,
+  `application/manifest+json`), `GET /src/ui/App.js` (200, `text/javascript`), `GET
+  /public/fixtures/offers/manifest.json` (200), `GET /vendor/zod/index.js` (200), `GET
+  /offer-gallery.html` (200), `GET /api/v1/health` (200 JSON), `POST /api/offers/parse` with a
+  same-origin request (200 JSON, no CORS preflight needed since it's the same host:port as the
+  shell), and a nonexistent path (`GET /no-such-file.txt` → 404). All matched expectations; server
+  process was killed afterward.
