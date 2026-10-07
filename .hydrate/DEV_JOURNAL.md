@@ -775,3 +775,54 @@ was missing — wiring preset selection into the Sell form.
   "F-150"`, `trim: "XLT"`, `mileage: "48000"`, all correct. One pre-existing, already-documented
   console warning appeared (Service Worker scope — see `ARCHITECT_JOURNAL.md`'s `npx serve`-era
   note), unrelated to this change.
+
+## [UOW-HOTFIX] Clean Up Sell Form Layout, Label Spacing & Input Widths — 2026-10-07
+
+**Files touched:** `src/ui/SellerSubmissionView.js`, `src/ui/styles.css`.
+
+**Root cause of "inconsistent label placement":** the split-row sub-fields (Year/Make/Model/
+Trim/Mileage/ZIP) were each wrapped in a bare, unclassed `<div>` holding a `<label>` + `<input>`,
+with no `display`/`gap` rule applied to that wrapper — and `<label>` has no `display: block` in
+this stylesheet's base `.form label` rule, so those labels were rendering inline-before-input by
+default, while every *non*-split row (VIN, Competitor, Offer Document, etc.), wrapped in
+`.form__row` (`display:flex; flex-direction:column; gap:4px`), stacked correctly. That's the
+actual "jumping between inline and stacked" the request described. Fix: every per-field wrapper
+now uses `.form__row`, so label-above-input + 4px gap is applied uniformly everywhere in this form.
+
+**Approach — kept all new CSS scoped under `.sell-form`:**
+- `.form`, `.form__row`, `.form__row--split`, `.input--large`, `.form__status` are shared base
+  classes also used by `SpreadConfigView.js`, `TestHarnessView.js`, and `SimulationView.js`.
+  Rather than edit those shared rules (which would have restyled every other form in the app),
+  the `<form>` element picked up a new `sell-form` class, and every new rule is scoped under it
+  (`.sell-form label`, `.sell-form__vehicle-grid`, `.sell-form__vin-input`, etc.) — verified by
+  screenshotting the Admin tab (`SpreadConfigView`, same `.form__row--split` tier-row grid) before
+  and after: pixel-identical.
+- Year/Make/Model/Trim were two separate 2-up `.form__row--split` rows; merged into one grid
+  (`.form__row--split sell-form__vehicle-grid`, 4 children) so the existing `auto-fit,
+  minmax(140px, 1fr)` responsive behavior naturally gives a 2×2 grid on a phone width and a single
+  4-up row at desktop width — no new breakpoint CSS needed, reused the shared grid mechanics.
+- VIN input: `maxlength="17"`, `font-family: ui-monospace/SF Mono/Menlo/Consolas`,
+  `text-transform: uppercase`, `max-width: 22ch` (visual uppercase only — doesn't mutate
+  `.value`, same as every other cosmetic transform in this stylesheet).
+- Year input: `max-width: 8ch`.
+- Mileage/Offer Amount: new `.sell-form__unit-field` wrapper (`position:relative; display:flex`)
+  holding the input plus an absolutely-positioned `.sell-form__unit` span ("mi" suffix / "$"
+  prefix, `aria-hidden="true"` since the `<label>` already names the field for assistive tech).
+
+**Bug caught during live verification, fixed before commit:** the unit-field wrapper correctly
+stretched to the grid column's full width, but the `<input>` inside it kept its flexbox default
+`flex: 0 1 auto` (content-based width) instead of filling the wrapper — so the "mi"/"$" label,
+positioned absolutely relative to the wrapper, rendered detached from the input's actual right/
+left edge. Caught via `getBoundingClientRect()`/`getComputedStyle()` against the live page (input
+204px vs. wrapper 672px), fixed with `.sell-form__unit-field input { flex: 1; min-width: 0; }`,
+re-screenshotted to confirm the label now sits flush against the input.
+
+**Verification:**
+- `npm test` → 625/625 passing, zero regressions (pure styling/markup-structure change to an
+  already-untested-directly View, same tier as `renderLeadInboxView`).
+- Live browser screenshots (Playwright, ad hoc in the session scratchpad, not a project
+  dependency) at 1280×900 (desktop) and 390×844 (mobile/iPhone-width): confirmed consistent
+  label-above-input stacking throughout, the VIN/Year compact sizing, the flush mi/$ unit labels,
+  and the Year/Make/Model/Trim grid collapsing to 2×2 on the phone width and a single row on
+  desktop. Also screenshotted the Admin tab (`SpreadConfigView`) to confirm its tier-row grid is
+  pixel-unaffected by the new scoped rules.

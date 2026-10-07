@@ -232,6 +232,64 @@ body {
   font-size: 1.05rem;
 }
 
+/* Sell form (SellerSubmissionView) layout polish. Scoped under .sell-form so the shared
+   .form/.form__row/.form__row--split/.input--large rules above stay untouched for
+   SpreadConfigView/TestHarnessView/SimulationView, which reuse those same base classes. */
+.sell-form label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.sell-form__vehicle-grid {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.sell-form__vin-input {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  max-width: 22ch;
+}
+
+.sell-form__year-input {
+  max-width: 8ch;
+}
+
+.sell-form__unit-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sell-form__unit-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sell-form__unit-field--prefix input {
+  padding-left: 26px;
+}
+
+.sell-form__unit-field--suffix input {
+  padding-right: 32px;
+}
+
+.sell-form__unit {
+  position: absolute;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+  pointer-events: none;
+}
+
+.sell-form__unit-field--prefix .sell-form__unit {
+  left: 10px;
+}
+
+.sell-form__unit-field--suffix .sell-form__unit {
+  right: 10px;
+}
+
 .button--large {
   min-height: 48px;
   font-size: 1.05rem;

@@ -113,7 +113,13 @@ function readPairingSessionIdFromLocation() {
 export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null, tenantConfig = null } = {}) {
   controller.bindPairingSession?.(readPairingSessionIdFromLocation());
 
-  const vinInput = h('input', { name: 'vin', placeholder: 'VIN', required: '', class: 'input--large' });
+  const vinInput = h('input', {
+    name: 'vin',
+    placeholder: 'VIN',
+    required: '',
+    maxlength: '17',
+    class: 'input--large sell-form__vin-input',
+  });
   const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
   const vinScannerModal = renderVinScannerModal({
     onVinConfirmed: (vin) => {
@@ -131,7 +137,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     type: 'number',
     placeholder: 'Year',
     required: '',
-    class: 'input--large',
+    class: 'input--large sell-form__year-input',
   });
   const makeInput = h('input', { name: 'make', placeholder: 'Make', required: '', class: 'input--large' });
   const modelInput = h('input', { name: 'model', placeholder: 'Model', required: '', class: 'input--large' });
@@ -144,6 +150,10 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     required: '',
     class: 'input--large',
   });
+  const mileageField = h('div', { class: 'sell-form__unit-field sell-form__unit-field--suffix' }, [
+    mileageInput,
+    h('span', { class: 'sell-form__unit', 'aria-hidden': 'true', text: 'mi' }),
+  ]);
   const zipInput = h('input', { name: 'zipCode', placeholder: 'ZIP Code', required: '', class: 'input--large' });
 
   const competitorSelect = h(
@@ -170,11 +180,15 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   const offerAmountInput = h('input', {
     name: 'competitorOfferAmount',
     type: 'number',
-    placeholder: 'Competitor Offer Amount ($)',
+    placeholder: 'Competitor Offer Amount',
     min: '0',
     required: '',
     class: 'input--large',
   });
+  const offerAmountField = h('div', { class: 'sell-form__unit-field sell-form__unit-field--prefix' }, [
+    h('span', { class: 'sell-form__unit', 'aria-hidden': 'true', text: '$' }),
+    offerAmountInput,
+  ]);
 
   const fileInput = h('input', {
     type: 'file',
@@ -299,26 +313,24 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     }
   }
 
-  const form = h('form', { class: 'form form--mobile' }, [
+  const form = h('form', { class: 'form form--mobile sell-form' }, [
     h('div', { class: 'form__row' }, [
       h('label', { text: 'VIN' }),
       h('div', { class: 'vin-input-row' }, [vinInput, scanVinBtn]),
     ]),
-    h('div', { class: 'form__row form__row--split' }, [
-      h('div', {}, [h('label', { text: 'Year' }), yearInput]),
-      h('div', {}, [h('label', { text: 'Make' }), makeInput]),
+    h('div', { class: 'form__row--split sell-form__vehicle-grid' }, [
+      h('div', { class: 'form__row' }, [h('label', { text: 'Year' }), yearInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Make' }), makeInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Model' }), modelInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Trim' }), trimInput]),
     ]),
     h('div', { class: 'form__row form__row--split' }, [
-      h('div', {}, [h('label', { text: 'Model' }), modelInput]),
-      h('div', {}, [h('label', { text: 'Trim' }), trimInput]),
-    ]),
-    h('div', { class: 'form__row form__row--split' }, [
-      h('div', {}, [h('label', { text: 'Mileage' }), mileageInput]),
-      h('div', {}, [h('label', { text: 'ZIP Code' }), zipInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Mileage' }), mileageField]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'ZIP Code' }), zipInput]),
     ]),
     h('div', { class: 'form__row' }, [h('label', { text: 'Competitor' }), competitorSelect]),
     dealerNameRow,
-    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor Offer Amount' }), offerAmountInput]),
+    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor Offer Amount' }), offerAmountField]),
     h('div', { class: 'form__row' }, [h('label', { text: 'Offer Document' }), dropzone]),
     submitBtn,
     statusEl,
