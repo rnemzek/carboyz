@@ -384,11 +384,32 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     offerAmountInput.value = prefill.competitorOfferAmount ?? '';
   }
 
-  return h('section', { class: 'view', id: 'view-sell' }, [
+  function setInputValue(input, value) {
+    if (value === null || value === undefined) return;
+    input.value = value;
+    // Dispatched (not just `.value` set) so any downstream listener bound to this input — e.g. a
+    // future validation/spread-preview hook — reacts the same way it would to a real keystroke.
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /** Populates VIN + vehicle metadata from an external source (the dev Test Bed drawer's preset picker). */
+  function applyVehicle({ vin, year, make, model, trim, mileage } = {}) {
+    setInputValue(vinInput, vin);
+    setInputValue(yearInput, year);
+    setInputValue(makeInput, make);
+    setInputValue(modelInput, model);
+    setInputValue(trimInput, trim);
+    setInputValue(mileageInput, mileage);
+  }
+
+  const section = h('section', { class: 'view', id: 'view-sell' }, [
     h('h2', { text: 'Sell Your Car' }),
     h('p', { class: 'view__subtitle', text: 'Got a better offer elsewhere? Show us and we may beat it.' }),
     form,
     waitingScreen,
     vinScannerModal.overlay,
   ]);
+
+  return { section, applyVehicle };
 }

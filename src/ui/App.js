@@ -739,7 +739,7 @@ export function mountApp(root) {
 
     const brandSwitcher = renderBrandSwitcher(registry.list(), activeTenantConfig.tenantId, switchTenant);
 
-    const sellView = renderSellerSubmissionView(sellerController, {
+    const { section: sellView, applyVehicle: applyVehicleToSellForm } = renderSellerSubmissionView(sellerController, {
       sessionStashService: state.sessionStashService,
       prefill: pendingPrefill,
       tenantConfig: activeTenantConfig,
@@ -828,7 +828,10 @@ export function mountApp(root) {
     harnessView.hidden = activeTab !== 'harness';
 
     const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
-    const testBedDrawer = renderTestBedDrawer({ spreadConfigService: state.spreadConfigService });
+    const testBedDrawer = renderTestBedDrawer({
+      spreadConfigService: state.spreadConfigService,
+      onApplyToSellForm: applyVehicleToSellForm,
+    });
 
     const app = h('div', { class: 'app' }, [
       renderHeader(activeTenantConfig),

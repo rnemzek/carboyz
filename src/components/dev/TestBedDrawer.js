@@ -107,8 +107,12 @@ function renderOfferList({ estimatedOffer, spreadResult }) {
  * arbitrary VIN via NHTSA, then previewing the estimated CarMax offer and the real counter-offer
  * threshold calculation for it. Untested DOM-rendering function — same tier as
  * renderLeadInboxView/renderTestHarnessView; the logic it wires together is unit-tested above.
+ *
+ * `onApplyToSellForm`, if given, is called with the preset vehicle only when a preset is picked
+ * from the dropdown (not on an arbitrary VIN decode) — it's how the drawer forwards VIN/year/
+ * make/model/trim/mileage into SellerSubmissionView's `applyVehicle`.
  */
-export function renderTestBedDrawer({ spreadConfigService }) {
+export function renderTestBedDrawer({ spreadConfigService, onApplyToSellForm = null }) {
   let open = false;
 
   const statusEl = h('p', { class: 'form__status', role: 'status', 'aria-live': 'polite' });
@@ -137,6 +141,7 @@ export function renderTestBedDrawer({ spreadConfigService }) {
     if (!seed) return;
     statusEl.textContent = `Loaded preset: ${seed.label}`;
     showVehicle(seed);
+    onApplyToSellForm?.(seed);
   });
 
   const vinInput = h('input', { type: 'text', class: 'testbed__vin-input', placeholder: 'Enter 17-char VIN', maxlength: '17' });

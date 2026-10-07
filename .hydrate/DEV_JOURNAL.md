@@ -733,3 +733,45 @@ insurance since `.card` is a grid item hosting a wide SVG.
   same-origin request (200 JSON, no CORS preflight needed since it's the same host:port as the
   shell), and a nonexistent path (`GET /no-such-file.txt` → 404). All matched expectations; server
   process was killed afterward.
+
+## [UOW-HOTFIX] Wire Test Bed Preset Selection into SellerSubmissionView — 2026-10-07
+
+**Premise check before touching anything:** the request named 4 vehicles (Honda Accord EX-L,
+Toyota RAV4 XLE, Ford F-150 XLT, Chevrolet Silverado 1500) as "the test bed preset vehicles...
+with invalid/missing VIN check digits." Neither that vehicle set nor any VIN-checksum bug actually
+exists in this codebase: `TestBedDrawer.js`'s `VEHICLE_SEEDS` (Toyota Camry LE, Ford F-150 XLT,
+Tesla Model 3 Long Range, Honda CR-V EX) comes from the sibling `@nemzilla/test-core` package and
+already generates check-digit-valid VINs via `generateVin()` — verified live with `validateVin()`
+against all 4 before changing anything. Flagged this mismatch to the Product Owner rather than
+guessing; they confirmed: keep the existing presets as-is, and build the one thing that actually
+was missing — wiring preset selection into the Sell form.
+
+**Files touched:**
+- `src/ui/SellerSubmissionView.js` — now returns `{ section, applyVehicle }` instead of a bare
+  element (matching the existing `{ section, refresh }` pattern already used by
+  `renderLeadInboxView`/`renderAnalyticsView`). `applyVehicle({ vin, year, make, model, trim,
+  mileage })` sets each input's `.value` and dispatches both `input` and `change` events
+  (`bubbles: true`) per-field via a small `setInputValue()` helper, so any listener bound to those
+  inputs reacts the same as a real keystroke would.
+- `src/components/dev/TestBedDrawer.js` — `renderTestBedDrawer()` takes a new
+  `onApplyToSellForm` callback, invoked with the seed object only from the preset `<select>`'s
+  `change` handler (not from the separate "Decode VIN" button — out of scope, wasn't asked for).
+  `VEHICLE_SEEDS` entries already have exactly the `{ vin, year, make, model, trim, mileage }`
+  shape `applyVehicle` expects, so no mapping was needed.
+- `src/ui/App.js` — destructures `renderSellerSubmissionView`'s new return shape and passes
+  `applyVehicle` through as `onApplyToSellForm` when constructing `testBedDrawer`. No other call
+  site exists (`TestHarnessView.js`'s only match was a doc-comment mention, not a call).
+
+**Verification:**
+- `npm test` → 625/625 passing, zero regressions (both views are DOM-rendering functions, same
+  untested-directly tier as `renderLeadInboxView`/`TestBedDrawer`'s own header comment already
+  documents — the logic they wire together, `VEHICLE_SEEDS`/`validateVin`, is unit-tested
+  elsewhere).
+- Live browser verification (no project dependency added — installed `playwright` + a Chromium
+  binary ad hoc in the session scratchpad only, same one-off-tool precedent as UOW-CARBOYZ-36's
+  headless-Chrome screenshot check): booted the real `npm start` server, opened the Test Bed
+  drawer, selected the "2020 Ford F-150 XLT (Truck)" preset, and read the Sell form's actual input
+  values back out of the DOM — `vin: "52KT9N0K0F54M89M5"`, `year: "2020"`, `make: "Ford"`, `model:
+  "F-150"`, `trim: "XLT"`, `mileage: "48000"`, all correct. One pre-existing, already-documented
+  console warning appeared (Service Worker scope — see `ARCHITECT_JOURNAL.md`'s `npx serve`-era
+  note), unrelated to this change.
