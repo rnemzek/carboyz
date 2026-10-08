@@ -15,6 +15,10 @@ function toDataUrl(text) {
   return `data:text/plain;base64,${Buffer.from(text, 'utf8').toString('base64')}`;
 }
 
+function readFixtureBase64(name) {
+  return readFileSync(join(FIXTURES_DIR, name)).toString('base64');
+}
+
 test('parseOfferDocument extracts VIN, offer amount, mileage, and competitor name from a CarMax offer sheet', () => {
   const text = readFixtureText('carmax-offer.txt');
   const result = parseOfferDocument({ documentBase64: toDataUrl(text) });
@@ -87,4 +91,36 @@ test('parseOfferDocument gracefully falls back for a missing or empty documentBa
 test('parseOfferDocument accepts raw base64 without a data: URL prefix', () => {
   const result = parseOfferDocument({ documentBase64: Buffer.from(readFixtureText('kbb-offer.txt'), 'utf8').toString('base64') });
   assert.equal(result.extracted.vin, 'SD1P4R0B6Y0LTYE7Z');
+});
+
+test('parseOfferDocument recognizes a Carvana "Estimate" screenshot image and returns a VIN-less partial result', () => {
+  const documentBase64 = readFixtureBase64('carvana-estimated-offer-screenshot.jpeg');
+  const result = parseOfferDocument({ documentBase64, mimeType: 'image/jpeg' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.extracted.vin, undefined);
+  assert.equal(result.extracted.isEstimate, true);
+  assert.equal(result.extracted.competitorName, 'Carvana');
+  assert.equal(result.extracted.competitorOffer, 13100);
+  assert.equal(result.extracted.year, 2020);
+  assert.equal(result.extracted.make, 'Jeep');
+  assert.equal(result.extracted.model, 'Wrangler Unlimited');
+  assert.ok(result.confidence.competitorOffer > 0);
+});
+
+test('parseOfferDocument gracefully returns an empty partial result for an unrecognized image', () => {
+  const noise = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x00, 0x01]);
+  const result = parseOfferDocument({ documentBase64: noise.toString('base64'), mimeType: 'image/jpeg' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.extracted.isEstimate, undefined);
+  assert.deepEqual(result.extracted, {});
+});
+
+test('parseOfferDocument still runs the regex fallback for an image-labeled payload that happens to decode to legible offer text', () => {
+  const text = 'CARMAX WRITTEN OFFER\nVIN: 1HGCM82633A004352\n7-Day Offer Amount: $15,250';
+  const result = parseOfferDocument({ documentBase64: Buffer.from(text, 'utf8').toString('base64'), mimeType: 'image/png' });
+
+  assert.equal(result.extracted.vin, '1HGCM82633A004352');
+  assert.equal(result.extracted.competitorOffer, 15250);
 });

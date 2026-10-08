@@ -64,7 +64,7 @@ export function createApp({ startedAt = Date.now(), staticRoot = REPO_ROOT } = {
     if (!body || typeof body.documentBase64 !== 'string') {
       return c.json({ success: false, extracted: {}, confidence: {} }, 400);
     }
-    return c.json(parseOfferDocument(body));
+    return c.json(parseOfferDocument({ documentBase64: body.documentBase64, mimeType: body.mimeType }));
   });
 
   // Catch-all static fallback for the PWA shell (index.html, manifest, src/, public/, vendor/).

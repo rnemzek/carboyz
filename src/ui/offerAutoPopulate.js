@@ -52,5 +52,6 @@ export function mapExtractedOfferToFormValues(extracted = {}) {
     competitorOfferAmount: extracted.competitorOffer ?? null,
     competitor: matched,
     competitorDealerName: matched ? null : rawName || null,
+    isEstimate: Boolean(extracted.isEstimate),
   };
 }

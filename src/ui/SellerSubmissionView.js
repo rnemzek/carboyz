@@ -121,10 +121,12 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     class: 'input--large sell-form__vin-input',
   });
   const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
+  const vinHelperEl = h('p', { class: 'sell-form__vin-helper', role: 'status', 'aria-live': 'polite', hidden: '' });
   const vinScannerModal = renderVinScannerModal({
     onVinConfirmed: (vin) => {
       controller.hapticsService?.vibrate?.();
       vinInput.value = vin;
+      vinHelperEl.hidden = true;
       const year = decodeModelYear(vin);
       if (year) yearInput.value = year;
       const make = decodeWmiMake(vin);
@@ -132,6 +134,13 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     },
   });
   scanVinBtn.addEventListener('click', () => vinScannerModal.open());
+  // Once the seller supplies a VIN themselves (typed, pasted, or scanned), the earlier
+  // "Estimate detected" guidance has served its purpose.
+  vinInput.addEventListener('input', () => {
+    if (vinInput.value.trim()) {
+      vinHelperEl.hidden = true;
+    }
+  });
   const yearInput = h('input', {
     name: 'year',
     type: 'number',
@@ -222,6 +231,18 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       dealerNameInput.value = values.competitorDealerName;
       dealerNameRow.hidden = false;
       dealerNameInput.required = true;
+    }
+
+    // Competitor "Estimate" screens (e.g. Carvana's instant online quote) deliberately omit the
+    // VIN to avoid lead spam, so this is the expected shape for an image-sourced parse, not a
+    // failure — guide the seller straight to supplying the one field the estimate couldn't have.
+    if (values.isEstimate && !values.vin) {
+      vinHelperEl.textContent = 'Estimate detected! Enter VIN or scan barcode to beat their offer.';
+      vinHelperEl.hidden = false;
+      vinInput.focus();
+    } else {
+      vinHelperEl.hidden = true;
+      vinHelperEl.textContent = '';
     }
   }
 
@@ -317,6 +338,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     h('div', { class: 'form__row' }, [
       h('label', { text: 'VIN' }),
       h('div', { class: 'vin-input-row' }, [vinInput, scanVinBtn]),
+      vinHelperEl,
     ]),
     h('div', { class: 'form__row--split sell-form__vehicle-grid' }, [
       h('div', { class: 'form__row' }, [h('label', { text: 'Year' }), yearInput]),

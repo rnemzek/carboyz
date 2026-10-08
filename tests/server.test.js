@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createApp, resolveTenantId, startServer } from '../src/server/index.js';
 import { createWsRelay } from '../src/server/wsRelay.js';
+
+const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'fixtures', 'offers');
 
 async function withTempStaticRoot(files, run) {
   const root = mkdtempSync(join(tmpdir(), 'carboyz-static-'));
@@ -190,6 +193,28 @@ test('POST /api/offers/parse falls back gracefully for a malformed document with
   assert.equal(res.status, 200);
   assert.equal(body.success, true);
   assert.deepEqual(body.extracted, {});
+});
+
+test('POST /api/offers/parse extracts a partial, VIN-less estimate from a competitor "Estimate" screenshot image', async () => {
+  const app = createApp();
+  const documentBase64 = readFileSync(join(FIXTURES_DIR, 'carvana-estimated-offer-screenshot.jpeg')).toString('base64');
+
+  const res = await app.request('/api/offers/parse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documentBase64, mimeType: 'image/jpeg' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.extracted.vin, undefined);
+  assert.equal(body.extracted.isEstimate, true);
+  assert.equal(body.extracted.competitorName, 'Carvana');
+  assert.equal(body.extracted.competitorOffer, 13100);
+  assert.equal(body.extracted.year, 2020);
+  assert.equal(body.extracted.make, 'Jeep');
+  assert.equal(body.extracted.model, 'Wrangler Unlimited');
 });
 
 test('POST /api/offers/parse rejects a request missing documentBase64 without crashing the server', async () => {

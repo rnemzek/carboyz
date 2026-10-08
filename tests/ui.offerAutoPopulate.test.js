@@ -101,7 +101,7 @@ test('mapExtractedOfferToFormValues falls back to competitorDealerName for an un
   assert.equal(values.competitorDealerName, 'HENDRICK AUTOMOTIVE GROUP - APPRAISAL OFFER');
 });
 
-test('mapExtractedOfferToFormValues defaults every field to null when extracted is empty', () => {
+test('mapExtractedOfferToFormValues defaults every field to null (isEstimate to false) when extracted is empty', () => {
   const values = mapExtractedOfferToFormValues({});
   assert.deepEqual(values, {
     vin: null,
@@ -112,7 +112,27 @@ test('mapExtractedOfferToFormValues defaults every field to null when extracted 
     competitorOfferAmount: null,
     competitor: null,
     competitorDealerName: null,
+    isEstimate: false,
   });
+});
+
+test('mapExtractedOfferToFormValues passes through a VIN-less competitor estimate without clearing other fields', () => {
+  const values = mapExtractedOfferToFormValues({
+    competitorName: 'Carvana',
+    competitorOffer: 13100,
+    year: 2020,
+    make: 'Jeep',
+    model: 'Wrangler Unlimited',
+    isEstimate: true,
+  });
+
+  assert.equal(values.vin, null);
+  assert.equal(values.isEstimate, true);
+  assert.equal(values.year, 2020);
+  assert.equal(values.make, 'Jeep');
+  assert.equal(values.model, 'Wrangler Unlimited');
+  assert.equal(values.competitor, 'Carvana');
+  assert.equal(values.competitorOfferAmount, 13100);
 });
 
 test('mapExtractedOfferToFormValues defaults safely when called with no argument', () => {

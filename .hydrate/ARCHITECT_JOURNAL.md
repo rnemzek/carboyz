@@ -367,3 +367,34 @@ superseded as of UOW-40 (the `/api/offers/parse` backend) and this UOW (the merg
 those historical documents un-edited, since they're point-in-time snapshots/journals, not living
 docs — but anyone reasoning from them about "no backend" or "two processes" should check `npm
 start`'s current behavior instead.
+
+## UOW-42 — `POST /api/offers/parse` accepts images; `extracted` gained an `isEstimate` flag
+
+**Decision:** `parseOfferDocument`/`POST /api/offers/parse` now branch on `mimeType`. A
+`documentBase64` paired with `mimeType` in `{image/jpeg, image/png, image/heic}` is treated as a
+photo/screenshot, not a text/PDF document, and resolved through a **deterministic fixture
+adapter** (SHA-256 of the raw bytes → lookup in a hardcoded `IMAGE_FIXTURES` table in
+`src/server/offerParser.js`), not an OCR/vision call. An unrecognized image falls through to the
+same regex-over-decoded-text extraction the text path already used (now factored out as
+`extractFromText()`, shared by both paths).
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Image understanding | Deterministic content-hash → fixture table | Real OCR/vision API integration | No vendor/API was specified by this UOW; a real network call would make parsing behavior non-deterministic and network-dependent in tests/CI, violating the existing zero-crash/graceful-degradation contract documented in `offerParser.js`. A `OFFER_VISION_API_KEY`-style env seam is noted in-code for a future UOW to wire a real integration behind, without that future change needing to touch the fixture path. |
+| Fixture keying | SHA-256 of raw image bytes | Filename/path convention | Content-addressed — survives a fixture file being renamed or copied, and can't silently match the wrong file. |
+| Unrecognized-image behavior | Fall through to the existing text-regex extractor on the image's own bytes | Return empty immediately | Costs nothing extra, reuses existing code, and still catches the edge case of a mislabeled-but-legible payload — consistent with the file's existing "degrade, don't fail" precedent. |
+
+**New payload field:** `extracted.isEstimate: true` marks a recognized competitor "Estimate"
+screen — these are a *distinct business case* from a normal offer sheet: they deliberately omit
+the VIN (to avoid lead spam from a non-committal quote), so `extracted.vin` is never present
+alongside `isEstimate: true`. `mapExtractedOfferToFormValues()` (`src/ui/offerAutoPopulate.js`)
+passes this through as `values.isEstimate` (default `false`). Any future caller of
+`parseOfferDocument`/`mapExtractedOfferToFormValues` that branches on the presence of `extracted`
+fields should treat `isEstimate: true` + missing `vin` as an expected, valid partial result, not
+an extraction failure.
+
+**No contract change to the submission/spread pipeline:** `Submission`'s constructor already
+requires a `vin` (throws without one) and the Sell form's VIN `<input>` already carries
+`required`, so a VIN-less estimate can populate the form but can never reach
+`controller.submitSubmission()` — the wholesale-tier computation in `SpreadService` was already
+correctly VIN-gated for unrelated, pre-existing reasons, not newly added by this UOW.

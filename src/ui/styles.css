@@ -290,6 +290,13 @@ body {
   right: 10px;
 }
 
+.sell-form__vin-helper {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-fair);
+}
+
 .button--large {
   min-height: 48px;
   font-size: 1.05rem;

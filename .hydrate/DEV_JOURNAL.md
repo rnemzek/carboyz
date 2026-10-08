@@ -826,3 +826,76 @@ re-screenshotted to confirm the label now sits flush against the input.
   and the Year/Make/Model/Trim grid collapsing to 2×2 on the phone width and a single row on
   desktop. Also screenshotted the Admin tab (`SpreadConfigView`) to confirm its tier-row grid is
   pixel-unaffected by the new scoped rules.
+
+## [UOW-42] Support Image Ingestion & Partial Estimate Offers — 2026-10-08
+
+**Objective:** let a seller drop a screenshot of a competitor "Estimate" screen (e.g. Carvana's
+instant online quote) — these deliberately omit the VIN to avoid lead spam — and have the Sell
+form partially auto-populate (Year/Make/Model/Competitor/Offer) without clearing other fields or
+erroring, plus surface an inline nudge toward supplying the VIN manually.
+
+**Server (`src/server/offerParser.js`):**
+- `parseOfferDocument({ documentBase64, mimeType })` now routes on `mimeType`: `image/jpeg`,
+  `image/png`, and `image/heic` (`IMAGE_MIME_TYPES`) go through a new `extractFromImage()` path;
+  everything else keeps the existing text/regex path, now factored out as `extractFromText()` so
+  both paths share one implementation (`parseOfferDocument` no longer duplicates the extraction
+  body — behavior for existing non-image callers is byte-for-byte unchanged, confirmed by the
+  full pre-existing `offerParser.test.js` suite passing unmodified).
+- `extractFromImage()` is a deterministic **fixture adapter**, not OCR: it SHA-256-hashes the raw
+  image bytes and looks the hash up in `IMAGE_FIXTURES`, a small hardcoded table of known test/demo
+  screenshots (currently just the Carvana Wrangler Unlimited estimate in
+  `public/fixtures/offers/carvana-estimated-offer-screenshot.jpeg`, added this UOW). A match
+  returns `{ competitorName, competitorOffer, year, make, model, isEstimate: true }` — no `vin`
+  key at all (same "only present when found" convention as the text path). No match falls through
+  to `extractFromText()` on the image's own bytes-as-UTF-8, so a mislabeled-but-legible payload
+  (or a real photo containing a readable VIN/offer string) still gets a best-effort regex
+  extraction instead of an automatic empty result — same zero-dependency precedent as the text
+  path (no OCR/vision library wired in). This satisfies the UOW's "zero-crash extraction adapter
+  ... deterministic regex/OCR fallback or fixture adapter" requirement without adding an external
+  dependency or a speculative/unimplemented vision-API call behind an env flag that does nothing
+  yet — a real vision-API integration is left as a clearly-commented future seam, not built now.
+- `src/server/index.js`'s `/api/offers/parse` handler now forwards `body.mimeType` into
+  `parseOfferDocument` (the UI already sent it; the parser was just ignoring it before).
+
+**UI (`src/ui/offerAutoPopulate.js`, `src/ui/SellerSubmissionView.js`):**
+- `mapExtractedOfferToFormValues()` gained an `isEstimate` field (`Boolean(extracted.isEstimate)`,
+  defaults to `false`) alongside the existing vin/year/make/model/mileage/offer/competitor fields.
+- `applyExtractedOffer()` in `SellerSubmissionView.js` required **no changes** to its "don't clear
+  other fields" behavior — it already guarded every field write with `if (values.x) ...`/`!= null`
+  checks, so a null/undefined `vin` was already a safe no-op. What it gained: a new
+  `vinHelperEl` (`<p class="sell-form__vin-helper" role="status" aria-live="polite">`) rendered
+  directly under the VIN input row. When `values.isEstimate && !values.vin`, it's shown with
+  "Estimate detected! Enter VIN or scan barcode to beat their offer." and `vinInput.focus()` is
+  called; otherwise it's hidden/cleared. The helper also auto-hides the moment the seller supplies
+  a VIN themselves — on the VIN input's `input` event, in the barcode-scanner's `onVinConfirmed`
+  callback, and (for free) via the existing `applyVehicle()`/test-bed-preset path, since that
+  already dispatches a synthetic `input` event through `setInputValue()`.
+- `src/ui/styles.css`: one new rule, `.sell-form__vin-helper` (amber `--color-fair`, matches the
+  existing warning-tier color already used elsewhere for "needs attention" states).
+
+**Downstream safety (SpreadService / submission flow):** no code change was needed here —
+`Submission`'s constructor (`src/models/Submission.js`) already throws without a `vin`, and the
+VIN `<input>` already carries `required`, so a seller can't reach `controller.submitSubmission()`
+with a partial estimate's null VIN; the wholesale-tier computation was already correctly gated
+behind requiring a real VIN before this UOW, for unrelated pre-existing reasons.
+
+**Testing:**
+- `tests/offerParser.test.js`: new tests cover the recognized-fixture image (full field
+  assertions against the real Carvana JPEG fixture, `vin` absent, `isEstimate: true`), an
+  unrecognized image (random JPEG-header bytes → empty `extracted`, `success: true`), and the
+  regex-fallback path for an image-labeled payload that happens to decode to legible offer text.
+- `tests/server.test.js`: new integration test posts the real fixture JPEG as base64 to
+  `POST /api/offers/parse` with `mimeType: 'image/jpeg'` and asserts the full partial-estimate
+  response shape.
+- `tests/ui.offerAutoPopulate.test.js`: updated the "defaults to null" test to include
+  `isEstimate: false`, and added a test asserting `mapExtractedOfferToFormValues` passes through a
+  VIN-less estimate's fields (including `isEstimate: true`) without fabricating a VIN.
+- Live Playwright verification (ad hoc scratchpad script, 390×844 viewport): dropped the real
+  fixture JPEG into the Sell form's file input, confirmed Year/Make/Model/Competitor/Offer Amount
+  populate, VIN stays empty, the amber helper text renders with the exact copy, and the VIN input
+  receives focus (`document.activeElement === vinInput`) — screenshotted for visual confirmation.
+  Also re-verified a normal VIN-bearing text document via `curl` to confirm the non-image path is
+  unaffected.
+- `npm test` → 630/630 passing (5 new tests added on top of the prior 625; the single pre-existing
+  1ms-timestamp flake in `ui.testHarnessView.test.js` — unrelated to this UOW, present before any
+  change here — did not reproduce on this run).
