@@ -10,6 +10,7 @@ import {
   DISPATCH_OUTCOMES,
   formatCounterOfferMessage,
   buildApprovalNotification,
+  computePriceTierBucket,
 } from '../src/services/DispatchService.js';
 
 function baseSubmission(overrides = {}) {
@@ -145,6 +146,44 @@ test('dispatch: auto path marks AUTO_COUNTER_SENT and returns a formatted messag
   assert.equal(submissionService.getSubmissions()[0].status, 'AUTO_COUNTER_SENT');
   assert.match(result.message, /Car Offer Beaters/);
   assert.match(result.message, /2021 Honda Civic/);
+});
+
+test('computePriceTierBucket buckets a competitor amount into the four fixed dealer-reporting brackets', () => {
+  assert.equal(computePriceTierBucket(0), '<10k');
+  assert.equal(computePriceTierBucket(9999), '<10k');
+  assert.equal(computePriceTierBucket(10000), '10k-20k');
+  assert.equal(computePriceTierBucket(19999), '10k-20k');
+  assert.equal(computePriceTierBucket(20000), '20k-30k');
+  assert.equal(computePriceTierBucket(29999), '20k-30k');
+  assert.equal(computePriceTierBucket(30000), '30k+');
+  assert.equal(computePriceTierBucket(100000), '30k+');
+});
+
+test('dispatch: auto path persists isAutoApproved: true, priceTierBucket, and projectedMargin mirroring expectedMargin', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 20000 });
+  const submission = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const { submission: updated } = dispatchService.dispatch(submission);
+
+  assert.equal(updated.isAutoApproved, true);
+  assert.equal(updated.priceTierBucket, '10k-20k');
+  assert.equal(updated.projectedMargin, updated.expectedMargin);
+  assert.notEqual(updated.projectedMargin, null);
+});
+
+test('dispatch: manual path persists isAutoApproved: false, priceTierBucket, and projectedMargin mirroring expectedMargin', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 40000 });
+  const submission = submissionService.submit(baseSubmission({ competitorOfferAmount: 32000 }));
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const { submission: updated } = dispatchService.dispatch(submission);
+
+  assert.equal(updated.isAutoApproved, false);
+  assert.equal(updated.priceTierBucket, '30k+');
+  assert.equal(updated.projectedMargin, updated.expectedMargin);
 });
 
 test('dispatch: auto path pins the spreadConfigService active policyVersionId onto the submission', () => {

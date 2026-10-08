@@ -65,6 +65,7 @@ export class LeadInboxController {
         competitorLabel: competitorLabel(submission),
         competitorOfferAmount: submission.competitorOfferAmount,
         offerDocument: submission.offerDocument,
+        offerSourceType: submission.offerSourceType,
         status: submission.status,
         spreadResult,
         counterMessage: formatCounterOfferMessage({
@@ -107,7 +108,9 @@ export class LeadInboxController {
       winLossStatus: 'MANUAL_APPROVED',
       finalCounterOffer: counterOfferAmount,
       expectedMargin,
+      projectedMargin: expectedMargin,
       approvalType: 'HUMAN_APPROVED',
+      isAutoApproved: false,
       timeToCounterMs,
     });
     const message = formatCounterOfferMessage({ submission, recommendedCounterOffer: counterOfferAmount });

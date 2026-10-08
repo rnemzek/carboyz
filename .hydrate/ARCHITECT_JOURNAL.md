@@ -398,3 +398,37 @@ requires a `vin` (throws without one) and the Sell form's VIN `<input>` already 
 `required`, so a VIN-less estimate can populate the form but can never reach
 `controller.submitSubmission()` — the wholesale-tier computation in `SpreadService` was already
 correctly VIN-gated for unrelated, pre-existing reasons, not newly added by this UOW.
+
+## UOW-43 — `Submission` schema gains offer provenance + dealer-reporting analytics fields
+
+**Decision:** `Submission` (`src/models/Submission.js`) gained four new fields:
+`offerSourceType` (`'ESTIMATE' | 'FIRM_OFFER'`, defaults to `'FIRM_OFFER'`), `isAutoApproved`
+(boolean|null), `priceTierBucket` (string|null), `projectedMargin` (number|null). All four are
+computed and persisted by `DispatchService.dispatch()` (and, for the human-approval path,
+`LeadInboxController.approveAndSend()`), never by the client at intake time except
+`offerSourceType` itself, which `SellerSubmissionView.js` sets before `submitSubmission()`.
+
+**Where `offerSourceType` is decided — and a correction worth flagging for any future consumer:**
+it reflects the *competitor offer's own provenance* (parsed from a VIN-less UOW-42 "Estimate"
+screenshot vs. a firm written offer or manual entry), not whether the submission's `vin` field is
+populated. `vin` is `required` on the Sell form regardless, so every submitted lead has one either
+way — `offerSourceType` is the only signal that distinguishes "we have a VIN AND a firm competitor
+number" from "we have a VIN but the competitor number is just their online estimate." Any future
+code reading `submission.vin` presence as a proxy for "firm offer" would be wrong; always read
+`offerSourceType` directly.
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| `projectedMargin` vs. reusing `expectedMargin` | New field, same formula, written everywhere `expectedMargin` is written | Rename/repurpose `expectedMargin` | UOW-43's Lead Record Schema names `projectedMargin` explicitly; `expectedMargin` already has three live `AnalyticsService.js` consumers (`computeMarginTotals`, `computeCompetitorMatrix`, `computeTimeSeries`) plus its own tests. Renaming was out of this UOW's surgical scope — accepted the literal duplication (documented in both `Submission.js` and `DispatchService.js`) over a broader refactor. |
+| `priceTierBucket` boundaries | New, separate fixed scale in `DispatchService.js` (`<10k`/`10k-20k`/`20k-30k`/`30k+`) | Reuse `AnalyticsService.js`'s existing `PRICE_TIERS` (`$0–$15k`/`$15k–$30k`/`$30k+`) | UOW-43 specified different literal boundaries for a different purpose (a bucket persisted once per lead for dealer reporting) than `AnalyticsService`'s tiers (a live analytics-dashboard filter, independently configurable in spirit even though currently a fixed array). Two distinct, independently-evolvable concepts that happen to both be called "price tier" — a future consolidation would be a deliberate architectural call, not something to default into silently. |
+| `isAutoApproved` semantics | `true` only on `DispatchService`'s auto-dispatch branch; `false` everywhere else (manual/pending dispatch, and `LeadInboxController.approveAndSend()`) | Derive from `spreadResult.matchedTier?.autoApprove` (the policy-tier flag) | The UOW's own description — "whether the counter was automatically calculated **vs rep-adjusted**" — is about whether a human touched the *final* number before it went out, which is exactly what `approvalType` (`AUTO_DISPATCH` vs `HUMAN_APPROVED`) already encodes; the tier's `autoApprove` flag only means "eligible for auto-dispatch," which can still land on the manual path if the deal doesn't also score GREENLIGHT (see `DispatchService.evaluate()`). `isAutoApproved` is written as a mirror of `approvalType === 'AUTO_DISPATCH'`, explicitly at every write site rather than derived, so the invariant is visible in each call rather than implicit. |
+
+**Lead Inbox / appraisal sheet consumers:** `LeadInboxController.buildLeadViewModels()` now
+passes `offerSourceType` through to the view model; `LeadInboxView.js` exports a pure
+`offerSourceBadge(offerSourceType)` lookup (`ESTIMATE` → amber, `FIRM_OFFER` → green) rendered as
+a third badge on each lead card. `appraisalPdfGenerator.js`'s `buildAppraisalPayload()` picks the
+SVG appraisal sheet's subtitle text from `submission.offerSourceType` (conditional-on-inspection
+wording for `ESTIMATE`, guaranteed wording for `FIRM_OFFER`/unset). Any new lead-card badge or
+generated-document consumer added later should read `offerSourceType` the same way rather than
+re-deriving provenance from other fields (e.g. `competitorName`, `vin` presence) that don't
+actually encode it.

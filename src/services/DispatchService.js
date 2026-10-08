@@ -32,6 +32,20 @@ export function formatCounterOfferMessage({ submission, recommendedCounterOffer,
   );
 }
 
+const PRICE_TIER_BUCKETS = [
+  { max: 10000, label: '<10k' },
+  { max: 20000, label: '10k-20k' },
+  { max: 30000, label: '20k-30k' },
+  { max: Infinity, label: '30k+' },
+];
+
+/** Dealer-reporting price bucket for a competitor offer amount — a coarser, fixed-boundary
+ * grouping than SpreadConfigService's configurable tiers, used only for lead-record analytics. */
+export function computePriceTierBucket(competitorAmount) {
+  const bucket = PRICE_TIER_BUCKETS.find((tier) => competitorAmount < tier.max);
+  return (bucket ?? PRICE_TIER_BUCKETS[PRICE_TIER_BUCKETS.length - 1]).label;
+}
+
 export function formatPriceBracket(tier) {
   if (!tier) {
     return null;
@@ -107,6 +121,7 @@ export class DispatchService {
         ? null
         : spreadResult.estimatedWholesaleValue - calculatedCounterOffer;
     const priceBracket = formatPriceBracket(spreadResult.matchedTier);
+    const priceTierBucket = computePriceTierBucket(submission.competitorOfferAmount);
     const initialCompetitorOffer = submission.initialCompetitorOffer ?? submission.competitorOfferAmount;
 
     if (shouldAutoDispatch) {
@@ -119,8 +134,11 @@ export class DispatchService {
         calculatedCounterOffer,
         finalCounterOffer: calculatedCounterOffer,
         expectedMargin,
+        projectedMargin: expectedMargin,
         priceBracket,
+        priceTierBucket,
         approvalType: 'AUTO_DISPATCH',
+        isAutoApproved: true,
         timeToCounterMs,
         policyVersionId: spreadResult.policyVersionId,
       });
@@ -140,7 +158,10 @@ export class DispatchService {
       calculatedCounterOffer,
       finalCounterOffer: calculatedCounterOffer,
       expectedMargin,
+      projectedMargin: expectedMargin,
       priceBracket,
+      priceTierBucket,
+      isAutoApproved: false,
       policyVersionId: spreadResult.policyVersionId,
     });
     const notification = buildApprovalNotification({

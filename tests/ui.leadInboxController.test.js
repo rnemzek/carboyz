@@ -52,6 +52,17 @@ test('buildLeadViewModels resolves fair market value from matching inventory com
   assert.equal(lead.spreadResult.recommendedCounterOffer, 15300);
 });
 
+test('buildLeadViewModels surfaces the submission offerSourceType, defaulting to FIRM_OFFER', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  submissionService.submit(baseSubmission());
+  submissionService.submit(baseSubmission({ offerSourceType: 'ESTIMATE' }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const [firm, estimate] = controller.buildLeadViewModels();
+  assert.equal(firm.offerSourceType, 'FIRM_OFFER');
+  assert.equal(estimate.offerSourceType, 'ESTIMATE');
+});
+
 test('buildLeadViewModels labels an Other competitor with the dealer name', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   submissionService.submit(
@@ -106,6 +117,20 @@ test('approveAndSend marks the submission AUTO_COUNTER_SENT and formats the mess
 
   const [lead] = controller.buildLeadViewModels();
   assert.equal(lead.status, 'AUTO_COUNTER_SENT');
+});
+
+test('approveAndSend marks isAutoApproved: false (rep-adjusted, not auto-calculated) and mirrors projectedMargin to expectedMargin', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const { submission } = controller.approveAndSend(created.id, 16000);
+
+  assert.equal(submission.isAutoApproved, false);
+  assert.equal(submission.approvalType, 'HUMAN_APPROVED');
+  assert.equal(submission.projectedMargin, submission.expectedMargin);
+  assert.notEqual(submission.projectedMargin, null);
 });
 
 test('approveAndSend resolves the session stash with the override amount when a sessionStashService is configured', () => {

@@ -116,6 +116,25 @@ test('buildAppraisalPayload includes mile-allowance and expiration disclaimers',
   assert.match(payload.disclaimers[2], /Acme Motors inspection/);
 });
 
+test('buildAppraisalPayload labels a FIRM_OFFER (and the default, unset) counter as guaranteed', () => {
+  const defaulted = buildAppraisalPayload({ submission: baseSubmission(), tenantConfig: createTenantConfig() });
+  assert.equal(defaulted.title, 'Guaranteed Competitor Beat Offer');
+
+  const explicit = buildAppraisalPayload({
+    submission: baseSubmission({ offerSourceType: 'FIRM_OFFER' }),
+    tenantConfig: createTenantConfig(),
+  });
+  assert.equal(explicit.title, 'Guaranteed Competitor Beat Offer');
+});
+
+test('buildAppraisalPayload labels an ESTIMATE-sourced counter as conditional on inspection/VIN verification', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission({ offerSourceType: 'ESTIMATE' }),
+    tenantConfig: createTenantConfig(),
+  });
+  assert.equal(payload.title, 'Conditional Counter-Offer (Pending Vehicle Inspection & VIN Verification)');
+});
+
 test('buildAppraisalPayload falls back to primary theme color when accent is unset', () => {
   const payload = buildAppraisalPayload({
     submission: baseSubmission(),
@@ -152,6 +171,15 @@ test('renderAppraisalSvg includes tenant, vehicle, competitor, and QR content', 
   assert.match(svg, /Scan to verify this offer/);
   // renderQrSvg's nested output carries this marker
   assert.match(svg, /role="img"/);
+});
+
+test('renderAppraisalSvg embeds the conditional-counter label for an ESTIMATE-sourced submission', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission({ offerSourceType: 'ESTIMATE' }),
+    tenantConfig: createTenantConfig({ name: 'Acme Motors' }),
+  });
+  const svg = renderAppraisalSvg(payload);
+  assert.match(svg, /Conditional Counter-Offer \(Pending Vehicle Inspection &amp; VIN Verification\)/);
 });
 
 test('renderAppraisalSvg escapes XML-significant characters in free text', () => {

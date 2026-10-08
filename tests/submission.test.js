@@ -86,3 +86,31 @@ test('Submission defaults policyVersionId to null when omitted and rejects a non
   const withVersion = new Submission(baseData({ policyVersionId: 'v1.1.0' }));
   assert.equal(withVersion.policyVersionId, 'v1.1.0');
 });
+
+test('Submission defaults offerSourceType to FIRM_OFFER and rejects a value outside the enum', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.offerSourceType, 'FIRM_OFFER');
+
+  assert.throws(() => new Submission(baseData({ offerSourceType: 'GUESS' })), /offerSourceType/);
+
+  const estimate = new Submission(baseData({ offerSourceType: 'ESTIMATE' }));
+  assert.equal(estimate.offerSourceType, 'ESTIMATE');
+});
+
+test('Submission defaults isAutoApproved, priceTierBucket, and projectedMargin to null and validates their types', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.isAutoApproved, null);
+  assert.equal(submission.priceTierBucket, null);
+  assert.equal(submission.projectedMargin, null);
+
+  assert.throws(() => new Submission(baseData({ isAutoApproved: 'yes' })), /isAutoApproved/);
+  assert.throws(() => new Submission(baseData({ priceTierBucket: 42 })), /priceTierBucket/);
+  assert.throws(() => new Submission(baseData({ projectedMargin: 'lots' })), /projectedMargin/);
+
+  const withFields = new Submission(
+    baseData({ isAutoApproved: true, priceTierBucket: '10k-20k', projectedMargin: -150 }),
+  );
+  assert.equal(withFields.isAutoApproved, true);
+  assert.equal(withFields.priceTierBucket, '10k-20k');
+  assert.equal(withFields.projectedMargin, -150);
+});

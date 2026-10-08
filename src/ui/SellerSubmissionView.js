@@ -113,6 +113,14 @@ function readPairingSessionIdFromLocation() {
 export function renderSellerSubmissionView(controller, { sessionStashService = null, prefill = null, tenantConfig = null } = {}) {
   controller.bindPairingSession?.(readPairingSessionIdFromLocation());
 
+  // Provenance of the *competitor's offer* currently populating the form — ESTIMATE (parsed from
+  // a VIN-less "Estimate" screenshot) vs FIRM_OFFER (manual entry, or parsed from a real written
+  // offer document). This tracks where the competitor number came from, not whether the VIN field
+  // is filled in: the VIN is always required to submit, but the seller supplying it themselves
+  // doesn't retroactively make Carvana's (or similar) estimate a firm offer, so only
+  // applyExtractedOffer() below ever changes this. See Submission.OFFER_SOURCE_TYPES.
+  let offerSourceType = 'FIRM_OFFER';
+
   const vinInput = h('input', {
     name: 'vin',
     placeholder: 'VIN',
@@ -135,7 +143,8 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   });
   scanVinBtn.addEventListener('click', () => vinScannerModal.open());
   // Once the seller supplies a VIN themselves (typed, pasted, or scanned), the earlier
-  // "Estimate detected" guidance has served its purpose.
+  // "Estimate detected" guidance has served its purpose — but offerSourceType stays ESTIMATE,
+  // since the competitor's own number is still just their estimate, not a firm written offer.
   vinInput.addEventListener('input', () => {
     if (vinInput.value.trim()) {
       vinHelperEl.hidden = true;
@@ -239,10 +248,12 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     if (values.isEstimate && !values.vin) {
       vinHelperEl.textContent = 'Estimate detected! Enter VIN or scan barcode to beat their offer.';
       vinHelperEl.hidden = false;
+      offerSourceType = 'ESTIMATE';
       vinInput.focus();
     } else {
       vinHelperEl.hidden = true;
       vinHelperEl.textContent = '';
+      offerSourceType = 'FIRM_OFFER';
     }
   }
 
@@ -380,12 +391,16 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
         competitorDealerName: data.get('competitorDealerName') || null,
         competitorOfferAmount: Number(data.get('competitorOfferAmount')),
         offerDocument,
+        offerSourceType,
       });
 
       form.reset();
       dealerNameRow.hidden = true;
       dropzoneLabel.textContent = 'Tap to take a photo or drop a PDF';
       pendingOfferDocumentBase64 = null;
+      offerSourceType = 'FIRM_OFFER';
+      vinHelperEl.hidden = true;
+      vinHelperEl.textContent = '';
       statusEl.textContent = "Submitted! We'll let you know if we can beat that offer.";
       statusEl.classList.remove('form__status--error');
 

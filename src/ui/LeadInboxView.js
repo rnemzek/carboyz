@@ -27,9 +27,20 @@ const DISPATCH_BADGES = {
   AUTO_COUNTER_SENT: { label: 'Auto-Countered', className: 'badge badge--auto-countered' },
 };
 
+// ESTIMATE: the competitor offer came from a VIN-less "Estimate" screen (Submission.OFFER_SOURCE_TYPES).
+const OFFER_SOURCE_BADGES = {
+  ESTIMATE: { label: '[ESTIMATE COUNTER]', className: 'badge badge--estimate-counter' },
+  FIRM_OFFER: { label: '[FIRM COUNTER]', className: 'badge badge--firm-counter' },
+};
+
 function spreadBadge(status) {
   const className = `badge badge--${status.toLowerCase().replace('_', '-')}`;
   return { label: BADGE_LABELS[status] ?? BADGE_LABELS.NO_DATA, className };
+}
+
+/** Exported for direct unit testing (no DOM dependency) — mirrors spreadBadge()'s pure lookup shape. */
+export function offerSourceBadge(offerSourceType) {
+  return OFFER_SOURCE_BADGES[offerSourceType] ?? null;
 }
 
 function renderDocumentModal() {
@@ -68,11 +79,13 @@ function renderDocumentModal() {
 function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter, onDownloadAppraisal }) {
   const badge = spreadBadge(lead.spreadResult.status);
   const dispatchBadge = DISPATCH_BADGES[lead.status];
+  const sourceBadge = offerSourceBadge(lead.offerSourceType);
 
   const top = h('div', { class: 'card__top' }, [
     h('h3', { class: 'card__title', text: lead.vehicleTitle }),
     h('span', { class: badge.className, text: badge.label }),
     dispatchBadge ? h('span', { class: dispatchBadge.className, text: dispatchBadge.label }) : null,
+    sourceBadge ? h('span', { class: sourceBadge.className, text: sourceBadge.label }) : null,
   ]);
 
   const meta = h('div', { class: 'card__meta' }, [

@@ -17,6 +17,11 @@ export const WIN_LOSS_STATUSES = [
   'DECLINED',
 ];
 export const APPROVAL_TYPES = ['AUTO_DISPATCH', 'HUMAN_APPROVED'];
+// 'ESTIMATE': the competitor offer came from a VIN-less "Estimate" screen (see offerParser.js's
+// isEstimate extraction) and hasn't been inspection/VIN-verified yet. 'FIRM_OFFER': a real,
+// VIN-bearing competitor offer document or a seller-confirmed VIN. Drives the appraisal sheet's
+// "Conditional" vs "Guaranteed" counter-offer label and the Lead Inbox provenance badge.
+export const OFFER_SOURCE_TYPES = ['ESTIMATE', 'FIRM_OFFER'];
 
 function validateOptionalNumber(value, fieldName, { allowNegative = false } = {}) {
   if (value === undefined || value === null) {
@@ -55,6 +60,10 @@ export class Submission {
     priceBracket,
     approvalType,
     policyVersionId,
+    offerSourceType = 'FIRM_OFFER',
+    isAutoApproved,
+    priceTierBucket,
+    projectedMargin,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -109,6 +118,16 @@ export class Submission {
     if (policyVersionId !== undefined && policyVersionId !== null && typeof policyVersionId !== 'string') {
       throw new Error('Submission policyVersionId must be a string');
     }
+    if (!OFFER_SOURCE_TYPES.includes(offerSourceType)) {
+      throw new Error(`Submission offerSourceType must be one of: ${OFFER_SOURCE_TYPES.join(', ')}`);
+    }
+    if (isAutoApproved !== undefined && isAutoApproved !== null && typeof isAutoApproved !== 'boolean') {
+      throw new Error('Submission isAutoApproved must be a boolean');
+    }
+    if (priceTierBucket !== undefined && priceTierBucket !== null && typeof priceTierBucket !== 'string') {
+      throw new Error('Submission priceTierBucket must be a string');
+    }
+    validateOptionalNumber(projectedMargin, 'projectedMargin', { allowNegative: true });
 
     this.id = id;
     this.timestamp = timestamp;
@@ -133,5 +152,9 @@ export class Submission {
     this.priceBracket = priceBracket ?? null;
     this.approvalType = approvalType ?? null;
     this.policyVersionId = policyVersionId ?? null;
+    this.offerSourceType = offerSourceType;
+    this.isAutoApproved = isAutoApproved ?? null;
+    this.priceTierBucket = priceTierBucket ?? null;
+    this.projectedMargin = projectedMargin ?? null;
   }
 }

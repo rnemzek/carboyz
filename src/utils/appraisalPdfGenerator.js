@@ -15,6 +15,13 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 const mileageFormatter = new Intl.NumberFormat('en-US');
 const dateFormatter = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' });
 
+// Mirrors Submission.OFFER_SOURCE_TYPES: an ESTIMATE-sourced counter (no VIN/firm offer yet
+// confirmed at intake) is conditional on inspection and VIN verification, not guaranteed.
+const OFFER_SOURCE_TITLES = {
+  ESTIMATE: 'Conditional Counter-Offer (Pending Vehicle Inspection & VIN Verification)',
+  FIRM_OFFER: 'Guaranteed Competitor Beat Offer',
+};
+
 function competitorName(submission) {
   if (submission.competitor === 'Other' && submission.competitorDealerName) {
     return submission.competitorDealerName;
@@ -81,7 +88,7 @@ export function buildAppraisalPayload({ submission, tenantConfig, verificationBa
       contactPhone: tenantConfig.contact?.phone || '',
       contactEmail: tenantConfig.contact?.email || '',
     },
-    title: 'Official Counter-Offer Appraisal',
+    title: OFFER_SOURCE_TITLES[submission.offerSourceType] ?? OFFER_SOURCE_TITLES.FIRM_OFFER,
     generatedAtLabel: dateFormatter.format(now),
     expiresAtLabel,
     vehicle: {

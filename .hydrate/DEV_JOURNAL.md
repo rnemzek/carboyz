@@ -899,3 +899,105 @@ behind requiring a real VIN before this UOW, for unrelated pre-existing reasons.
 - `npm test` → 630/630 passing (5 new tests added on top of the prior 625; the single pre-existing
   1ms-timestamp flake in `ui.testHarnessView.test.js` — unrelated to this UOW, present before any
   change here — did not reproduce on this run).
+
+## [UOW-43] Offer Provenance (Estimate vs Firm), Margin Analytics & Conditional Counters — 2026-10-08
+
+**Objective:** persist UOW-42's `isEstimate` signal through the lead lifecycle — intake,
+dispatch, Lead Inbox, and the generated appraisal sheet — so dealers can see at a glance whether a
+counter was built off a VIN-less competitor "Estimate" screen or a firm written offer, and get
+basic margin/price-tier analytics on each lead record.
+
+**Key design resolution — when does `offerSourceType` get set, and when does it change?**
+The UOW's literal wording ("if it has a confirmed VIN ... set offerSourceType = FIRM_OFFER") reads
+ambiguously as "flip to FIRM_OFFER whenever the VIN field gets filled in." That can't be what's
+meant: the VIN `<input>` is `required` on the Sell form, so every submission — estimate-sourced or
+not — has a VIN by the time it's submitted. If filling in the (required) VIN flipped the type,
+`offerSourceType: 'ESTIMATE'` could never actually reach a persisted lead, which would silently
+gut objectives 2 and 3. Resolved this as: `offerSourceType` tracks where the *competitor's offer
+number* came from (a VIN-less Estimate screenshot vs. a firm written offer document or manual
+entry), not whether the VIN field happens to be filled in — a seller supplying their own VIN
+doesn't retroactively make Carvana's estimate a firm offer. So only `applyExtractedOffer()` in
+`SellerSubmissionView.js` ever sets it (`ESTIMATE` when `extracted.isEstimate && !vin`, else
+`FIRM_OFFER`); the VIN scanner/manual-entry paths only clear the helper text, never touch
+`offerSourceType`. Caught this by walking through the live flow during verification (first
+implementation had the VIN-input listener flip it back to FIRM_OFFER, which was wrong) rather than
+by reasoning about it statically — worth remembering as a lesson for provenance-style fields that
+interact with required-field validation.
+
+**`src/models/Submission.js`:** added `OFFER_SOURCE_TYPES = ['ESTIMATE', 'FIRM_OFFER']` and four
+new constructor fields — `offerSourceType` (defaults to `'FIRM_OFFER'`, validated against the
+enum), `isAutoApproved` (boolean|null), `priceTierBucket` (string|null), `projectedMargin`
+(number|null, negative allowed, same `validateOptionalNumber` helper as `expectedMargin`).
+`projectedMargin` is intentionally a literal duplicate of the existing `expectedMargin` field
+(same formula: wholesale value − counter offer) — the UOW's Lead Record Schema names it
+explicitly, and renaming/removing `expectedMargin` would touch `AnalyticsService.js`'s
+`computeMarginTotals()`/`computeCompetitorMatrix()`/`computeTimeSeries()` and every test that
+reads it, which is out of this UOW's surgical scope. Documented the duplication in both files so a
+future reader isn't confused into thinking they diverge.
+
+**`src/services/DispatchService.js`:** added `computePriceTierBucket(competitorAmount)` — a fixed
+four-bucket scale (`<10k`, `10k-20k`, `20k-30k`, `30k+`) per the UOW's literal boundaries. This is
+deliberately a *separate* concept from `AnalyticsService.js`'s existing `PRICE_TIERS`/
+`priceTierForAmount()` (`$0–$15k`/`$15k–$30k`/`$30k+`, used for the Analytics dashboard's filter
+dropdown) — different boundaries, different purpose (coarse dealer-reporting bucket persisted once
+at dispatch time vs. a configurable analytics-time filter), kept intentionally un-unified rather
+than guessing the Lead Architect wants the two systems merged. `dispatch()` now also persists
+`isAutoApproved` (`true` on the auto-dispatch branch, `false` on the manual/pending branch — "was
+the sent counter accepted automatically or does it still need a rep's sign-off/possible
+adjustment") and `projectedMargin` (mirrors `expectedMargin`) in both branches.
+
+**`src/ui/LeadInboxController.js`:** `approveAndSend()` (the rep-adjusts-and-sends path) now also
+sets `isAutoApproved: false` (explicit, even though `dispatch()` already set it false on that
+submission — keeps the invariant `isAutoApproved === (approvalType === 'AUTO_DISPATCH')` true via
+explicit writes at every mutation site rather than relying on an unwritten field just carrying
+over) and `projectedMargin` alongside the existing `expectedMargin` write. `buildLeadViewModels()`
+now surfaces `offerSourceType` onto each lead view model.
+
+**`src/ui/LeadInboxView.js`:** added `OFFER_SOURCE_BADGES` (`ESTIMATE` → amber `[ESTIMATE
+COUNTER]`, `FIRM_OFFER` → green `[FIRM COUNTER]`, literal bracketed label text per the UOW) and
+exported `offerSourceBadge(offerSourceType)` as a pure lookup — same pattern as `pwaInstallPromptView.js`'s
+exported pure helpers, so it's directly unit-testable without jsdom (this repo has no DOM-testing
+dependency; Views stay in the "verify live in browser" tier, but pure badge/label *selection*
+logic extracted this way is fully unit-testable). `renderLeadCard()` renders a third badge in
+`.card__top` when `offerSourceBadge()` returns non-null.
+
+**`src/utils/appraisalPdfGenerator.js`:** `buildAppraisalPayload()`'s `title` field (rendered as
+the document subtitle under the dealer name/logo) is now `OFFER_SOURCE_TITLES[submission.offerSourceType]`
+— `'Conditional Counter-Offer (Pending Vehicle Inspection & VIN Verification)'` for `ESTIMATE`,
+`'Guaranteed Competitor Beat Offer'` for `FIRM_OFFER` (and the default when `offerSourceType` is
+absent, e.g. on fixtures/submissions predating this UOW). The root `<svg>`'s `aria-label` stays the
+static, generic `"Official Counter-Offer Appraisal"` — that's a document-type accessibility label,
+not the business-facing subtitle, so it intentionally doesn't vary.
+
+**CSS bug caught and fixed during live verification:** `.card__top` (`display: flex; justify-content:
+space-between`) had no `flex-wrap`, and `.card__title` already carried `min-width: 0; overflow-wrap:
+break-word` for exactly this reason. Adding a third badge narrowed the title's available flex-basis
+below single-word width at a 390px mobile viewport, so the vehicle title wrapped one character per
+line. Fixed with `flex-wrap: wrap` on `.card__top` (only two call sites in the whole codebase —
+this lead card and `App.js`'s single-child generic card tab panel — so safe with no scoping
+needed), re-verified via screenshot that the title renders normally and badges wrap to their own
+line when they don't fit.
+
+**Testing:**
+- `tests/submission.test.js`: `offerSourceType` default/enum validation; `isAutoApproved`/
+  `priceTierBucket`/`projectedMargin` default-to-null + type validation.
+- `tests/dispatchService.test.js`: `computePriceTierBucket()` boundary tests for all four buckets;
+  both dispatch branches assert `isAutoApproved`, `priceTierBucket`, and
+  `projectedMargin === expectedMargin`.
+- `tests/ui.leadInboxController.test.js`: `buildLeadViewModels()` surfaces `offerSourceType`
+  (default and `ESTIMATE`); `approveAndSend()` sets `isAutoApproved: false` and mirrors
+  `projectedMargin`.
+- `tests/ui.leadInboxView.test.js` (new file): `offerSourceBadge()` for `ESTIMATE`, `FIRM_OFFER`,
+  and an unrecognized/unset value (returns `null`, so a pre-UOW-43 lead renders no stray badge).
+- `tests/appraisalPdfGenerator.test.js`: conditional `payload.title` for both source types and the
+  unset default; `renderAppraisalSvg` embeds the (XML-escaped) conditional label text.
+- Live Playwright verification (ad hoc scratchpad scripts): dropped the real Carvana estimate
+  fixture into the Sell form, filled in the VIN/mileage/ZIP it can't supply, submitted, then
+  submitted a second normal VIN-first manual offer; confirmed in the Lead Inbox that the first
+  lead renders `[ESTIMATE COUNTER]` (amber) and the second renders `[FIRM COUNTER]` (green) —
+  screenshotted both before and after the `.card__top` flex-wrap fix. `buildAppraisalPayload`'s
+  conditional title is covered by direct unit tests (above); a live download-trigger check hit an
+  unrelated headless-Chromium blob-URL/download-event quirk in the ad hoc verification script
+  (not a product bug — `triggerAppraisalDownload` already has dedicated passing unit tests against
+  a fake `document`), so that last link in the chain was verified at the unit level instead.
+- `npm test` → 643/643 passing (13 new tests on top of the prior 630).
