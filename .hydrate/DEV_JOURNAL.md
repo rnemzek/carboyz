@@ -1001,3 +1001,58 @@ line when they don't fit.
   (not a product bug — `triggerAppraisalDownload` already has dedicated passing unit tests against
   a fake `document`), so that last link in the chain was verified at the unit level instead.
 - `npm test` → 643/643 passing (13 new tests on top of the prior 630).
+
+## [UOW-44] Full-Pipeline Golden Test (Image Fixture -> Parse -> Spread Math -> Persisted Lead & SVG) — 2026-10-08
+
+**Objective:** a single end-to-end integration test proving the whole chain works together for the
+real Carvana estimate fixture — HTTP parse route → `Submission` intake → `DispatchService`
+spread/margin math (double-checked independently against the live `SpreadConfigService` config,
+not just re-invoking `calculateSpread`) → the UOW-43 conditional appraisal SVG.
+
+**Fixture path correction:** the spec named
+`public/fixtures/offers/55DF9D5E-0F8B-42A2-A048-1EE712D43F48` (HEIC/JPEG), which doesn't exist in
+this repo — almost certainly the raw iPhone Photos-library filename before UOW-42 ingested and
+renamed the screenshot. The file matching the UOW's own described scenario byte-for-byte (Carvana,
+$13,100, 2020 Jeep Wrangler Unlimited estimate, no VIN) already exists as
+`carvana-estimated-offer-screenshot.jpeg` and is the exact fixture hashed into
+`offerParser.js`'s `IMAGE_FIXTURES` table in UOW-42 — used it directly rather than blocking on the
+filename mismatch, and noted the substitution in the new test file's own comments.
+
+**New file:** `tests/integration/estimateGoldenPipeline.test.js` (new `tests/integration/`
+directory — `node --test`'s default recursive discovery picks it up with no `package.json`
+change, same as the pre-existing `tests/ui/` subdirectory).
+
+**Phase 1 — parse, through the real route:** `createApp()` + `app.request('/api/offers/parse', ...)`
+(not calling `parseOfferDocument` directly), matching the "send it through the parse handler /
+route" instruction. Asserts against the field names the contract actually uses —
+`extracted.competitorName`/`competitorOffer` rather than the UOW prose's `competitor`/
+`offerAmount` — and asserts `extracted.vin === undefined` rather than `null`, since UOW-42
+established "only present when found" as the extraction contract (an absent key, not an explicit
+null); `mapExtractedOfferToFormValues()` is what turns that into `null` for the UI layer, and this
+test is asserting the raw API response.
+
+**Phase 2 — spread math, independently re-derived:** the test does *not* just call
+`calculateSpread()` again and compare the result to itself (that would be tautological). It reads
+`spreadConfigService.getTiersForCompetitor('Carvana')` — the live, currently-configured tiers, not
+a hardcoded assumption — and reimplements the tier-match + flat/percent-markup formula from raw
+tier data in a small test-local `computeExpectedMarkup()` helper, mirroring (but not importing)
+`SpreadService.js`'s `matchTier`/`evaluateTierOffset`. Also independently recomputes the expected
+wholesale value (`fairMarketValue * 0.88`, `SpreadService.WHOLESALE_FACTOR`) from
+`telemetryService.getMarketStats()` on the ingested comp. With the default config and a single
+$18,000 comp for a 2020 Jeep Wrangler Unlimited: $13,100 lands in the default 0–$15k tier
+(`flatAmount: 300, percent: 0.02, strategy: MAX` → `max(300, 262) = 300`), so the expected counter
+is $13,400, wholesale $15,840, projected margin $2,440, spread $2,740 (≥ $1,000 → GREENLIGHT, and
+the 0–$15k tier is `autoApprove: true` → auto-dispatched). Asserts
+`dispatched.priceTierBucket === '10k-20k'` (DispatchService's own fixed dealer-reporting bucket
+for $13,100 — a different, intentionally separate scale from the $0–15k SpreadConfigService tier
+that happened to match the markup, per UOW-43's design note) and
+`dispatched.offerSourceType === 'ESTIMATE'`.
+
+**Phase 3 — appraisal artifact:** asserts the dispatch outcome is `AUTO_COUNTER_SENT` first
+(explicit, so a future default-config change that pushes this fixture onto the manual-approval
+path — which would leave `finalCounterOffer` unset until a rep acts — fails loudly here rather
+than opaquely inside `generateAppraisalDocument`), then asserts the generated SVG contains both
+the UOW-43 conditional-counter label and the exact formatted dollar string for the independently
+computed counter amount.
+
+**Verification:** `npm test` → 644/644 passing (1 new test on top of the prior 643).
