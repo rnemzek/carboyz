@@ -46,3 +46,4 @@
 - [x] **[UOW-43]** Offer Provenance (Estimate vs Firm), Margin Analytics & Conditional Counters — 2026-10-08 | Pass: 643/643 tests
 - [x] **[UOW-44]** Full-Pipeline Golden Test (Image Fixture -> Parse -> Spread Math -> Persisted Lead & SVG) — 2026-10-08 | Pass: 644/644 tests
 - [x] **[UOW-45]** Multi-Fixture Snapshot Manifest & Config Re-baseline Harness — 2026-10-08 | Pass: 650/650 tests
+- [x] **[UOW-46]** Offer Fixture Management Onboarding Guide (`public/fixtures/offers/README.md`) — 2026-10-08 | Pass: 650/650 tests

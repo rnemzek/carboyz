@@ -1138,3 +1138,35 @@ byte-for-byte — validates both the manifest's accuracy and the script's correc
 
 **Verification:** `npm test` → 650/650 passing (6 new tests — 5 per-fixture + 1 coverage check —
 on top of the prior 644).
+
+## [UOW-46] Offer Fixture Management Onboarding Guide — 2026-10-08
+
+**Objective:** a developer-ready `README.md` directly in `public/fixtures/offers/` walking any
+contributor through adding a new competitor offer fixture — file placement/naming, the
+image-hash registration step vs. the text/regex path, updating `tests/fixtures/manifest.json`
+(with copy-pasteable templates for both `FIRM_OFFER` and `ESTIMATE`), and the `npm test`/
+`npm run fixtures:update` maintenance commands — without needing to read UOW-42/43/45's journal
+entries to reconstruct any of it.
+
+**Accuracy checks done before writing, not assumed:** verified the `shasum -a 256` command and the
+documented `validateVin()` one-liner both actually work as written (ran them); and was explicit
+about a real limitation rather than implying broader support than exists — a genuine binary PDF
+does not decode to usable UTF-8 text through the current text/regex path (no PDF-parsing library
+is wired in), so the guide tells contributors to write a `.txt` stand-in for a PDF-shaped fixture
+today, instead of silently implying PDF uploads already work end-to-end. Also called out, in its
+own callout box, that `public/fixtures/offers/manifest.json` (the pre-existing UOW-CARBOYZ-34
+fixture-miner index) and `tests/fixtures/manifest.json` (the UOW-45 harness manifest this guide is
+actually about) are two unrelated artifacts that happen to share a filename — this was flagged as
+a real source of confusion in UOW-45's own `ARCHITECT_JOURNAL.md` entry, so the guide makes the
+distinction explicit up front rather than letting a reader conflate them.
+
+**Fix required by the doc's own placement:** `tests/integration/fixtureHarness.test.js`'s coverage
+guardrail (UOW-45) only excluded `.json` files when listing "raw fixture files" in the directory —
+adding `README.md` directly into `public/fixtures/offers/` (exactly where this UOW asked for it)
+tripped that guardrail, since a `.md` file isn't a `.json` file. Fixed the filter to also exclude
+`.md`, and updated the one sentence in the README itself that described the old (now-incorrect)
+`.json`-only exclusion rule, so the two stay in sync.
+
+**Verification:** `npm test` → 650/650 passing (no new tests — this UOW is documentation plus a
+one-line fix to keep an existing test's guardrail accurate after that documentation landed where
+it was asked to).

@@ -57,14 +57,18 @@ function computeExpectedMarkup(tierConfig, competitorOfferAmount) {
 
 const manifest = readManifest();
 
-test('fixture manifest covers every raw offer document in public/fixtures/offers/ (excluding .json metadata/index files)', () => {
-  // Raw offer documents are every non-.json file in the directory — the .json files are either a
-  // fixture's own metadata companion (e.g. carmax-offer.json) or the pre-existing fixture-miner
-  // index (manifest.json), neither of which is itself something a seller would upload. New raw
-  // fixtures (another screenshot, a PDF, a trade slip) land here automatically and must be
-  // registered in tests/fixtures/manifest.json or this test fails loudly instead of the harness
-  // silently never exercising them.
-  const rawFixtureFiles = readdirSync(FIXTURES_DIR).filter((name) => !name.endsWith('.json'));
+const NON_FIXTURE_EXTENSIONS = new Set(['.json', '.md']);
+
+test('fixture manifest covers every raw offer document in public/fixtures/offers/ (excluding .json/.md housekeeping files)', () => {
+  // Raw offer documents are every file in the directory except .json (a fixture's own metadata
+  // companion like carmax-offer.json, or the pre-existing fixture-miner index manifest.json) and
+  // .md (this directory's README.md) — none of those is itself something a seller would upload.
+  // New raw fixtures (another screenshot, a PDF, a trade slip) land here automatically and must
+  // be registered in tests/fixtures/manifest.json or this test fails loudly instead of the
+  // harness silently never exercising them.
+  const rawFixtureFiles = readdirSync(FIXTURES_DIR).filter(
+    (name) => !NON_FIXTURE_EXTENSIONS.has(name.slice(name.lastIndexOf('.'))),
+  );
   assert.deepEqual(
     manifest.entries.map((entry) => entry.filename).sort(),
     rawFixtureFiles.sort(),
