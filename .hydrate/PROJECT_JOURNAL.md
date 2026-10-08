@@ -45,3 +45,4 @@
 - [x] **[UOW-42]** Support Image Ingestion & Partial Estimate Offers — 2026-10-08 | Pass: 630/630 tests
 - [x] **[UOW-43]** Offer Provenance (Estimate vs Firm), Margin Analytics & Conditional Counters — 2026-10-08 | Pass: 643/643 tests
 - [x] **[UOW-44]** Full-Pipeline Golden Test (Image Fixture -> Parse -> Spread Math -> Persisted Lead & SVG) — 2026-10-08 | Pass: 644/644 tests
+- [x] **[UOW-45]** Multi-Fixture Snapshot Manifest & Config Re-baseline Harness — 2026-10-08 | Pass: 650/650 tests

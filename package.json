@@ -7,6 +7,7 @@
   "main": "src/index.js",
   "scripts": {
     "test": "node --test",
+    "fixtures:update": "node scripts/update-fixture-manifest.js",
     "prestart": "node scripts/generate-runtime-config.js && node scripts/vendor-spatial-core.js && node scripts/vendor-test-core.js",
     "start": "node src/server/index.js"
   },

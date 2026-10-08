@@ -432,3 +432,29 @@ wording for `ESTIMATE`, guaranteed wording for `FIRM_OFFER`/unset). Any new lead
 generated-document consumer added later should read `offerSourceType` the same way rather than
 re-deriving provenance from other fields (e.g. `competitorName`, `vin` presence) that don't
 actually encode it.
+
+## UOW-45 — New fixture ground-truth manifest convention: `tests/fixtures/manifest.json`
+
+**Decision:** any future fixture added to `public/fixtures/offers/` (a new screenshot, a PDF once
+that format is supported, a trade slip) must get a matching entry in `tests/fixtures/manifest.json`
+— `tests/integration/fixtureHarness.test.js` has a coverage test that fails if the manifest's
+`filename`s don't exactly match every non-`.json` file in that directory, so this isn't optional
+housekeeping, it's enforced. This is a **separate, new artifact** from the pre-existing
+`public/fixtures/offers/manifest.json` (the UOW-CARBOYZ-34 fixture-miner's own index/
+metadata-companion format, still read only by `tests/offerGalleryFixtures.test.js`) — the two were
+kept intentionally un-merged rather than guessing the Lead Architect wants one unified fixture
+format; a future consolidation is a deliberate call, not a default.
+
+**Manifest entry shape:** `{ filename, mimeType, competitor, offerSourceType, expectedAmount,
+expectedExtraction, vehicle }`. `expectedExtraction` is a literal snapshot of what
+`offerParser.js` currently returns for that file (not every field offerParser.js *could*
+theoretically find — several fixtures only partially extract, e.g. no vehicle-line text means no
+year/make/model) and is the only part of this manifest meant to be regenerated —
+`npm run fixtures:update` (`scripts/update-fixture-manifest.js`) re-runs the real parser against
+every fixture's bytes and overwrites only that block. `vehicle` is the full real-world ground
+truth (used to complete a `Submission` payload when extraction itself is partial) and, like
+`competitor`/`offerSourceType`/`expectedAmount`, is hand-maintained business fact, never touched by
+the re-baseline script. Spread math and the appraisal SVG banner are never snapshotted anywhere —
+`fixtureHarness.test.js` asserts those dynamically against whatever `SpreadConfigService` is
+currently configured, by design (so the harness itself catches an unintended pricing-formula
+regression, rather than blessing whatever the formula currently produces).

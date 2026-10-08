@@ -1056,3 +1056,85 @@ the UOW-43 conditional-counter label and the exact formatted dollar string for t
 computed counter amount.
 
 **Verification:** `npm test` → 644/644 passing (1 new test on top of the prior 643).
+
+## [UOW-45] Multi-Fixture Snapshot Manifest & Config Re-baseline Harness — 2026-10-08
+
+**Objective:** generalize UOW-44's single-fixture golden test into a data-driven harness that runs
+the full parse → spread math → appraisal-SVG pipeline for *every* raw offer document in
+`public/fixtures/offers/`, driven by a structured ground-truth manifest, plus a CLI command to
+re-baseline that manifest's extraction snapshot after an intentional `offerParser.js` change.
+
+**Premise correction:** the UOW's framing ("expanding the offer test catalog... with multiple
+real-world formats: Carvana screenshots, CarMax PDFs, dealer trade slips") describes fixtures that
+don't exist in this repo — there are no PDFs and no additional screenshots, only the 5 raw offer
+documents already present: 4 text fixtures (`carmax-offer.txt`, `carvana-offer.txt`,
+`hendrick-offer.txt`, `kbb-offer.txt`) and the 1 real JPEG (`carvana-estimated-offer-screenshot.jpeg`,
+UOW-42). Built the harness/manifest against what's actually in the repo rather than inventing
+fixtures to match the description — the directory-driven coverage test (below) is exactly the
+mechanism that will force the manifest to grow the moment a real new fixture (a PDF, another
+screenshot) actually gets added.
+
+**`tests/fixtures/manifest.json` (new, centralized — not the pre-existing
+`public/fixtures/offers/manifest.json`, which is a different artifact: the UOW-CARBOYZ-34 fixture-
+miner's own index/metadata-companion format, still used unmodified by
+`tests/offerGalleryFixtures.test.js`).** One entry per raw fixture:
+`{ filename, mimeType, competitor, offerSourceType, expectedAmount, expectedExtraction, vehicle }`.
+Two ground-truth tiers per entry, deliberately kept separate:
+- `expectedExtraction` — exactly what `parseOfferDocument()` *actually* produces for this specific
+  file today (verified by literally running the parser against each fixture before writing this
+  file). Several fixtures don't extract every field — e.g. `carmax-offer.txt` has no
+  `year`/`make`/`model` vehicle-line text, so extraction never finds them, and the harness must not
+  assert otherwise.
+- `vehicle` — the real, full ground-truth vehicle (year/make/model/vin/mileage), reused directly
+  from the pre-existing `public/fixtures/offers/manifest.json` groundTruth for the 4 text fixtures.
+  Used to complete the `Submission` payload for Stage 2 when extraction itself came back partial
+  (`mapExtractedOfferToFormValues(extracted).field ?? entry.vehicle.field`) — generalizing the
+  UOW's own "seed VIN for estimate fixtures lacking visible VINs" idea to every vehicle field, not
+  just VIN.
+
+**VIN correction:** the UOW's example seed VIN for the Jeep Wrangler estimate,
+`1C4HJXDG2LW123456`, fails ISO 3779 checksum validation (`validateVin()` → false; the correct
+check digit for that WMI/VDS/year combination is `7`, not `2`). Used `1C4HJXDG7LW123456` instead
+(`validateVin()` → true) — `Submission` itself doesn't enforce VIN checksums so the invalid one
+would have "worked," but a ground-truth fixture manifest asserting correctness should itself be
+correct.
+
+**`tests/integration/fixtureHarness.test.js` (new):** loops `manifest.json`'s `entries` and emits
+one `test()` per fixture (`node --test` reports each individually), plus one coverage test
+asserting the manifest's filenames exactly match every non-`.json` file in
+`public/fixtures/offers/` (so a newly added fixture fails loudly here instead of silently never
+being exercised). Per fixture:
+- **Stage 1 (extraction):** POSTs the real file bytes through `/api/offers/parse` (the actual
+  route, same as UOW-44). Asserts every key in `EXTRACTABLE_KEYS` (`vin`, `year`, `make`, `model`,
+  `mileage`, `competitorOffer`, `competitorName`, `isEstimate`) either exact-matches
+  `expectedExtraction` or is confirmed absent — catches drift in both directions (extraction
+  finding *less* than the manifest expects, or silently finding *more*), not just regressions.
+- **Stage 2 (valuation math):** reuses the real `mapExtractedOfferToFormValues()` (the same
+  function `SellerSubmissionView.js` calls) to turn `extracted` into submission-shaped values,
+  including the "Other" competitor fallback — `hendrick-offer.txt`'s extracted competitor name
+  ("HENDRICK AUTOMOTIVE GROUP - APPRAISAL OFFER") doesn't match any `COMPETITORS` enum value, so it
+  resolves to `competitor: 'Other', competitorDealerName: <that string>` exactly like a real
+  upload would. Ingests one market comp per fixture, priced at `expectedAmount * 1.15` (a fixed,
+  fixture-agnostic rule, not per-fixture tuning) so fair market value always resolves. Then — same
+  as UOW-44 — independently re-derives the expected markup from `spreadConfigService`'s *live*
+  tiers (not a hardcoded number) via a small `computeExpectedMarkup()` helper that mirrors but
+  doesn't call `SpreadService.js`'s matching/offset logic, and asserts the dispatched submission's
+  `calculatedCounterOffer`/`finalCounterOffer`/`projectedMargin`/`offerSourceType` match exactly.
+- **Stage 3 (artifact):** generates the appraisal SVG and asserts it contains the UOW-43
+  conditional-vs-guaranteed banner matching the fixture's `offerSourceType`, and the exact
+  formatted counter dollar string.
+
+**Re-baseline CLI — `npm run fixtures:update` (`scripts/update-fixture-manifest.js`, new):**
+re-runs `parseOfferDocument()` against every fixture's actual bytes and overwrites only each
+entry's `expectedExtraction` block in `tests/fixtures/manifest.json`, leaving `filename`/
+`mimeType`/`competitor`/`offerSourceType`/`expectedAmount`/`vehicle` untouched (those are business
+ground truth, not parser output). Deliberately scoped to *only* the extraction snapshot: Stage 2/3
+(spread math, SVG banner) are intentionally never snapshotted anywhere — per the UOW's own
+requirement 2 ("derives counter-offers, margins, and SVG artifacts using *active*
+SpreadConfigService settings"), they're asserted dynamically against whatever config is live on
+every test run, so there is nothing in that half of the pipeline to re-baseline. Ran the script
+once during development and confirmed via `git diff` that it reproduced the hand-written manifest
+byte-for-byte — validates both the manifest's accuracy and the script's correctness.
+
+**Verification:** `npm test` → 650/650 passing (6 new tests — 5 per-fixture + 1 coverage check —
+on top of the prior 644).
