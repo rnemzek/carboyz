@@ -257,7 +257,10 @@ function pseudoRandomInt(seed, max) {
  * produces the same output. `config.makes` (an array of make strings) filters
  * SYNTHETIC_MAKE_MODELS down to a selectable subset; an empty/omitted filter uses the full pool.
  */
-export function buildSyntheticSubmission(seedIndex, { daysBack = 90, makes = null, competitorSources = SYNTHETIC_COMPETITOR_SOURCES } = {}) {
+export function buildSyntheticSubmission(
+  seedIndex,
+  { daysBack = 90, makes = null, competitorSources = SYNTHETIC_COMPETITOR_SOURCES, now = Date.now() } = {},
+) {
   const filteredPool = makes && makes.length > 0 ? SYNTHETIC_MAKE_MODELS.filter((entry) => makes.includes(entry.make)) : SYNTHETIC_MAKE_MODELS;
   const pool = filteredPool.length > 0 ? filteredPool : SYNTHETIC_MAKE_MODELS;
   const vehicle = pool[seedIndex % pool.length];
@@ -270,7 +273,10 @@ export function buildSyntheticSubmission(seedIndex, { daysBack = 90, makes = nul
   const mileage = 6000 + pseudoRandomInt(seedIndex, 95) * 1000;
   const competitorOfferAmount = 11000 + pseudoRandomInt(seedIndex + 1, 380) * 100;
   const daysAgo = daysBack <= 1 ? 0 : pseudoRandomInt(seedIndex + 2, daysBack);
-  const timestamp = new Date(Date.now() - daysAgo * MS_PER_DAY).toISOString();
+  // `now` defaults live but is injectable so two calls with the same seedIndex (and the same
+  // `now`) are byte-for-byte reproducible — without it, two back-to-back Date.now() reads can
+  // straddle a millisecond boundary and produce different timestamps for a seedIndex with daysAgo: 0.
+  const timestamp = new Date(now - daysAgo * MS_PER_DAY).toISOString();
 
   return {
     vin: generateVin(seedIndex + 100000),
@@ -294,7 +300,10 @@ export function buildSyntheticSubmission(seedIndex, { daysBack = 90, makes = nul
  * vehicle makes (`makes`), and competitor sources (`competitorSources`).
  */
 export function buildSyntheticSubmissions(count, config = {}) {
-  return Array.from({ length: count }, (_, seedIndex) => buildSyntheticSubmission(seedIndex, config));
+  // Pin one `now` for the whole batch rather than letting each buildSyntheticSubmission() call
+  // default to its own live Date.now() read.
+  const now = config.now ?? Date.now();
+  return Array.from({ length: count }, (_, seedIndex) => buildSyntheticSubmission(seedIndex, { ...config, now }));
 }
 
 /**

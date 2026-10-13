@@ -136,9 +136,12 @@ test('seedHistoricalLeads defaults to a count of 50', () => {
 });
 
 test('buildSyntheticSubmission is deterministic and produces a schema-valid submission payload', () => {
+  // Pin `now` so the two calls below are compared against a frozen instant, not two live
+  // Date.now() reads that can straddle a millisecond boundary for a seedIndex with daysAgo: 0.
+  const now = Date.now();
   for (let seedIndex = 0; seedIndex < 20; seedIndex++) {
-    const submission = buildSyntheticSubmission(seedIndex);
-    assert.deepEqual(submission, buildSyntheticSubmission(seedIndex));
+    const submission = buildSyntheticSubmission(seedIndex, { now });
+    assert.deepEqual(submission, buildSyntheticSubmission(seedIndex, { now }));
     assert.doesNotThrow(() => new Submission({ id: 'x', ...submission }));
     assert.ok(submission.mileage > 0);
     assert.ok(submission.competitorOfferAmount >= 0);
