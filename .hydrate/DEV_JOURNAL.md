@@ -1170,3 +1170,76 @@ tripped that guardrail, since a `.md` file isn't a `.json` file. Fixed the filte
 **Verification:** `npm test` → 650/650 passing (no new tests — this UOW is documentation plus a
 one-line fix to keep an existing test's guardrail accurate after that documentation landed where
 it was asked to).
+
+## [UOW-47] Two-Tier Counter Offers: No-VIN Conditional vs. Verified-VIN Guaranteed — 2026-10-13
+
+**Objective:** let a seller submit a VIN-less Carvana-style "Estimate" screenshot without blocking
+on VIN entry — a conservative, no-VIN "preliminary" counter is now computable and dispatchable,
+with the full tier-based counter unlocked the moment a VIN (typed, scanned, or pasted) is present.
+
+**Design decision requiring a PO call before implementation:** UOW-47's spec gave fixed dollar
+ranges for both tiers (no-VIN: +$250-$300, verified-VIN: +$500-$1000), but the existing UOW-44
+golden pipeline test (`tests/integration/estimateGoldenPipeline.test.js`) already exercises this
+exact Carvana/Jeep fixture *with* a seed VIN and asserts the standard per-competitor/price-tier
+bump (~$300, auto-dispatched). Replacing the verified-VIN bump with a new flat $500-1000 value
+would have silently changed that golden test's numbers. Per PO direction: **verified-VIN (and
+FIRM_OFFER) submissions keep today's tier-based bump completely unchanged** — the UOW-44 golden
+test was neither touched nor its outcome altered. Only the no-VIN case is new: a flat, conservative
+`NO_VIN_ESTIMATE_BEAT_BUMP` (275, the midpoint of the $250-$300 range) that bypasses the
+competitor/price tier ladder entirely.
+
+**Files touched:**
+- `src/models/Submission.js` — `vin` is now required unless `offerSourceType === 'ESTIMATE'`;
+  stored as `null` rather than throwing when omitted on an estimate.
+- `src/services/SpreadConfigService.js` — new exported `NO_VIN_ESTIMATE_BEAT_BUMP = 275` constant.
+- `src/services/SpreadService.js` — `calculateSpread()` takes optional `offerSourceType`/`vin`;
+  when `offerSourceType === 'ESTIMATE' && !vin`, it uses the flat conservative bump and returns
+  `matchedTier: null` instead of resolving the per-competitor tier. Every other combination
+  (verified ESTIMATE, FIRM_OFFER, or no `offerSourceType`/`vin` passed at all) is byte-for-byte
+  unchanged from before this UOW.
+- `src/services/DispatchService.js` — `evaluate()` now forwards `submission.offerSourceType`/
+  `submission.vin` into `calculateSpread()`. Side effect (intentional, not incidental): since a
+  no-VIN estimate's `matchedTier` is always `null`, `autoApprove` is always `false`, so a no-VIN
+  estimate can never auto-dispatch — it always lands on `PENDING_APPROVAL` for a human to confirm,
+  regardless of how high the competitor offer is. This wasn't separately specified but follows
+  directly from bypassing the tier ladder (which is the only source of `autoApprove: true`).
+- `src/ui/LeadInboxController.js` — same `offerSourceType`/`vin` forwarding in both
+  `calculateSpread()` call sites (`buildLeadViewModels`, `approveAndSend`); lead view models now
+  also carry `vin` so the view can distinguish the no-VIN vs. verified badge.
+- `src/ui/LeadInboxView.js` — `offerSourceBadge(offerSourceType, vin)` gained a second, optional
+  `vin` parameter: an ESTIMATE with no vin now resolves to a new `NO_VIN_ESTIMATE` badge
+  (`[PRELIMINARY - NO VIN]`, amber outline) instead of the solid `[ESTIMATE COUNTER]` badge, which
+  is now reserved for a VIN-verified estimate. **Contract change, not additive:** calling
+  `offerSourceBadge('ESTIMATE')` with no second argument now returns the no-VIN badge rather than
+  the verified one — `tests/ui.leadInboxView.test.js` was updated to match (not a silent
+  regression; the old 1-arg call simply had no way to express the new third state).
+- `src/ui/styles.css` — new `.badge--preliminary-no-vin` (transparent background, amber border +
+  text) alongside the existing solid amber/green badges.
+- `src/ui/SellerSubmissionView.js` — `vinInput.required` is now computed dynamically
+  (`updateVinRequirement()`) instead of a static HTML `required` attribute: `true` unless
+  `offerSourceType === 'ESTIMATE'`. The VIN helper copy for a detected no-VIN estimate now reads
+  as an "Unlock Maximum Offer" CTA. No live pre-submit price preview was added — this view has no
+  existing hook into `SpreadService`/`TelemetryService` pre-submit (pricing has always happened
+  server/controller-side in `DispatchService.dispatch()` after submit), so "dynamic upgrade" is
+  realized by the existing data flow: whatever VIN is in the field at submit time flows straight
+  through to `Submission`/`calculateSpread()`, which is what actually selects the tier.
+- `src/utils/appraisalPdfGenerator.js` — a no-VIN estimate's appraisal sheet no longer renders a
+  broken `-appraisal-null.svg` filename or a blank VIN line: `buildAppraisalFilename` falls back to
+  `'pending-vin'`, and the VIN row in the SVG falls back to `'Pending Verification'`. This wasn't
+  explicitly requested but is a direct, necessary consequence of making `vin` optional — an
+  approved no-VIN estimate (status still transitions through `AUTO_COUNTER_SENT` after manual
+  approval) can reach the appraisal generator with `vin: null`.
+
+**New tests:** `tests/submission.test.js`, `tests/spreadConfigService.test.js`,
+`tests/spreadService.test.js`, `tests/dispatchService.test.js`, `tests/ui.leadInboxController.test.js`,
+`tests/ui.leadInboxView.test.js`, `tests/appraisalPdfGenerator.test.js`, plus a new
+`tests/integration/twoTierEstimateCounters.test.js` (per UOW-47's explicit ask) that runs the same
+Carvana/Jeep "Estimate" screenshot fixture as UOW-44's golden test twice — once with no VIN
+(asserts `PENDING_APPROVAL` + the conservative bump) and once with a seed VIN (asserts
+`AUTO_COUNTER_SENT` + the unchanged tier-based bump) — through the real `/api/offers/parse` route.
+
+**Verification:** `npm test` → 663/663 passing (13 new tests on top of the prior 650; the UOW-44
+golden pipeline test file was not modified and its asserted numbers/outcome are unchanged).
+Coverage spot-checked via `node --test --experimental-test-coverage`: `Submission.js` 100/100/100,
+`DispatchService.js` 100/94.87/100, `SpreadService.js` 100/94.44/100, `SpreadConfigService.js`
+96.07/93.33/100, `LeadInboxController.js` 100/97.37/100 — all well above the 80% line/branch gate.

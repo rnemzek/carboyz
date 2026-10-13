@@ -12,6 +12,7 @@ import {
   buildApprovalNotification,
   computePriceTierBucket,
 } from '../src/services/DispatchService.js';
+import { NO_VIN_ESTIMATE_BEAT_BUMP } from '../src/services/SpreadConfigService.js';
 
 function baseSubmission(overrides = {}) {
   return {
@@ -146,6 +147,35 @@ test('dispatch: auto path marks AUTO_COUNTER_SENT and returns a formatted messag
   assert.equal(submissionService.getSubmissions()[0].status, 'AUTO_COUNTER_SENT');
   assert.match(result.message, /Car Offer Beaters/);
   assert.match(result.message, /2021 Honda Civic/);
+});
+
+test('dispatch: a no-VIN ESTIMATE always lands on PENDING_APPROVAL with the conservative beat-bump, even at a price that would auto-approve a FIRM_OFFER', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 20000 });
+  const submission = submissionService.submit(
+    baseSubmission({ vin: undefined, offerSourceType: 'ESTIMATE', competitorOfferAmount: 15000 }),
+  );
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const result = dispatchService.dispatch(submission);
+
+  assert.equal(result.outcome, DISPATCH_OUTCOMES.PENDING_APPROVAL);
+  assert.equal(result.submission.status, 'PENDING_APPROVAL');
+  assert.equal(result.spreadResult.recommendedCounterOffer, 15000 + NO_VIN_ESTIMATE_BEAT_BUMP);
+  assert.equal(result.spreadResult.matchedTier, null);
+});
+
+test('dispatch: a VIN-verified ESTIMATE behaves identically to a FIRM_OFFER at the same price (unchanged tier-based auto-dispatch)', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 20000 });
+  const submission = submissionService.submit(baseSubmission({ offerSourceType: 'ESTIMATE', competitorOfferAmount: 15000 }));
+  const dispatchService = new DispatchService({ submissionService, spreadConfigService, telemetryService, ingestService });
+
+  const result = dispatchService.dispatch(submission);
+
+  assert.equal(result.outcome, DISPATCH_OUTCOMES.AUTO_COUNTER_SENT);
+  // $15,000 falls in the default $15k-$30k bracket: max(flat 500, 15000 * 2%) = 500.
+  assert.equal(result.spreadResult.recommendedCounterOffer, 15500);
 });
 
 test('computePriceTierBucket buckets a competitor amount into the four fixed dealer-reporting brackets', () => {

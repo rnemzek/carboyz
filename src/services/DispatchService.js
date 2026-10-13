@@ -106,6 +106,8 @@ export class DispatchService {
       competitorOfferAmount: submission.competitorOfferAmount,
       tierConfig,
       policyVersionId: this.spreadConfigService.getActivePolicyVersionId(),
+      offerSourceType: submission.offerSourceType,
+      vin: submission.vin,
     });
     const autoApprove = spreadResult.matchedTier?.autoApprove ?? false;
     const shouldAutoDispatch = autoApprove && spreadResult.status === DealScoreStatus.GREENLIGHT;

@@ -53,6 +53,8 @@ export class LeadInboxController {
         fairMarketValue,
         competitorOfferAmount: submission.competitorOfferAmount,
         tierConfig,
+        offerSourceType: submission.offerSourceType,
+        vin: submission.vin,
       });
 
       return {
@@ -66,6 +68,7 @@ export class LeadInboxController {
         competitorOfferAmount: submission.competitorOfferAmount,
         offerDocument: submission.offerDocument,
         offerSourceType: submission.offerSourceType,
+        vin: submission.vin,
         status: submission.status,
         spreadResult,
         counterMessage: formatCounterOfferMessage({
@@ -96,6 +99,8 @@ export class LeadInboxController {
       fairMarketValue,
       competitorOfferAmount: before.competitorOfferAmount,
       tierConfig,
+      offerSourceType: before.offerSourceType,
+      vin: before.vin,
     });
     const expectedMargin =
       spreadResult.estimatedWholesaleValue === null

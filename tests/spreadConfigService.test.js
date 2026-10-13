@@ -7,6 +7,7 @@ import {
   TIER_STRATEGIES,
   INITIAL_POLICY_VERSION_ID,
   bumpPolicyVersion,
+  NO_VIN_ESTIMATE_BEAT_BUMP,
 } from '../src/services/SpreadConfigService.js';
 import { AuditLedgerService } from '../src/services/AuditLedgerService.js';
 import { PolicySnapshot } from '../src/models/PolicySnapshot.js';
@@ -21,6 +22,10 @@ function fakeStorage() {
 
 test('SpreadConfigService requires a tenantId', () => {
   assert.throws(() => new SpreadConfigService({}), /tenantId/);
+});
+
+test('NO_VIN_ESTIMATE_BEAT_BUMP falls within the UOW-47 conservative $250-$300 range', () => {
+  assert.ok(NO_VIN_ESTIMATE_BEAT_BUMP >= 250 && NO_VIN_ESTIMATE_BEAT_BUMP <= 300);
 });
 
 test('seeds the default tier ladder for every known competitor', () => {

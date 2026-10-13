@@ -1,3 +1,5 @@
+import { NO_VIN_ESTIMATE_BEAT_BUMP } from './SpreadConfigService.js';
+
 export const WHOLESALE_FACTOR = 0.88;
 export const DEFAULT_COUNTER_OFFSET = 300;
 
@@ -49,16 +51,24 @@ export function calculateSpread({
   tierConfig,
   counterOfferOffset = DEFAULT_COUNTER_OFFSET,
   policyVersionId = null,
+  offerSourceType = null,
+  vin = null,
 } = {}) {
   if (typeof competitorOfferAmount !== 'number' || competitorOfferAmount < 0) {
     throw new Error('calculateSpread requires a non-negative numeric competitorOfferAmount');
   }
 
-  const { counterOffset, matchedTier } = resolveCounterOfferOffset({
-    competitorOfferAmount,
-    tierConfig,
-    fallbackOffset: counterOfferOffset,
-  });
+  // No VIN yet on an ESTIMATE-sourced offer -> conditional, conservative bump, bypassing the
+  // competitor/price tier ladder entirely. A VIN-verified estimate (or any FIRM_OFFER) falls
+  // through to the normal tier-based resolution below, unchanged.
+  const { counterOffset, matchedTier } =
+    offerSourceType === 'ESTIMATE' && !vin
+      ? { counterOffset: NO_VIN_ESTIMATE_BEAT_BUMP, matchedTier: null }
+      : resolveCounterOfferOffset({
+          competitorOfferAmount,
+          tierConfig,
+          fallbackOffset: counterOfferOffset,
+        });
   const recommendedCounterOffer = competitorOfferAmount + counterOffset;
 
   if (typeof fairMarketValue !== 'number' || fairMarketValue <= 0) {

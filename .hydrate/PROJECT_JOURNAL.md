@@ -47,3 +47,8 @@
 - [x] **[UOW-44]** Full-Pipeline Golden Test (Image Fixture -> Parse -> Spread Math -> Persisted Lead & SVG) — 2026-10-08 | Pass: 644/644 tests
 - [x] **[UOW-45]** Multi-Fixture Snapshot Manifest & Config Re-baseline Harness — 2026-10-08 | Pass: 650/650 tests
 - [x] **[UOW-46]** Offer Fixture Management Onboarding Guide (`public/fixtures/offers/README.md`) — 2026-10-08 | Pass: 650/650 tests
+- [x] **[UOW-47]** Two-Tier Counter Offers: No-VIN Conditional vs. Verified-VIN Guaranteed — 2026-10-13 | Pass: 663/663 tests
+
+### UOW-47 — completed 2026-10-13
+- Iterations logged: 0
+- Suggested commit: `feat: complete UOW-47`

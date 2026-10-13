@@ -120,7 +120,8 @@ export function buildAppraisalPayload({ submission, tenantConfig, verificationBa
 }
 
 export function buildAppraisalFilename(payload) {
-  return `${slugify(payload.tenant.name)}-appraisal-${slugify(payload.vehicle.vin)}.svg`;
+  // A no-VIN ESTIMATE counter (UOW-47) can reach this before VIN verification.
+  return `${slugify(payload.tenant.name)}-appraisal-${slugify(payload.vehicle.vin || 'pending-vin')}.svg`;
 }
 
 function renderHeader(payload) {
@@ -162,7 +163,7 @@ function renderVehicleSummary(payload) {
     `<text x="48" y="176" font-size="16" font-family="sans-serif" font-weight="bold" fill="#111318">Vehicle Summary</text>` +
     rowMarkup +
     `<text x="48" y="${210 + rows.length * 26}" font-size="13" font-family="sans-serif" fill="#666666">VIN</text>` +
-    `<text x="180" y="${210 + rows.length * 26}" font-size="16" font-family="monospace" letter-spacing="1" fill="#111318">${escapeXml(payload.vehicle.vin)}</text>`
+    `<text x="180" y="${210 + rows.length * 26}" font-size="16" font-family="monospace" letter-spacing="1" fill="#111318">${escapeXml(payload.vehicle.vin || 'Pending Verification')}</text>`
   );
 }
 

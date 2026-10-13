@@ -439,6 +439,12 @@ body {
   background: var(--color-underpriced);
 }
 
+.badge--preliminary-no-vin {
+  background: transparent;
+  color: var(--color-fair);
+  border: 1.5px solid var(--color-fair);
+}
+
 .badge--estimate-counter {
   background: var(--color-fair);
 }

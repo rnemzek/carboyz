@@ -71,7 +71,10 @@ export class Submission {
     if (!timestamp) {
       throw new Error('Submission requires a timestamp');
     }
-    if (!vin) {
+    // A VIN-less "Estimate" screen (Carvana's instant quote, etc.) never has a VIN at intake —
+    // UOW-47 allows submitting that no-VIN preliminary counter, upgraded to the full verified-VIN
+    // tier later if the seller supplies one. Any other offerSourceType still requires a vin.
+    if (!vin && offerSourceType !== 'ESTIMATE') {
       throw new Error('Submission requires a vin');
     }
     if (!year) {
@@ -131,7 +134,7 @@ export class Submission {
 
     this.id = id;
     this.timestamp = timestamp;
-    this.vin = vin;
+    this.vin = vin || null;
     this.year = year;
     this.make = make;
     this.model = model;

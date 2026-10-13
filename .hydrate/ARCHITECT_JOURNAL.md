@@ -458,3 +458,61 @@ the re-baseline script. Spread math and the appraisal SVG banner are never snaps
 `fixtureHarness.test.js` asserts those dynamically against whatever `SpreadConfigService` is
 currently configured, by design (so the harness itself catches an unintended pricing-formula
 regression, rather than blessing whatever the formula currently produces).
+
+## [UOW-47] Two-Tier Counter Offers: No-VIN Conditional vs. Verified-VIN Guaranteed — 2026-10-13
+
+**New abstraction:** `offerSourceType` (`Submission.OFFER_SOURCE_TYPES`) was already a two-value
+enum (`ESTIMATE` / `FIRM_OFFER`). This UOW adds a second, orthogonal dimension — VIN presence —
+that only matters when `offerSourceType === 'ESTIMATE'`, producing an effective three-state
+classification (no-VIN estimate / verified estimate / firm offer) without adding a new persisted
+field or enum value. The third state is derived everywhere it's consumed (`SpreadService`,
+`LeadInboxView`'s badge) from `offerSourceType === 'ESTIMATE' && !vin`, rather than stored — kept
+`Submission`'s schema unchanged and avoided a migration-shaped change for a UI/pricing concern.
+
+**Pricing contract change:** `SpreadService.calculateSpread()` gained two optional params,
+`offerSourceType` and `vin`. When both indicate a no-VIN estimate, the per-competitor/price
+`tierConfig` ladder (`SpreadConfigService`) is bypassed entirely in favor of a new flat
+`NO_VIN_ESTIMATE_BEAT_BUMP` (275, `SpreadConfigService.js`) and `matchedTier` is reported as
+`null`. Every other caller shape (verified ESTIMATE, FIRM_OFFER, or omitting the new params) is
+unaffected — this was a deliberate, PO-directed constraint so UOW-44's golden pipeline test
+(Carvana/Jeep estimate fixture, submitted *with* a seed VIN) keeps its exact pre-UOW-47 numbers
+and `AUTO_COUNTER_SENT` outcome. Only a genuinely no-VIN submission takes the new path.
+
+**Trade-off accepted:** because `matchedTier` is `null` for a no-VIN estimate, `DispatchService`'s
+`autoApprove = matchedTier?.autoApprove ?? false` collapses to `false` unconditionally — a no-VIN
+estimate can never auto-dispatch, no matter the competitor-offer price bracket. This wasn't an
+independently specified rule; it falls out of bypassing the only source of `autoApprove: true`.
+Accepted as correct business behavior (an unverified estimate shouldn't auto-fire a guaranteed
+counter), but flagged here since it's an emergent consequence, not a rule written down anywhere
+else — a future change to tier-based auto-approval should re-examine whether no-VIN estimates
+need their own explicit (likely still `false`) auto-approve policy instead of inheriting it
+implicitly from `matchedTier` being `null`.
+
+**Breaking signature change (intentional, non-persisted):** `LeadInboxView.offerSourceBadge`
+changed from `(offerSourceType)` to `(offerSourceType, vin)`. A 1-arg call with
+`offerSourceType === 'ESTIMATE'` now returns the no-VIN badge instead of the verified one — this
+is a pure-function UI helper with no stored callers outside this repo, so the signature was
+changed in place rather than versioned or dual-pathed.
+
+**Sequence — no-VIN estimate submit -> preliminary counter -> VIN upgrade:**
+```mermaid
+sequenceDiagram
+    participant Seller
+    participant View as SellerSubmissionView
+    participant Submission
+    participant Dispatch as DispatchService
+    participant Spread as SpreadService
+
+    Seller->>View: uploads Carvana "Estimate" screenshot (no VIN)
+    View->>View: offerSourceType = 'ESTIMATE'; vinInput.required = false
+    Seller->>View: submits with VIN blank ("Unlock Maximum Offer" CTA shown, not required)
+    View->>Submission: new Submission({ offerSourceType: 'ESTIMATE', vin: undefined })
+    Submission-->>View: vin stored as null (no throw)
+    View->>Dispatch: dispatch(submission)
+    Dispatch->>Spread: calculateSpread({ offerSourceType: 'ESTIMATE', vin: null, tierConfig })
+    Spread-->>Dispatch: { recommendedCounterOffer: offer + 275, matchedTier: null }
+    Dispatch-->>View: PENDING_APPROVAL (matchedTier null -> autoApprove false)
+    Note over Seller,Dispatch: Seller later adds VIN (same or new submission) ->
+    Note over Seller,Dispatch: offerSourceType stays 'ESTIMATE', vin now present ->
+    Note over Seller,Dispatch: calculateSpread takes the normal tierConfig path, unchanged
+```

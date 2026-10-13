@@ -151,6 +151,22 @@ test('buildAppraisalFilename slugs the tenant name and vin', () => {
   assert.equal(buildAppraisalFilename(payload), 'summit-auto-group-appraisal-1hgcm82633a004352.svg');
 });
 
+test('buildAppraisalFilename falls back to "pending-vin" when the submission has no vin yet', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission({ vin: null, offerSourceType: 'ESTIMATE' }),
+    tenantConfig: createTenantConfig({ name: 'Summit Auto Group!' }),
+  });
+  assert.equal(buildAppraisalFilename(payload), 'summit-auto-group-appraisal-pending-vin.svg');
+});
+
+test('renderAppraisalSvg shows "Pending Verification" in place of a missing vin', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission({ vin: null, offerSourceType: 'ESTIMATE' }),
+    tenantConfig: createTenantConfig(),
+  });
+  assert.match(renderAppraisalSvg(payload), /Pending Verification/);
+});
+
 test('renderAppraisalSvg produces a root svg sized to the printable document', () => {
   const payload = buildAppraisalPayload({ submission: baseSubmission(), tenantConfig: createTenantConfig() });
   const svg = renderAppraisalSvg(payload);

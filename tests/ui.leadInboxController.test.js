@@ -63,6 +63,15 @@ test('buildLeadViewModels surfaces the submission offerSourceType, defaulting to
   assert.equal(estimate.offerSourceType, 'ESTIMATE');
 });
 
+test('buildLeadViewModels surfaces the submission vin (null for a no-VIN ESTIMATE lead)', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  submissionService.submit(baseSubmission({ vin: undefined, offerSourceType: 'ESTIMATE' }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const [lead] = controller.buildLeadViewModels();
+  assert.equal(lead.vin, null);
+});
+
 test('buildLeadViewModels labels an Other competitor with the dealer name', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   submissionService.submit(

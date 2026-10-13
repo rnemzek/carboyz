@@ -97,6 +97,19 @@ test('Submission defaults offerSourceType to FIRM_OFFER and rejects a value outs
   assert.equal(estimate.offerSourceType, 'ESTIMATE');
 });
 
+test('Submission allows a missing vin only when offerSourceType is ESTIMATE (UOW-47 no-VIN counters)', () => {
+  const noVinEstimate = new Submission(baseData({ vin: undefined, offerSourceType: 'ESTIMATE' }));
+  assert.equal(noVinEstimate.vin, null);
+
+  assert.throws(() => new Submission(baseData({ vin: undefined, offerSourceType: 'FIRM_OFFER' })), /vin/);
+  assert.throws(() => new Submission(baseData({ vin: '' })), /vin/);
+
+  const verifiedEstimate = new Submission(
+    baseData({ vin: '1HGCM82633A004352', offerSourceType: 'ESTIMATE' }),
+  );
+  assert.equal(verifiedEstimate.vin, '1HGCM82633A004352');
+});
+
 test('Submission defaults isAutoApproved, priceTierBucket, and projectedMargin to null and validates their types', () => {
   const submission = new Submission(baseData());
   assert.equal(submission.isAutoApproved, null);

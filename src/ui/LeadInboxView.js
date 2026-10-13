@@ -28,7 +28,10 @@ const DISPATCH_BADGES = {
 };
 
 // ESTIMATE: the competitor offer came from a VIN-less "Estimate" screen (Submission.OFFER_SOURCE_TYPES).
+// NO_VIN_ESTIMATE is a derived third state (UOW-47): an ESTIMATE lead that still has no vin gets
+// the outline "preliminary" treatment instead of the solid estimate badge below.
 const OFFER_SOURCE_BADGES = {
+  NO_VIN_ESTIMATE: { label: '[PRELIMINARY - NO VIN]', className: 'badge badge--preliminary-no-vin' },
   ESTIMATE: { label: '[ESTIMATE COUNTER]', className: 'badge badge--estimate-counter' },
   FIRM_OFFER: { label: '[FIRM COUNTER]', className: 'badge badge--firm-counter' },
 };
@@ -38,8 +41,15 @@ function spreadBadge(status) {
   return { label: BADGE_LABELS[status] ?? BADGE_LABELS.NO_DATA, className };
 }
 
-/** Exported for direct unit testing (no DOM dependency) — mirrors spreadBadge()'s pure lookup shape. */
-export function offerSourceBadge(offerSourceType) {
+/**
+ * Exported for direct unit testing (no DOM dependency) — mirrors spreadBadge()'s pure lookup
+ * shape. `vin` is optional and only matters when offerSourceType is ESTIMATE: omitted or falsy
+ * downgrades the badge to the no-VIN "preliminary" state.
+ */
+export function offerSourceBadge(offerSourceType, vin) {
+  if (offerSourceType === 'ESTIMATE' && !vin) {
+    return OFFER_SOURCE_BADGES.NO_VIN_ESTIMATE;
+  }
   return OFFER_SOURCE_BADGES[offerSourceType] ?? null;
 }
 
@@ -79,7 +89,7 @@ function renderDocumentModal() {
 function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter, onDownloadAppraisal }) {
   const badge = spreadBadge(lead.spreadResult.status);
   const dispatchBadge = DISPATCH_BADGES[lead.status];
-  const sourceBadge = offerSourceBadge(lead.offerSourceType);
+  const sourceBadge = offerSourceBadge(lead.offerSourceType, lead.vin);
 
   const top = h('div', { class: 'card__top' }, [
     h('h3', { class: 'card__title', text: lead.vehicleTitle }),

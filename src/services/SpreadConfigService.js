@@ -21,6 +21,12 @@ export const TIER_STRATEGIES = Object.freeze({
   PERCENT_ONLY: 'PERCENT_ONLY',
 });
 
+// UOW-47: a counter built from a VIN-less "Estimate" screen is conditional on later VIN/vehicle
+// verification, so it gets a flat, deliberately conservative beat-bump instead of the configured
+// per-competitor/price tier — the midpoint of the $250-$300 range the spec calls for. A
+// VIN-verified estimate (or a FIRM_OFFER) is unaffected and keeps the normal tier-based bump.
+export const NO_VIN_ESTIMATE_BEAT_BUMP = 275;
+
 export const DEFAULT_TIERS = Object.freeze([
   Object.freeze({ minPrice: 0, maxPrice: 15000, flatAmount: 300, percent: 0.02, strategy: TIER_STRATEGIES.MAX, autoApprove: true }),
   Object.freeze({ minPrice: 15000, maxPrice: 30000, flatAmount: 500, percent: 0.02, strategy: TIER_STRATEGIES.MAX, autoApprove: true }),

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calculateSpread, DealScoreStatus, WHOLESALE_FACTOR, DEFAULT_COUNTER_OFFSET } from '../src/services/SpreadService.js';
+import { NO_VIN_ESTIMATE_BEAT_BUMP } from '../src/services/SpreadConfigService.js';
 
 test('calculateSpread requires a non-negative numeric competitorOfferAmount', () => {
   assert.throws(
@@ -164,6 +165,45 @@ test('matchedTier is populated even when fairMarketValue is missing (NO_DATA)', 
 test('policyVersionId defaults to null when not provided', () => {
   const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 15000 });
   assert.equal(result.policyVersionId, null);
+});
+
+test('a no-VIN ESTIMATE submission uses the conservative NO_VIN_ESTIMATE_BEAT_BUMP, bypassing tierConfig entirely', () => {
+  const tierConfig = [{ minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: true }];
+  const result = calculateSpread({
+    fairMarketValue: 20000,
+    competitorOfferAmount: 13100,
+    tierConfig,
+    offerSourceType: 'ESTIMATE',
+    vin: null,
+  });
+  assert.equal(result.recommendedCounterOffer, 13100 + NO_VIN_ESTIMATE_BEAT_BUMP);
+  assert.equal(result.matchedTier, null);
+});
+
+test('a VIN-verified ESTIMATE submission uses the normal tier-based bump, unchanged from a FIRM_OFFER', () => {
+  const tier = { minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: true };
+  const estimateResult = calculateSpread({
+    fairMarketValue: 20000,
+    competitorOfferAmount: 13100,
+    tierConfig: [tier],
+    offerSourceType: 'ESTIMATE',
+    vin: '1HGCM82633A004352',
+  });
+  const firmResult = calculateSpread({
+    fairMarketValue: 20000,
+    competitorOfferAmount: 13100,
+    tierConfig: [tier],
+    offerSourceType: 'FIRM_OFFER',
+    vin: '1HGCM82633A004352',
+  });
+  assert.equal(estimateResult.recommendedCounterOffer, firmResult.recommendedCounterOffer);
+  assert.deepEqual(estimateResult.matchedTier, tier);
+});
+
+test('offerSourceType/vin default to null and never trigger the no-VIN override unless offerSourceType is ESTIMATE', () => {
+  const tier = { minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: true };
+  const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 13100, tierConfig: [tier] });
+  assert.deepEqual(result.matchedTier, tier);
 });
 
 test('policyVersionId is echoed back on the result, including the NO_DATA path', () => {

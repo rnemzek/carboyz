@@ -116,20 +116,30 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   // Provenance of the *competitor's offer* currently populating the form — ESTIMATE (parsed from
   // a VIN-less "Estimate" screenshot) vs FIRM_OFFER (manual entry, or parsed from a real written
   // offer document). This tracks where the competitor number came from, not whether the VIN field
-  // is filled in: the VIN is always required to submit, but the seller supplying it themselves
-  // doesn't retroactively make Carvana's (or similar) estimate a firm offer, so only
-  // applyExtractedOffer() below ever changes this. See Submission.OFFER_SOURCE_TYPES.
+  // is filled in: the seller supplying a VIN themselves doesn't retroactively make Carvana's (or
+  // similar) estimate a firm offer, so only applyExtractedOffer() below ever changes this. See
+  // Submission.OFFER_SOURCE_TYPES. VIN itself is only required for FIRM_OFFER (see
+  // updateVinRequirement) — UOW-47 lets an ESTIMATE submit with no VIN as a preliminary counter.
   let offerSourceType = 'FIRM_OFFER';
 
   const vinInput = h('input', {
     name: 'vin',
     placeholder: 'VIN',
-    required: '',
     maxlength: '17',
     class: 'input--large sell-form__vin-input',
   });
+  // Starts required: offerSourceType defaults to FIRM_OFFER above, and updateVinRequirement()
+  // (declared below) keeps this in sync with it from here on.
+  vinInput.required = true;
   const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
   const vinHelperEl = h('p', { class: 'sell-form__vin-helper', role: 'status', 'aria-live': 'polite', hidden: '' });
+
+  // A VIN-less ESTIMATE can still submit for a conservative preliminary counter (UOW-47) — only
+  // a FIRM_OFFER (manual entry, or a parsed real offer document) requires a VIN up front.
+  function updateVinRequirement() {
+    vinInput.required = offerSourceType !== 'ESTIMATE';
+  }
+
   const vinScannerModal = renderVinScannerModal({
     onVinConfirmed: (vin) => {
       controller.hapticsService?.vibrate?.();
@@ -145,6 +155,8 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   // Once the seller supplies a VIN themselves (typed, pasted, or scanned), the earlier
   // "Estimate detected" guidance has served its purpose — but offerSourceType stays ESTIMATE,
   // since the competitor's own number is still just their estimate, not a firm written offer.
+  // Submitting with that VIN now upgrades the eventual counter from the conservative no-VIN
+  // bump to the full verified-VIN tier (see SpreadService.calculateSpread).
   vinInput.addEventListener('input', () => {
     if (vinInput.value.trim()) {
       vinHelperEl.hidden = true;
@@ -246,7 +258,8 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     // VIN to avoid lead spam, so this is the expected shape for an image-sourced parse, not a
     // failure — guide the seller straight to supplying the one field the estimate couldn't have.
     if (values.isEstimate && !values.vin) {
-      vinHelperEl.textContent = 'Estimate detected! Enter VIN or scan barcode to beat their offer.';
+      vinHelperEl.textContent =
+        "Estimate detected! You can submit now for a preliminary offer, or Unlock Maximum Offer — enter your VIN or scan the barcode for our best guaranteed price.";
       vinHelperEl.hidden = false;
       offerSourceType = 'ESTIMATE';
       vinInput.focus();
@@ -255,6 +268,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       vinHelperEl.textContent = '';
       offerSourceType = 'FIRM_OFFER';
     }
+    updateVinRequirement();
   }
 
   // Auto-population is best-effort: a parse failure (network down, low-confidence document)
@@ -399,6 +413,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       dropzoneLabel.textContent = 'Tap to take a photo or drop a PDF';
       pendingOfferDocumentBase64 = null;
       offerSourceType = 'FIRM_OFFER';
+      updateVinRequirement();
       vinHelperEl.hidden = true;
       vinHelperEl.textContent = '';
       statusEl.textContent = "Submitted! We'll let you know if we can beat that offer.";
