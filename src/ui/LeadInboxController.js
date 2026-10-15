@@ -70,6 +70,8 @@ export class LeadInboxController {
         offerSourceType: submission.offerSourceType,
         vin: submission.vin,
         status: submission.status,
+        rejectionReason: submission.rejectionReason,
+        rejectionNotes: submission.rejectionNotes,
         spreadResult,
         counterMessage: formatCounterOfferMessage({
           submission,
@@ -139,6 +141,14 @@ export class LeadInboxController {
 
   subscribeToPairingConnected(pairingSessionId, onConnected) {
     return this.sessionStashService?.subscribeToPairingConnected?.(pairingSessionId, onConnected) ?? (() => {});
+  }
+
+  rejectLead(id, { rejectionReason, rejectionNotes = null } = {}) {
+    return this.submissionService.updateFields(id, {
+      status: 'REJECTED',
+      rejectionReason,
+      rejectionNotes,
+    });
   }
 
   markWinLoss(id, winLossStatus) {

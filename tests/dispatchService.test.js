@@ -13,6 +13,7 @@ import {
   computePriceTierBucket,
 } from '../src/services/DispatchService.js';
 import { NO_VIN_ESTIMATE_BEAT_BUMP } from '../src/services/SpreadConfigService.js';
+import { NotificationService } from '../src/services/NotificationService.js';
 
 function baseSubmission(overrides = {}) {
   return {
@@ -264,6 +265,36 @@ test('dispatch: manual path marks PENDING_APPROVAL and notifies the distro group
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].target, 'CarBoyZ distro group');
   assert.match(notifications[0].title, /sign-off/);
+});
+
+test('dispatch: manual path wires a NotificationService notifier to SMS roster members with notifyOnPending: true', () => {
+  const { telemetryService, ingestService, submissionService, spreadConfigService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Honda', model: 'Civic', year: 2021, price: 40000 });
+  const submission = submissionService.submit(baseSubmission({ competitorOfferAmount: 32000 }));
+  const smsCalls = [];
+  const notificationService = new NotificationService({
+    dealerProfileService: {
+      listMembers: () => [
+        { id: 'm1', phone: '(910) 555-0128', notifyOnPending: true },
+        { id: 'm2', phone: '(910) 555-0199', notifyOnPending: false },
+      ],
+    },
+    smsAdapter: { sendSms: (payload) => smsCalls.push(payload) },
+    host: 'https://dealer.carboyz.app',
+  });
+  const dispatchService = new DispatchService({
+    submissionService,
+    spreadConfigService,
+    telemetryService,
+    ingestService,
+    notifier: notificationService,
+  });
+
+  dispatchService.dispatch(submission);
+
+  assert.equal(smsCalls.length, 1);
+  assert.equal(smsCalls[0].to, '(910) 555-0128');
+  assert.match(smsCalls[0].body, /CarBoyZ Lead Alert: 2021 Honda Civic/);
 });
 
 test('dispatch: manual path works without a notifier configured', () => {

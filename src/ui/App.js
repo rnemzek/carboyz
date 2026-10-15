@@ -29,6 +29,7 @@ import { SyncAdapter } from '../services/SyncAdapter.js';
 import { renderBottomNavView } from './BottomNavView.js';
 import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
 import { DealerProfileService } from '../services/DealerProfileService.js';
+import { NotificationService } from '../services/NotificationService.js';
 import { AdminController } from './AdminController.js';
 import { renderAdminView } from './AdminView.js';
 import { resolveActiveView, VIEWS } from '../config/viewResolution.js';
@@ -48,16 +49,17 @@ import { renderMapView } from './MapView.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 
-function createDistroNotifier() {
+// The Twilio adapter needs server-side secrets (TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM_NUMBER), which
+// this browser bundle never has access to — NotificationService here always runs with its
+// ConsoleSmsAdapter default, logging the SMS payload that a trusted backend would otherwise send.
+function createDistroNotifier(notificationService) {
   return {
     notify(notification) {
       console.info(`[${notification.target}] ${notification.title}`, notification.body);
-      if (typeof Notification !== 'function') {
-        return;
-      }
-      if (Notification.permission === 'granted') {
+      if (typeof Notification === 'function' && Notification.permission === 'granted') {
         new Notification(notification.title, { body: notification.body });
       }
+      notificationService?.notify?.(notification);
     },
   };
 }
@@ -608,12 +610,16 @@ export function mountApp(root) {
       const spreadConfigService = new SpreadConfigService({ tenantId, storage: window.localStorage });
       const sessionStashService = new SessionStashService({ tenantId, storage: window.localStorage });
       const dealerProfileService = new DealerProfileService({ tenantId, storage: window.localStorage });
+      const notificationService = new NotificationService({
+        dealerProfileService,
+        host: `${window.location.origin}${window.location.pathname}`,
+      });
       const dispatchService = new DispatchService({
         submissionService,
         spreadConfigService,
         telemetryService,
         ingestService,
-        notifier: createDistroNotifier(),
+        notifier: createDistroNotifier(notificationService),
       });
       const analyticsService = new AnalyticsService({
         submissionService,

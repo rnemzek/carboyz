@@ -63,6 +63,8 @@ export function buildApprovalNotification({ submission, recommendedCounterOffer 
     title: `New ${currencyFormatter.format(submission.competitorOfferAmount)} Lead requires counter-offer sign-off`,
     body: `${vehicleTitle(submission)} — recommended counter ${currencyFormatter.format(recommendedCounterOffer)}`,
     submissionId: submission.id,
+    submission,
+    recommendedCounterOffer,
   };
 }
 

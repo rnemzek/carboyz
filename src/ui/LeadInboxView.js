@@ -1,6 +1,7 @@
 import { h } from './App.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
 import { renderQrSvg as renderPairingQrSvg } from '@nemzilla/qr-core';
+import { REJECTION_REASONS } from '../models/Submission.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -26,6 +27,14 @@ const DISPATCH_BADGES = {
   PENDING_APPROVAL: { label: 'Pending Sign-off', className: 'badge badge--pending-approval' },
   AUTO_COUNTER_SENT: { label: 'Auto-Countered', className: 'badge badge--auto-countered' },
 };
+
+const PASSED_BADGE = { label: '[PASSED]', className: 'badge badge--passed' };
+
+/** A rejected ("passed") lead is terminal: counter actions are disabled and it moves to the
+ * Lead Inbox's "Passed / Closed Leads" filter instead of "Active Leads". */
+export function isPassedLead(status) {
+  return status === 'REJECTED';
+}
 
 // ESTIMATE: the competitor offer came from a VIN-less "Estimate" screen (Submission.OFFER_SOURCE_TYPES).
 // NO_VIN_ESTIMATE is a derived third state (UOW-47): an ESTIMATE lead that still has no vin gets
@@ -86,14 +95,19 @@ function renderDocumentModal() {
   return { overlay, open };
 }
 
-function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend, onSendCounter, onDownloadAppraisal }) {
+function renderLeadCard(
+  lead,
+  { onStatusChange, onViewDocument, onApproveAndSend, onRejectLead, onSendCounter, onDownloadAppraisal },
+) {
+  const passed = isPassedLead(lead.status);
   const badge = spreadBadge(lead.spreadResult.status);
-  const dispatchBadge = DISPATCH_BADGES[lead.status];
+  const dispatchBadge = passed ? null : DISPATCH_BADGES[lead.status];
   const sourceBadge = offerSourceBadge(lead.offerSourceType, lead.vin);
 
   const top = h('div', { class: 'card__top' }, [
     h('h3', { class: 'card__title', text: lead.vehicleTitle }),
     h('span', { class: badge.className, text: badge.label }),
+    passed ? h('span', { class: PASSED_BADGE.className, text: PASSED_BADGE.label }) : null,
     dispatchBadge ? h('span', { class: dispatchBadge.className, text: dispatchBadge.label }) : null,
     sourceBadge ? h('span', { class: sourceBadge.className, text: sourceBadge.label }) : null,
   ]);
@@ -119,7 +133,12 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
     actions.appendChild(viewBtn);
   }
 
-  if (lead.status === 'PENDING_APPROVAL') {
+  if (passed) {
+    const reason = REJECTION_REASONS[lead.rejectionReason] ?? lead.rejectionReason;
+    actions.appendChild(
+      h('p', { class: 'card__meta', text: reason ? `Passed: ${reason}` : 'Passed' }),
+    );
+  } else if (lead.status === 'PENDING_APPROVAL') {
     const counterInput = h('input', {
       type: 'number',
       min: '0',
@@ -133,9 +152,12 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
     });
     const approveBtn = h('button', { class: 'button', type: 'button', text: 'Approve & Send' });
     approveBtn.addEventListener('click', () => onApproveAndSend(lead.id, Number(counterInput.value)));
+    const rejectBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Pass / Reject' });
+    rejectBtn.addEventListener('click', () => onRejectLead(lead.id));
     actions.appendChild(counterInput);
     actions.appendChild(modifyBtn);
     actions.appendChild(approveBtn);
+    actions.appendChild(rejectBtn);
   } else if (lead.status === 'AUTO_COUNTER_SENT') {
     const sendBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Send Counter' });
     sendBtn.addEventListener('click', async () => {
@@ -165,6 +187,63 @@ function renderLeadCard(lead, { onStatusChange, onViewDocument, onApproveAndSend
   }
 
   return h('article', { class: 'card' }, [top, meta, offers, actions]);
+}
+
+function renderRejectionModal({ onConfirm }) {
+  const select = h(
+    'select',
+    { class: 'modal__reject-select' },
+    Object.entries(REJECTION_REASONS).map(([value, label]) => h('option', { value, text: label })),
+  );
+  const notesInput = h('textarea', {
+    class: 'modal__reject-notes',
+    rows: '3',
+    placeholder: 'Optional notes for the desk...',
+  });
+  const cancelBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Cancel' });
+  const confirmBtn = h('button', { class: 'button', type: 'button', text: 'Confirm Pass' });
+  const modal = h('div', { class: 'modal modal--reject' }, [
+    h('h3', { class: 'modal__stage', text: 'Pass on this Lead' }),
+    h('label', { class: 'modal__reject-label', text: 'Reason' }),
+    select,
+    h('label', { class: 'modal__reject-label', text: 'Notes (optional)' }),
+    notesInput,
+    h('div', { class: 'card__actions' }, [cancelBtn, confirmBtn]),
+  ]);
+  const overlay = h('div', { class: 'modal-overlay', hidden: '' }, [modal]);
+
+  let currentLeadId = null;
+
+  function close() {
+    overlay.hidden = true;
+    currentLeadId = null;
+    notesInput.value = '';
+  }
+
+  cancelBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+  confirmBtn.addEventListener('click', () => {
+    if (!currentLeadId) {
+      return;
+    }
+    const leadId = currentLeadId;
+    const rejectionReason = select.value;
+    const rejectionNotes = notesInput.value.trim() || null;
+    close();
+    onConfirm(leadId, { rejectionReason, rejectionNotes });
+  });
+
+  function open(leadId) {
+    currentLeadId = leadId;
+    notesInput.value = '';
+    overlay.hidden = false;
+  }
+
+  return { overlay, open };
 }
 
 function renderSyncToast(syncToast) {
@@ -234,17 +313,47 @@ function renderPairingCard(controller) {
 export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, syncToast = null } = {}) {
   const list = h('div', { class: 'card-list' });
   const { overlay: documentModal, open: openDocumentModal } = renderDocumentModal();
+  const { overlay: rejectionModal, open: openRejectionModal } = renderRejectionModal({
+    onConfirm: (id, { rejectionReason, rejectionNotes }) => {
+      controller.rejectLead(id, { rejectionReason, rejectionNotes });
+      renderList();
+    },
+  });
   const sentMessageOverrides = new Map();
+  let activeFilter = 'ACTIVE';
+
+  const activeFilterBtn = h('button', { class: 'button button--secondary', type: 'button', text: 'Active Leads' });
+  const closedFilterBtn = h('button', {
+    class: 'button button--secondary',
+    type: 'button',
+    text: 'Passed / Closed Leads',
+  });
+  activeFilterBtn.addEventListener('click', () => {
+    activeFilter = 'ACTIVE';
+    renderList();
+  });
+  closedFilterBtn.addEventListener('click', () => {
+    activeFilter = 'CLOSED';
+    renderList();
+  });
+  const filterToggle = h('div', { class: 'card__actions filter-toggle' }, [activeFilterBtn, closedFilterBtn]);
 
   function renderList() {
     list.replaceChildren();
-    const leads = controller.buildLeadViewModels();
+    activeFilterBtn.classList.toggle('button--active', activeFilter === 'ACTIVE');
+    closedFilterBtn.classList.toggle('button--active', activeFilter === 'CLOSED');
+    const leads = controller
+      .buildLeadViewModels()
+      .filter((lead) => (activeFilter === 'CLOSED' ? isPassedLead(lead.status) : !isPassedLead(lead.status)));
 
     if (leads.length === 0) {
       list.appendChild(
         h('p', {
           class: 'empty-state',
-          text: 'No submissions yet. Leads will appear here once sellers submit an offer.',
+          text:
+            activeFilter === 'CLOSED'
+              ? 'No passed or closed leads yet.'
+              : 'No submissions yet. Leads will appear here once sellers submit an offer.',
         }),
       );
       return;
@@ -264,6 +373,7 @@ export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, s
             sentMessageOverrides.set(id, message);
             renderList();
           },
+          onRejectLead: (id) => openRejectionModal(id),
           onSendCounter: onSendCounter ?? (() => Promise.resolve({ shared: false })),
           onDownloadAppraisal: tenantConfig
             ? (id) =>
@@ -285,8 +395,10 @@ export function renderLeadInboxView(controller, { onSendCounter, tenantConfig, s
     h('p', { class: 'view__subtitle', text: 'Submitted offers, scored against market comps.' }),
     renderPairingCard(controller),
     renderSyncToast(syncToast),
+    filterToggle,
     list,
     documentModal,
+    rejectionModal,
   ]);
 
   return { section, refresh: renderList };

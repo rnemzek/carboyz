@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Submission } from '../src/models/Submission.js';
+import { Submission, REJECTION_REASONS } from '../src/models/Submission.js';
 
 function baseData(overrides = {}) {
   return {
@@ -108,6 +108,51 @@ test('Submission allows a missing vin only when offerSourceType is ESTIMATE (UOW
     baseData({ vin: '1HGCM82633A004352', offerSourceType: 'ESTIMATE' }),
   );
   assert.equal(verifiedEstimate.vin, '1HGCM82633A004352');
+});
+
+test('Submission accepts REJECTED status when given a valid rejectionReason', () => {
+  const submission = new Submission(
+    baseData({ status: 'REJECTED', rejectionReason: 'CUSTOMER_UNRESPONSIVE' }),
+  );
+  assert.equal(submission.status, 'REJECTED');
+  assert.equal(submission.rejectionReason, 'CUSTOMER_UNRESPONSIVE');
+});
+
+test('Submission requires a rejectionReason when status is REJECTED', () => {
+  assert.throws(() => new Submission(baseData({ status: 'REJECTED' })), /rejectionReason/);
+});
+
+test('Submission rejects a rejectionReason outside the allowed enum', () => {
+  assert.throws(
+    () => new Submission(baseData({ status: 'REJECTED', rejectionReason: 'BECAUSE_I_SAID_SO' })),
+    /rejectionReason/,
+  );
+});
+
+test('Submission exposes all five rejectionReason enum values with human-readable labels', () => {
+  assert.deepEqual(Object.keys(REJECTION_REASONS), [
+    'COMPETITOR_OVER_RETAIL',
+    'TITLE_OR_CONDITION_ISSUE',
+    'INVENTORY_SATURATION',
+    'CUSTOMER_UNRESPONSIVE',
+    'OTHER',
+  ]);
+});
+
+test('Submission defaults rejectionReason and rejectionNotes to null and accepts optional rejectionNotes', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.rejectionReason, null);
+  assert.equal(submission.rejectionNotes, null);
+
+  const rejected = new Submission(
+    baseData({ status: 'REJECTED', rejectionReason: 'OTHER', rejectionNotes: 'Seller ghosted us.' }),
+  );
+  assert.equal(rejected.rejectionNotes, 'Seller ghosted us.');
+
+  assert.throws(
+    () => new Submission(baseData({ status: 'REJECTED', rejectionReason: 'OTHER', rejectionNotes: 42 })),
+    /rejectionNotes/,
+  );
 });
 
 test('Submission defaults isAutoApproved, priceTierBucket, and projectedMargin to null and validates their types', () => {

@@ -110,10 +110,23 @@ test('buildAppraisalPayload includes mile-allowance and expiration disclaimers',
     tenantConfig: createTenantConfig({ name: 'Acme Motors' }),
   });
   assert.equal(payload.mileAllowanceMiles, MILE_ALLOWANCE_MILES);
-  assert.equal(payload.disclaimers.length, 3);
+  assert.equal(payload.disclaimers.length, 5);
   assert.match(payload.disclaimers[0], new RegExp(`${EXPIRATION_WINDOW_DAYS} days`));
   assert.match(payload.disclaimers[1], new RegExp(`${MILE_ALLOWANCE_MILES} miles`));
   assert.match(payload.disclaimers[2], /Acme Motors inspection/);
+});
+
+test('buildAppraisalPayload includes hardened title/theft verification disclaimers (UOW-49)', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission(),
+    tenantConfig: createTenantConfig({ name: 'Acme Motors' }),
+  });
+  assert.match(payload.disclaimers[3], /strictly conditional upon a satisfactory physical title inspection/);
+  assert.match(payload.disclaimers[4], /NMVTIS/);
+  assert.match(payload.disclaimers[4], /CARFAX\/AutoCheck/);
+  assert.match(payload.disclaimers[4], /salvage, flood, lemon/);
+  assert.match(payload.disclaimers[4], /lien release/);
+  assert.match(payload.disclaimers[4], /NICB theft records/);
 });
 
 test('buildAppraisalPayload labels a FIRM_OFFER (and the default, unset) counter as guaranteed', () => {
@@ -207,6 +220,27 @@ test('renderAppraisalSvg escapes XML-significant characters in free text', () =>
   assert.doesNotMatch(svg, /<Motors>/);
   assert.match(svg, /Acme &lt;Motors&gt; &amp; Co/);
   assert.match(svg, /Bob&apos;s &lt;Cars&gt; &amp; &quot;Trucks&quot;/);
+});
+
+test('renderAppraisalSvg embeds the hardened title/NMVTIS/theft disclaimers, word-wrapped without truncation', () => {
+  const payload = buildAppraisalPayload({
+    submission: baseSubmission(),
+    tenantConfig: createTenantConfig({ name: 'Acme Motors' }),
+  });
+  const svg = renderAppraisalSvg(payload);
+
+  assert.match(svg, /physical title inspection/);
+  assert.match(svg, /NMVTIS/);
+  assert.match(svg, /CARFAX\/AutoCheck/);
+  assert.match(svg, /NICB theft records/);
+
+  // Every disclaimer <text> line must be short enough to render fully within the document's
+  // printable width — none should be cut off at the document's right edge.
+  const textContents = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map(([, content]) => content);
+  const disclaimerLines = textContents.filter((text) => text.length > 0 && !text.startsWith('Generated '));
+  for (const line of disclaimerLines) {
+    assert.ok(line.length <= 140, `expected line "${line}" to be wrapped under 140 chars`);
+  }
 });
 
 test('renderAppraisalSvg embeds a logo <image> when logoUrl is set', () => {

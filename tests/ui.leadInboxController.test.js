@@ -166,6 +166,43 @@ test('approveAndSend works without a sessionStashService configured', () => {
   assert.doesNotThrow(() => controller.approveAndSend(created.id, 16000));
 });
 
+test('rejectLead marks the submission REJECTED and persists the rejection reason and notes', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission());
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const updated = controller.rejectLead(created.id, {
+    rejectionReason: 'TITLE_OR_CONDITION_ISSUE',
+    rejectionNotes: 'Salvage title per NMVTIS check.',
+  });
+
+  assert.equal(updated.status, 'REJECTED');
+  assert.equal(updated.rejectionReason, 'TITLE_OR_CONDITION_ISSUE');
+  assert.equal(updated.rejectionNotes, 'Salvage title per NMVTIS check.');
+
+  const [lead] = controller.buildLeadViewModels();
+  assert.equal(lead.status, 'REJECTED');
+  assert.equal(lead.rejectionReason, 'TITLE_OR_CONDITION_ISSUE');
+});
+
+test('rejectLead defaults rejectionNotes to null when omitted', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission());
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const updated = controller.rejectLead(created.id, { rejectionReason: 'OTHER' });
+
+  assert.equal(updated.rejectionNotes, null);
+});
+
+test('rejectLead throws without a valid rejectionReason, mirroring the Submission model validation', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission());
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  assert.throws(() => controller.rejectLead(created.id, {}), /rejectionReason/);
+});
+
 test('getSubmission returns the matching submission by id, or null when not found', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   const created = submissionService.submit(baseSubmission());

@@ -161,15 +161,93 @@ test('createApp defaults staticRoot to the repo root, serving the real index.htm
   assert.match(await res.text(), /<div id="app-root">/);
 });
 
+const DEALER_AUTH_HEADER = { Authorization: `Basic ${Buffer.from('admin:carboyz2026').toString('base64')}` };
+
 test('GET /dealer serves the same index.html shell as the root, for client-side dealer-view routing', async () => {
   await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
     const app = createApp({ staticRoot });
-    const res = await app.request('/dealer');
+    const res = await app.request('/dealer', { headers: DEALER_AUTH_HEADER });
 
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/html/);
     assert.equal(await res.text(), '<!doctype html><title>shell</title>');
   });
+});
+
+test('GET /dealer without credentials gets a 401 basic-auth challenge', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+    const res = await app.request('/dealer');
+
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('www-authenticate') ?? '', /Basic/);
+  });
+});
+
+test('GET /dealer with the wrong credentials gets a 401', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+    const res = await app.request('/dealer', {
+      headers: { Authorization: `Basic ${Buffer.from('admin:wrong-password').toString('base64')}` },
+    });
+
+    assert.equal(res.status, 401);
+  });
+});
+
+test('GET /dealer/anything (a dealer sub-path) also requires credentials', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+
+    const unauthed = await app.request('/dealer/sub-view');
+    assert.equal(unauthed.status, 401);
+
+    const authed = await app.request('/dealer/sub-view', { headers: DEALER_AUTH_HEADER });
+    // No file/route matches this sub-path, but auth passed, so it falls through to a plain 404
+    // rather than a 401 challenge.
+    assert.equal(authed.status, 404);
+  });
+});
+
+test('GET / (and static assets, and /api/offers/*) stays public with no basic-auth challenge', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+
+    const rootRes = await app.request('/');
+    assert.equal(rootRes.status, 200);
+
+    const parseRes = await app.request('/api/offers/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentBase64: 'data:text/plain;base64,aGk=' }),
+    });
+    assert.equal(parseRes.status, 200);
+  });
+});
+
+test('basicAuth credentials honor DEALER_USER/DEALER_PASSWORD env overrides', async () => {
+  const previousUser = process.env.DEALER_USER;
+  const previousPassword = process.env.DEALER_PASSWORD;
+  process.env.DEALER_USER = 'custom-user';
+  process.env.DEALER_PASSWORD = 'custom-pass';
+  try {
+    await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+      const app = createApp({ staticRoot });
+
+      const defaultCreds = await app.request('/dealer', { headers: DEALER_AUTH_HEADER });
+      assert.equal(defaultCreds.status, 401);
+
+      const customCreds = await app.request('/dealer', {
+        headers: { Authorization: `Basic ${Buffer.from('custom-user:custom-pass').toString('base64')}` },
+      });
+      assert.equal(customCreds.status, 200);
+    });
+  } finally {
+    if (previousUser === undefined) delete process.env.DEALER_USER;
+    else process.env.DEALER_USER = previousUser;
+    if (previousPassword === undefined) delete process.env.DEALER_PASSWORD;
+    else process.env.DEALER_PASSWORD = previousPassword;
+  }
 });
 
 test('POST /api/offers/parse extracts fields from a well-formed offer document', async () => {

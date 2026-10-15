@@ -115,6 +115,8 @@ export function buildAppraisalPayload({ submission, tenantConfig, verificationBa
       `This guaranteed counter-offer is valid for ${EXPIRATION_WINDOW_DAYS} days from the date of issue, expiring ${expiresAtLabel}.`,
       `Offer amount assumes the vehicle's mileage is within ${MILE_ALLOWANCE_MILES} miles of the mileage stated above at the time of inspection.`,
       `Final payout is subject to an in-person ${tenantConfig.name} inspection confirming the vehicle's condition and title status.`,
+      `This counter-offer is strictly conditional upon a satisfactory physical title inspection prior to purchase.`,
+      `Prior to purchase, ${tenantConfig.name} will verify this vehicle's title against NMVTIS and CARFAX/AutoCheck branding records (salvage, flood, lemon), confirm lien release, and check NICB theft records.`,
     ],
   };
 }
@@ -193,15 +195,46 @@ function renderQrBlock(payload) {
   );
 }
 
+// Character budget per wrapped line, sized conservatively for 12px sans-serif text within the
+// document's printable width (DOCUMENT_WIDTH - 96 margin) so a long disclaimer never overflows
+// or gets truncated at the document's right edge.
+const DISCLAIMER_MAX_CHARS_PER_LINE = 92;
+const DISCLAIMER_LINE_HEIGHT = 20;
+
+/** Greedy word wrap — no DOM/canvas text-measurement available in this SVG-string context. */
+function wrapText(text, maxCharsPerLine) {
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines;
+}
+
 function renderDisclaimers(payload) {
   const startY = 640;
-  const lines = payload.disclaimers
-    .map((line, index) => `<text x="48" y="${startY + index * 40}" font-size="12" font-family="sans-serif" fill="#444444" width="500">${escapeXml(line)}</text>`)
+  const wrappedLines = payload.disclaimers.flatMap((line) => wrapText(line, DISCLAIMER_MAX_CHARS_PER_LINE));
+  const lines = wrappedLines
+    .map(
+      (line, index) =>
+        `<text x="48" y="${startY + index * DISCLAIMER_LINE_HEIGHT}" font-size="12" font-family="sans-serif" fill="#444444">${escapeXml(line)}</text>`,
+    )
     .join('');
+  const footerY = Math.max(DOCUMENT_HEIGHT - 40, startY + wrappedLines.length * DISCLAIMER_LINE_HEIGHT + 20);
   return (
     `<text x="48" y="${startY - 24}" font-size="16" font-family="sans-serif" font-weight="bold" fill="#111318">Terms &amp; Disclaimers</text>` +
     lines +
-    `<text x="48" y="${DOCUMENT_HEIGHT - 40}" font-size="11" font-family="sans-serif" fill="#999999">Generated ${escapeXml(payload.generatedAtLabel)} — expires ${escapeXml(payload.expiresAtLabel)}</text>`
+    `<text x="48" y="${footerY}" font-size="11" font-family="sans-serif" fill="#999999">Generated ${escapeXml(payload.generatedAtLabel)} — expires ${escapeXml(payload.expiresAtLabel)}</text>`
   );
 }
 

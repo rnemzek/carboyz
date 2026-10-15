@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { offerSourceBadge } from '../src/ui/LeadInboxView.js';
+import { offerSourceBadge, isPassedLead } from '../src/ui/LeadInboxView.js';
 
 test('offerSourceBadge renders an amber [ESTIMATE COUNTER] badge for a VIN-verified ESTIMATE lead', () => {
   const badge = offerSourceBadge('ESTIMATE', '1HGCM82633A004352');
@@ -28,4 +28,12 @@ test('offerSourceBadge returns null for an unset or unrecognized offerSourceType
   assert.equal(offerSourceBadge(undefined), null);
   assert.equal(offerSourceBadge(null), null);
   assert.equal(offerSourceBadge('WHATEVER'), null);
+});
+
+test('isPassedLead is true only for REJECTED status', () => {
+  assert.equal(isPassedLead('REJECTED'), true);
+  assert.equal(isPassedLead('PENDING_APPROVAL'), false);
+  assert.equal(isPassedLead('AUTO_COUNTER_SENT'), false);
+  assert.equal(isPassedLead('DECLINED'), false);
+  assert.equal(isPassedLead(undefined), false);
 });

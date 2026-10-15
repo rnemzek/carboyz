@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { basicAuth } from 'hono/basic-auth';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { readFileSync } from 'node:fs';
@@ -67,6 +68,15 @@ export function createApp({ startedAt = Date.now(), staticRoot = REPO_ROOT } = {
     }
     return c.json(parseOfferDocument({ documentBase64: body.documentBase64, mimeType: body.mimeType }));
   });
+
+  // Gates the dealer portal behind HTTP Basic Auth (UOW-49): credentials come from env, with a
+  // dev/test fallback so a fresh checkout can still exercise `/dealer` without a .env.local.
+  const dealerAuth = basicAuth({
+    username: process.env.DEALER_USER || 'admin',
+    password: process.env.DEALER_PASSWORD || 'carboyz2026',
+  });
+  app.use('/dealer', dealerAuth);
+  app.use('/dealer/*', dealerAuth);
 
   // SPA route for the dealer portal (UOW-48): serveStatic has no history-API fallback, so a
   // direct navigation to /dealer would otherwise 404. The client resolves the actual view from

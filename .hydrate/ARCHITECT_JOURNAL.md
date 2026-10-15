@@ -575,3 +575,72 @@ sequenceDiagram
 - `DealerProfileService` and `SpreadConfigService` are now both reachable from inside the Admin
   view but remain fully independent services/storage keys — there is no shared "Admin domain"
   abstraction, by design, to avoid coupling pricing policy to roster management prematurely.
+
+## UOW-49 completed - 20261015
+Desk Pass/Reject workflow, hardened title/theft appraisal disclaimers, a pluggable SMS
+notification dispatch hook, and a Hono `basicAuth` gate on the `/dealer` portal.
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Dealer-portal auth | Hono `basicAuth` middleware on `/dealer` + `/dealer/*` | Session-cookie login flow | UOW scope is a lightweight walk-up-device gate, same tier as UOW-48's Admin PIN — not a real auth system. `hono/basic-auth` ships with the already-installed `hono` dep, zero new packages. |
+| SMS transport | `TwilioSmsAdapter` calling Twilio's REST API directly via `fetch` + HTTP Basic Auth | `twilio` npm SDK | Keeps the zero-dependency/ESM-first precedent; Twilio's REST API needs no SDK for a single `POST /Messages.json` call. |
+| Notifier wiring location | `NotificationService` constructed in `App.js` (client) with `ConsoleSmsAdapter` only | A new server route that owns real Twilio dispatch | `DispatchService` (the thing that decides `PENDING_APPROVAL`) only runs client-side today — no server endpoint exists for it. Shipping real Twilio credentials into the browser bundle would be a secrets-exposure vulnerability, so the Twilio-capable path is exercised only in Node (tests / a future trusted backend), not wired live. |
+| `NotificationService` contract | `notify(notification)`, matching `DispatchService`'s existing `notifier` DI slot | A new `onPendingApproval` hook on `DispatchService` | No new coupling needed — `buildApprovalNotification()` already had a single call site; adding `submission`/`recommendedCounterOffer` to its return value was additive and let the existing `notifier.notify()` contract carry everything `NotificationService` needs. |
+
+**Workflow / Sequence Diagram**
+
+```mermaid
+sequenceDiagram
+    participant Manager
+    participant View as LeadInboxView
+    participant Ctrl as LeadInboxController
+    participant Dispatch as DispatchService
+    participant Notify as NotificationService
+    participant Roster as DealerProfileService
+    participant Sms as SmsAdapter
+
+    Note over Dispatch,Notify: Existing PENDING_APPROVAL path, now SMS-wired
+    Dispatch->>Dispatch: evaluate() -> manual review required
+    Dispatch->>Notify: notifier.notify(notification incl. submission)
+    Notify->>Roster: listMembers()
+    Roster-->>Notify: roster
+    Notify->>Notify: filter notifyOnPending === true
+    loop each matching member
+        Notify->>Sms: sendSms({to, body})
+    end
+
+    Note over Manager,Ctrl: New desk Pass/Reject workflow
+    Manager->>View: clicks "Pass / Reject" on a PENDING_APPROVAL card
+    View->>View: opens rejection modal (reason + optional notes)
+    Manager->>View: confirms
+    View->>Ctrl: rejectLead(id, {rejectionReason, rejectionNotes})
+    Ctrl->>Ctrl: submissionService.updateFields(status: REJECTED, ...)
+    View->>View: re-render: [PASSED] badge, counter actions disabled
+```
+
+**Architectural Wisdom**
+- The literal UOW spec implied a `src/server/services/NotificationService.js` vs
+  `src/client/services/DispatchService.js` split that doesn't exist in this repo (everything is
+  flat under `src/services`). Rather than inventing that split or a new unrequested server route,
+  `NotificationService` lives beside `DispatchService` in `src/services/`, and the Twilio-sending
+  path is a tested capability of the module that is deliberately **not** exercised from the
+  browser bundle — only `ConsoleSmsAdapter` is. If real SMS dispatch is ever wanted from production,
+  it needs a trusted backend (a new Hono route) to hold the Twilio credentials and call
+  `NotificationService` server-side; this UOW does not build that route.
+- `buildApprovalNotification()`'s return value gained `submission`/`recommendedCounterOffer`
+  fields. This was additive on purpose — the existing `dispatchService.test.js` assertions only
+  check specific fields (`target`, `submissionId`, `title`/`body` via `match`), never a full
+  `deepEqual`, so extending the notification shape to carry what a richer notifier needs couldn't
+  silently break an existing contract.
+- `REJECTED` is a new **terminal** `Submission.status` requiring a `rejectionReason`, enforced in
+  the model constructor (not just at the controller layer) — the same "validate at the model, not
+  just the call site" precedent as every other `Submission` field. The Lead Inbox's "Active" vs
+  "Passed / Closed" filter is scoped to `REJECTED` only, not the pre-existing `DECLINED` status, to
+  avoid silently reinterpreting a status that predates this UOW.
+- `appraisalPdfGenerator.js`'s disclaimer renderer previously assumed every disclaimer string fits
+  one fixed-position `<text>` line with no wrapping. Adding two longer legal disclaimers exposed
+  that this assumption would have overflowed the document's printable width — fixed with a small
+  greedy word-wrapper and a footer position that floats below the wrapped content, rather than
+  working around it by keeping the new disclaimers artificially short.

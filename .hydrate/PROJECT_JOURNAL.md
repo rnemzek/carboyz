@@ -57,3 +57,8 @@
 ### UOW-48 — completed 2026-10-15
 - Iterations logged: 0
 - Suggested commit: `feat(auth): add role route separation, admin pin lockout, and dealer roster UI`
+- [x] **[UOW-49]** Desk Actions, Title Disclaimers, SMS Dispatch Hook & Hono Dealer BasicAuth — 2026-10-15 | Pass: 720/720 tests
+
+### UOW-49 — completed 2026-10-15
+- Iterations logged: 0
+- Suggested commit: `feat(leads): add basicAuth gate, desk reject actions, title disclaimers, and sms dispatch hook`

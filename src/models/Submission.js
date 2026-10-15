@@ -6,7 +6,17 @@ export const SUBMISSION_STATUSES = [
   'DECLINED',
   'PENDING_APPROVAL',
   'AUTO_COUNTER_SENT',
+  'REJECTED',
 ];
+// Desk "Pass / Reject Lead" workflow (UOW-49): the key is the persisted rejectionReason value,
+// the value is its human-readable label for the rejection modal and lead card.
+export const REJECTION_REASONS = Object.freeze({
+  COMPETITOR_OVER_RETAIL: 'Competitor offer exceeds market retail',
+  TITLE_OR_CONDITION_ISSUE: 'Title brand, NMVTIS, or physical condition risk',
+  INVENTORY_SATURATION: 'Dealership overstocked on this make/model',
+  CUSTOMER_UNRESPONSIVE: 'Unable to contact seller',
+  OTHER: 'Other reason',
+});
 export const WIN_LOSS_STATUSES = [
   'PENDING',
   'AUTO_COUNTERED',
@@ -64,6 +74,8 @@ export class Submission {
     isAutoApproved,
     priceTierBucket,
     projectedMargin,
+    rejectionReason,
+    rejectionNotes,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -131,6 +143,19 @@ export class Submission {
       throw new Error('Submission priceTierBucket must be a string');
     }
     validateOptionalNumber(projectedMargin, 'projectedMargin', { allowNegative: true });
+    if (
+      rejectionReason !== undefined &&
+      rejectionReason !== null &&
+      !Object.keys(REJECTION_REASONS).includes(rejectionReason)
+    ) {
+      throw new Error(`Submission rejectionReason must be one of: ${Object.keys(REJECTION_REASONS).join(', ')}`);
+    }
+    if (status === 'REJECTED' && !rejectionReason) {
+      throw new Error('Submission requires a rejectionReason when status is REJECTED');
+    }
+    if (rejectionNotes !== undefined && rejectionNotes !== null && typeof rejectionNotes !== 'string') {
+      throw new Error('Submission rejectionNotes must be a string');
+    }
 
     this.id = id;
     this.timestamp = timestamp;
@@ -159,5 +184,7 @@ export class Submission {
     this.isAutoApproved = isAutoApproved ?? null;
     this.priceTierBucket = priceTierBucket ?? null;
     this.projectedMargin = projectedMargin ?? null;
+    this.rejectionReason = rejectionReason ?? null;
+    this.rejectionNotes = rejectionNotes ?? null;
   }
 }

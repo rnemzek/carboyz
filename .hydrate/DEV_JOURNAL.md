@@ -1310,3 +1310,87 @@ through the roster form round-trips through `DealerProfileService` and renders w
 phone; "Lock Admin" re-locks; the seller-view footer link is present on the dealer portal.
 Screenshots reviewed, caught and fixed the unstyled-PIN-input and duplicate-"Admin"-heading issues
 noted above before considering this done.
+
+## [UOW-49] Desk Actions, Title Disclaimers, SMS Dispatch Hook & Hono Dealer BasicAuth — 2026-10-15
+
+**Path mapping:** The UOW spec's file paths assumed a `src/client/` vs `src/server/` split that
+doesn't exist in this repo — services/models/UI all live flat under `src/services`, `src/models`,
+`src/ui`. Mapped surgically onto the real tree instead of creating a parallel structure:
+`src/models/Submission.js`, `src/ui/LeadInboxController.js`/`LeadInboxView.js`,
+`src/utils/appraisalPdfGenerator.js`, `src/services/DispatchService.js` (already existed), and the
+new `src/services/NotificationService.js` (not `src/server/services/...` — see below).
+
+**Task 1 — Hono basicAuth (`src/server/index.js`):** Added `basicAuth` from `hono/basic-auth` on
+`app.use('/dealer', ...)` and `app.use('/dealer/*', ...)`, registered before the existing
+`app.get('/dealer', ...)` SPA-shell route and before the catch-all `serveStatic`. Credentials read
+from `process.env.DEALER_USER`/`DEALER_PASSWORD`, defaulting to `admin`/`carboyz2026` for a fresh
+checkout. `/`, static assets, and `/api/offers/*` are untouched and stay public.
+
+**Task 2 — Submission model (`src/models/Submission.js`):** Added `'REJECTED'` to
+`SUBMISSION_STATUSES` and a new `REJECTION_REASONS` enum (5 values incl. `OTHER`) plus nullable
+`rejectionReason`/`rejectionNotes` fields. `rejectionReason` is required when `status ===
+'REJECTED'` and, when present, must be one of the enum keys; `rejectionNotes` is free-text and
+optional. Enforced in the constructor alongside the existing validation precedent.
+
+**Task 3 — Desk Pass/Reject (`src/ui/LeadInboxController.js` + `LeadInboxView.js`):** Controller
+gained `rejectLead(id, { rejectionReason, rejectionNotes })`, a thin wrapper over the existing
+generic `submissionService.updateFields` (same pattern as `markWinLoss`/`approveAndSend`), and
+`buildLeadViewModels()` now surfaces `rejectionReason`/`rejectionNotes`. View adds a "Pass /
+Reject" button beside "Approve & Send" on `PENDING_APPROVAL` cards, a reusable rejection modal
+(reason `<select>` + optional notes `<textarea>`, mirroring the existing `renderDocumentModal`
+singleton-overlay pattern), a muted-gray `[PASSED]` badge + disabled counter actions for
+`REJECTED` leads (new exported pure helper `isPassedLead(status)`, consistent with the existing
+`offerSourceBadge` pure-helper testing precedent), and an "Active Leads" / "Passed / Closed Leads"
+filter toggle that filters the already-fetched lead list client-side.
+
+**Task 4 — Title/theft disclaimers (`src/utils/appraisalPdfGenerator.js`):** Added two disclaimer
+strings (conditional-on-physical-title-inspection; NMVTIS/CARFAX/AutoCheck branding + lien release
++ NICB theft records) to `buildAppraisalPayload`'s `disclaimers` array (3 → 5). Since the existing
+`renderDisclaimers` rendered each disclaimer as one fixed-position `<text>` line with no wrapping,
+longer disclaimer text would have overflowed/truncated past the document's right margin as the UOW
+explicitly warned against — added a small greedy `wrapText()` word-wrapper (92-char budget sized to
+the printable width) and made the footer position float below the wrapped content instead of a
+fixed offset, so it never collides.
+
+**Task 5 — NotificationService SMS dispatch (`src/services/NotificationService.js`):** Built as a
+browser-safe module (not server-only) with `ConsoleSmsAdapter` (dev/test default, logs to stdout)
+and `TwilioSmsAdapter` (calls Twilio's REST API directly via `fetch` + HTTP Basic Auth — no SDK
+dependency added, keeping the zero-dependency precedent) selected by `createSmsAdapterFromEnv(env)`
+when `TWILIO_ACCOUNT_SID`/`AUTH_TOKEN`/`FROM_NUMBER` are all set. `NotificationService.notify()`
+matches `DispatchService`'s existing `notifier.notify(notification)` contract, so it plugs straight
+into the `notifier` DI slot already in `DispatchService.dispatch()`'s `PENDING_APPROVAL` branch;
+extended `buildApprovalNotification()` to carry the full `submission` object (additive — existing
+`target`/`title`/`body`/`submissionId` assertions in `dispatchService.test.js` are unaffected) so
+the notifier can read `year`/`make`/`model`/`competitor`/`amount` for the SMS template.
+`notifyPendingApproval()` filters `dealerProfileService.listMembers()` strictly to
+`notifyOnPending === true` before sending.
+
+**Security note (deviation from the literal UOW path):** The UOW named
+`src/server/services/NotificationService.js`, implying server-side dispatch, but `DispatchService`
+— the thing that actually triggers `PENDING_APPROVAL` — only ever runs client-side today (no
+server route for it exists). Rather than invent a new unrequested server endpoint, wired
+`NotificationService` into `App.js`'s existing `createDistroNotifier()` with its
+`ConsoleSmsAdapter` default only. Real Twilio credentials are never read into the browser bundle —
+`createSmsAdapterFromEnv` reads `process.env` and is only meaningfully exercised in Node (tests);
+the browser wiring documents this tradeoff inline rather than shipping a secrets-in-the-client
+vulnerability. Flagged to the Product Owner in the session summary rather than silently assumed.
+
+**New tests:** `tests/notificationService.test.js` (new — adapters, template, roster filtering,
+`notify()` delegation), plus additions to `tests/submission.test.js` (REJECTED/rejectionReason
+validation), `tests/ui.leadInboxController.test.js` (`rejectLead`), `tests/ui.leadInboxView.test.js`
+(`isPassedLead`), `tests/appraisalPdfGenerator.test.js` (new disclaimer content + word-wrap/no-
+overflow check), `tests/dispatchService.test.js` (NotificationService wired as the real notifier),
+and `tests/server.test.js` (401 without creds, 200 with creds, `/dealer/*` sub-paths, env-var
+override, `/` and `/api/offers/*` stay public). No DOM-rendering tests for the new
+modal/filter-toggle UI in `LeadInboxView.js` — consistent with this repo's existing precedent that
+View files are exercised only through their exported pure helpers (`offerSourceBadge`,
+`isPassedLead`), with the actual logic covered in the tested `LeadInboxController`.
+
+**Verification:** `npm test` → 720/720 passing (29 new tests on top of the prior 691).
+`node --test --experimental-test-coverage` confirms every modified core domain model/service clears
+the 80% line+branch gate: `Submission.js` 100/100, `DispatchService.js` 100/94.87,
+`NotificationService.js` 100/100, `LeadInboxController.js` 100/97.44. Did **not** drive this one
+through a real browser session (no UI-automation tool available in this session) — the new
+Pass/Reject modal, filter toggle, and badge wiring in `LeadInboxView.js` are unverified beyond unit
+tests on their pure helpers and the controller logic underneath; flagged to the Product Owner as a
+follow-up before next live test-drive.
