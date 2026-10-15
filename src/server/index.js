@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createWsRelay } from './wsRelay.js';
@@ -66,6 +67,11 @@ export function createApp({ startedAt = Date.now(), staticRoot = REPO_ROOT } = {
     }
     return c.json(parseOfferDocument({ documentBase64: body.documentBase64, mimeType: body.mimeType }));
   });
+
+  // SPA route for the dealer portal (UOW-48): serveStatic has no history-API fallback, so a
+  // direct navigation to /dealer would otherwise 404. The client resolves the actual view from
+  // this path in src/config/viewResolution.js.
+  app.get('/dealer', (c) => c.html(readFileSync(join(staticRoot, 'index.html'), 'utf8')));
 
   // Catch-all static fallback for the PWA shell (index.html, manifest, src/, public/, vendor/).
   // Registered last so it only runs for requests the explicit API routes above didn't already

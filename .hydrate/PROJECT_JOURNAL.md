@@ -52,3 +52,8 @@
 ### UOW-47 — completed 2026-10-13
 - Iterations logged: 0
 - Suggested commit: `feat: complete UOW-47`
+- [x] **[UOW-48]** Role Route Separation, Admin PIN Lockout, and Dealer Profile Roster UI — 2026-10-15 | Pass: 691/691 tests
+
+### UOW-48 — completed 2026-10-15
+- Iterations logged: 0
+- Suggested commit: `feat(auth): add role route separation, admin pin lockout, and dealer roster UI`

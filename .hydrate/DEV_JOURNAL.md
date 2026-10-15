@@ -1243,3 +1243,70 @@ golden pipeline test file was not modified and its asserted numbers/outcome are 
 Coverage spot-checked via `node --test --experimental-test-coverage`: `Submission.js` 100/100/100,
 `DispatchService.js` 100/94.87/100, `SpreadService.js` 100/94.44/100, `SpreadConfigService.js`
 96.07/93.33/100, `LeadInboxController.js` 100/97.37/100 — all well above the 80% line/branch gate.
+
+## [UOW-48] Role Route Separation, Admin PIN Lockout, and Dealer Profile Roster UI — 2026-10-15
+
+**Checkup discrepancy first:** `hydrate checkup` reported UOW-48 as "complete but unarchived"
+before any implementation existed. Root cause: `countOpenTasks()` in the `hydrate` CLI only counts
+literal `- [ ]` lines, and this UOW's payload was prose/bullets with no checklist syntax, so it
+read as 0 open tasks. Verified against the tree (no `AdminView.js`, `adminPin`, etc. existed
+anywhere) before proceeding with real implementation — flagged to the Product Owner, who confirmed
+to proceed.
+
+**New files:**
+- `src/config/viewResolution.js` — pure `resolveActiveView({ search, pathname })`, mirroring the
+  existing `tenantResolution.js` precedent. `?view=seller|dealer` wins over the path, `/dealer`
+  (with or without trailing slash) resolves dealer when there's no query override, anything else
+  defaults to `seller`.
+- `src/services/DealerProfileService.js` — tenant-scoped team roster CRUD (`carboyz:dealerProfile:
+  {tenantId}` in `storage`), following the `SpreadConfigService`/`SubmissionService` read/write +
+  sequence-id pattern. Seeds one default `MANAGER` member ("CarBoyZ Front Desk") when storage is
+  empty. `normalizePhone()` accepts a bare 10-digit US number (formatted to `(XXX) XXX-XXXX`) or
+  E.164 (`+<digits>`), throws on anything else.
+- `src/ui/AdminController.js` — PIN gate + roster delegate. `isUnlocked()`/`attemptUnlock(pin)`/
+  `lock()` persist the unlock flag to an injected `storage` (wired to `window.sessionStorage` in
+  `App.js`, so it clears on tab close but survives a reload within the session) under
+  `carboyz:adminUnlocked:{tenantId}`. `attemptUnlock` checks against `tenantConfig.adminPin`.
+- `src/ui/AdminView.js` — renders the 4-digit PIN challenge (auto-advance per digit, auto-submit on
+  the 4th, error + reset on mismatch) when locked; when unlocked, renders the team roster form/list
+  plus a "Lock Admin" button, and nests the existing `renderSpreadConfigView` pricing-tier UI below
+  it (its returned section's `id` is stripped and its `<h2>` retitled to "Pricing Tiers" via direct
+  DOM mutation, so there's no duplicate `#view-admin` id or duplicate "Admin" heading — chosen over
+  editing `SpreadConfigView.js` itself since nothing else needed to change there).
+
+**Modified:**
+- `src/config/tenantConfig.js` — `DEFAULT_TENANT_CONFIG.adminPin = '1234'` (exported as
+  `DEFAULT_ADMIN_PIN`), flows to every tenant preset through `TenantRegistry.register()`'s existing
+  `createTenantConfig(preset)` call.
+- `src/ui/App.js` — `mountApp()` now resolves `activeView` once at mount from
+  `window.location.search`/`pathname`. `render()` branches early for `VIEWS.SELLER`: only the
+  branding header, offline banner, the Sell form, and the PWA install prompt are composed (no tab
+  bar, no bottom nav, no dev Test Bed drawer). The dealer-portal branch replaces the old direct
+  `renderSpreadConfigView(spreadConfigController)` call with
+  `AdminController` + `renderAdminView(...)`, and gets a subtle `<a class="app__seller-link"
+  href="?view=seller">` footer link per the spec ("toggle... to view the public seller intake
+  without cluttering the operational nav") — seller view intentionally has no link back, since
+  public sellers shouldn't see dealer-only chrome at all.
+- `src/server/index.js` — added `app.get('/dealer', ...)` serving the same `index.html` shell as
+  `/`, since Hono's `serveStatic` has no history-API fallback and a bare `/dealer` navigation would
+  otherwise 404. (Product Owner explicitly chose query-param + server-side path routing over
+  query-param-only, after being asked since it touches a file outside the UOW's named scope.)
+- `src/ui/styles.css` — themed `.pin-challenge`/`.pin-challenge__digit` (was using unstyled browser
+  default white inputs against the dark CarBoyZ theme until caught in the browser pass below),
+  `.team-roster`, `.view__header-row`, `.app__seller-link`.
+
+**New tests:** `tests/viewResolution.test.js`, `tests/dealerProfileService.test.js`,
+`tests/ui.adminController.test.js`, plus additions to `tests/tenantConfig.test.js` (adminPin
+default/override) and `tests/server.test.js` (`GET /dealer` serves the shell). No DOM-rendering
+tests were added for `AdminView.js`/`App.js` — consistent with the existing repo precedent (`App.js`,
+`BottomNavView.js`, `SpreadConfigView.js` have no dedicated unit tests either); all PIN/roster
+*logic* lives in the tested `AdminController`/`DealerProfileService` instead.
+
+**Verification:** `npm test` → 691/691 passing (28 new tests on top of the prior 663). Also drove
+the real app end-to-end with Playwright (chromium, headless) against `node src/server/index.js`:
+`/` shows only the header + intake form with no tab bar; `/dealer` shows the full tab bar; the
+Admin tab PIN-gates with a visible error on a wrong PIN and unlocks on `1234`; adding a team member
+through the roster form round-trips through `DealerProfileService` and renders with the normalized
+phone; "Lock Admin" re-locks; the seller-view footer link is present on the dealer portal.
+Screenshots reviewed, caught and fixed the unstyled-PIN-input and duplicate-"Admin"-heading issues
+noted above before considering this done.

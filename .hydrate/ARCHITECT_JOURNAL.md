@@ -516,3 +516,62 @@ sequenceDiagram
     Note over Seller,Dispatch: offerSourceType stays 'ESTIMATE', vin now present ->
     Note over Seller,Dispatch: calculateSpread takes the normal tierConfig path, unchanged
 ```
+
+## UOW-48 — Role Route Separation, Admin PIN Lockout, and Dealer Profile Roster UI — 2026-10-15
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| View routing mechanism | `?view=seller\|dealer` query param, resolved client-side, **plus** a server-side `/dealer` SPA-fallback route | Query-param only, no server change | UOW spec named both `/` and `/dealer` as valid routes. Query-param-only would have left `/dealer` 404ing (no history-API fallback in Hono's `serveStatic`). Product Owner was asked explicitly (this touches `src/server/index.js`, outside the UOW's named files) and chose the server-fallback option. |
+| Admin unlock persistence | `window.sessionStorage`, keyed `carboyz:adminUnlocked:{tenantId}` | `localStorage` (persists across browser restarts) or in-memory only (lost on any re-render) | Matches the spec's "unlocked for this browser session" wording literally — survives a reload within the tab/session, clears on tab close, unlike `localStorage`. |
+| Admin view composition | New `AdminController`/`AdminView` wrap the existing `SpreadConfigController`/`renderSpreadConfigView` rather than merging the roster into `SpreadConfigView.js` | Extend `SpreadConfigView.js` in place | `SpreadConfigService`/`SpreadConfigController` are a distinct, already-tested domain (pricing tiers) from the new roster domain; wrapping keeps both independently testable and avoids widening `SpreadConfigView.js`'s already-single responsibility. The UOW's own file names (`AdminView.js`/`AdminController.js`) also pointed at new files — no such files existed pre-UOW-48 despite the "Admin" tab already existing (it rendered `SpreadConfigView` directly). |
+| Team roster storage | New `DealerProfileService` (`carboyz:dealerProfile:{tenantId}`) | Extend `TenantConfigService` | `TenantConfigService` is theming/manifest/service-worker plumbing with no `storage`-backed persistence today; a new service matching the `SpreadConfigService`/`SubmissionService` read-validate-write-to-storage pattern was the better fit and the spec explicitly offered this as an option. |
+
+**Sequence — dealer portal Admin tab: PIN gate -> unlock -> roster CRUD:**
+```mermaid
+sequenceDiagram
+    participant Manager
+    participant View as AdminView
+    participant Ctrl as AdminController
+    participant Session as sessionStorage
+    participant Roster as DealerProfileService
+
+    Manager->>View: selects Admin tab (dealer portal only)
+    View->>Ctrl: isUnlocked()
+    Ctrl->>Session: getItem(carboyz:adminUnlocked:{tenantId})
+    Session-->>Ctrl: null
+    Ctrl-->>View: false
+    View-->>Manager: renders 4-digit PIN challenge
+    Manager->>View: types 4th digit
+    View->>Ctrl: attemptUnlock(pin)
+    Ctrl->>Ctrl: pin === tenantConfig.adminPin?
+    alt wrong PIN
+        Ctrl-->>View: false
+        View-->>Manager: shows error, clears inputs
+    else correct PIN
+        Ctrl->>Session: setItem(carboyz:adminUnlocked:{tenantId}, 'true')
+        Ctrl-->>View: true
+        View->>Roster: listMembers() (via Ctrl.listTeamMembers())
+        Roster-->>View: roster + pricing-tier section rendered
+        Manager->>View: adds/removes a team member
+        View->>Ctrl: addTeamMember/removeTeamMember
+        Ctrl->>Roster: addMember/removeMember (validates + persists)
+    end
+```
+
+**Architectural Wisdom**
+- Seller-view and dealer-view are resolved **once per page load** (`mountApp`), not reactively —
+  matching the existing tenant-resolution precedent (`?brand=` is also read once at mount, not
+  re-read on every `render()`). Switching views is a real navigation (`<a href="?view=seller">`),
+  not an in-app route change; there is no client-side router in this codebase and adding one was
+  out of scope for this UOW.
+- The Admin PIN is a *lightweight* deterrent (plain 4-digit match against a tenant-config value
+  shipped to the client, no hashing/rate-limiting), appropriate for its stated purpose ("protect
+  behind a Manager PIN" for walk-up-device UX) but **not a security boundary** — anyone with
+  browser devtools can read `tenantConfig.adminPin` or flip `sessionStorage`. If Admin ever needs
+  to gate something sensitive (e.g. real PII, not just pricing-tier config and a roster of names/
+  phone numbers), this should move server-side.
+- `DealerProfileService` and `SpreadConfigService` are now both reachable from inside the Admin
+  view but remain fully independent services/storage keys — there is no shared "Admin domain"
+  abstraction, by design, to avoid coupling pricing policy to roster management prematurely.

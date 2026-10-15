@@ -1565,6 +1565,67 @@ body {
   margin: 0 0 var(--spacing);
 }
 
+.pin-challenge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing);
+  padding: calc(var(--spacing) * 2);
+}
+
+.pin-challenge__digits {
+  display: flex;
+  gap: 8px;
+}
+
+.pin-challenge__digit {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-size: 1.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.pin-challenge__digit:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.pin-challenge__error {
+  color: #c0392b;
+  font-size: 0.9rem;
+  min-height: 1.2em;
+}
+
+.view__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing);
+}
+
+.team-roster {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: calc(var(--spacing) * 1.5);
+}
+
+.app__seller-link {
+  display: block;
+  text-align: center;
+  padding: 8px;
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+}
+
 .simulation__results .kpi-row {
   margin-bottom: 0;
 }

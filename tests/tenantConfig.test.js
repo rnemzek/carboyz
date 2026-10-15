@@ -41,3 +41,13 @@ test('createTenantConfig accepts an iconSet override', () => {
   const config = createTenantConfig({ iconSet });
   assert.deepEqual(config.iconSet, iconSet);
 });
+
+test('createTenantConfig defaults adminPin to "1234"', () => {
+  const config = createTenantConfig();
+  assert.equal(config.adminPin, '1234');
+});
+
+test('createTenantConfig accepts an adminPin override', () => {
+  const config = createTenantConfig({ adminPin: '4321' });
+  assert.equal(config.adminPin, '4321');
+});

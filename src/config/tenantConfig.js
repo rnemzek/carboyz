@@ -10,6 +10,8 @@ const DEFAULT_CONTACT = Object.freeze({
   email: '',
 });
 
+export const DEFAULT_ADMIN_PIN = '1234';
+
 export const DEFAULT_TENANT_CONFIG = Object.freeze({
   tenantId: 'default',
   name: 'Carboyz',
@@ -18,6 +20,7 @@ export const DEFAULT_TENANT_CONFIG = Object.freeze({
   iconSet: null,
   themeColors: DEFAULT_THEME_COLORS,
   contact: DEFAULT_CONTACT,
+  adminPin: DEFAULT_ADMIN_PIN,
 });
 
 export function createTenantConfig(overrides = {}) {

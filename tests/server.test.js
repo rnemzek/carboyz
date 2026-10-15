@@ -161,6 +161,17 @@ test('createApp defaults staticRoot to the repo root, serving the real index.htm
   assert.match(await res.text(), /<div id="app-root">/);
 });
 
+test('GET /dealer serves the same index.html shell as the root, for client-side dealer-view routing', async () => {
+  await withTempStaticRoot({ 'index.html': '<!doctype html><title>shell</title>' }, async (staticRoot) => {
+    const app = createApp({ staticRoot });
+    const res = await app.request('/dealer');
+
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/html/);
+    assert.equal(await res.text(), '<!doctype html><title>shell</title>');
+  });
+});
+
 test('POST /api/offers/parse extracts fields from a well-formed offer document', async () => {
   const app = createApp();
   const text = 'CARMAX WRITTEN OFFER\nVIN: 1HGCM82633A004352\n7-Day Offer Amount: $15,250\nMileage: 32,450';

@@ -17,7 +17,6 @@ import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
 import { renderLeadInboxView } from './LeadInboxView.js';
 import { SpreadConfigController } from './SpreadConfigController.js';
-import { renderSpreadConfigView } from './SpreadConfigView.js';
 import { AnalyticsController } from './AnalyticsController.js';
 import { renderAnalyticsView } from './AnalyticsView.js';
 import { SimulationService } from '../services/SimulationService.js';
@@ -29,6 +28,10 @@ import { TenantConfigService } from '../services/TenantConfigService.js';
 import { SyncAdapter } from '../services/SyncAdapter.js';
 import { renderBottomNavView } from './BottomNavView.js';
 import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
+import { DealerProfileService } from '../services/DealerProfileService.js';
+import { AdminController } from './AdminController.js';
+import { renderAdminView } from './AdminView.js';
+import { resolveActiveView, VIEWS } from '../config/viewResolution.js';
 import {
   SEED_ANCHOR,
   CARBOYZ_HQ_DEALER_ID,
@@ -575,6 +578,7 @@ export function mountApp(root) {
   let pendingPrefill = parsePrefillFromSearch(window.location.search);
   let activeTab = 'sell';
   let isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const activeView = resolveActiveView({ search: window.location.search, pathname: window.location.pathname });
 
   function flushPendingSync(tenantId) {
     const state = tenantStateByTenantId.get(tenantId);
@@ -603,6 +607,7 @@ export function mountApp(root) {
       const submissionService = new SubmissionService({ tenantId, storage: window.localStorage });
       const spreadConfigService = new SpreadConfigService({ tenantId, storage: window.localStorage });
       const sessionStashService = new SessionStashService({ tenantId, storage: window.localStorage });
+      const dealerProfileService = new DealerProfileService({ tenantId, storage: window.localStorage });
       const dispatchService = new DispatchService({
         submissionService,
         spreadConfigService,
@@ -623,6 +628,7 @@ export function mountApp(root) {
         submissionService,
         spreadConfigService,
         sessionStashService,
+        dealerProfileService,
         dispatchService,
         analyticsService,
         simulationService,
@@ -745,6 +751,20 @@ export function mountApp(root) {
       tenantConfig: activeTenantConfig,
     });
     pendingPrefill = null;
+    const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
+
+    if (activeView === VIEWS.SELLER) {
+      sellView.hidden = false;
+      const app = h('div', { class: 'app app--seller' }, [
+        renderHeader(activeTenantConfig),
+        renderOfflineBanner(isOffline),
+        sellView,
+        a2hsPrompt?.el,
+      ]);
+      root.replaceChildren(app);
+      return;
+    }
+
     const activeSyncToast = state.syncToast;
     state.syncToast = null;
     const { section: leadsView, refresh: refreshLeadsView } = renderLeadInboxView(leadInboxController, {
@@ -752,7 +772,12 @@ export function mountApp(root) {
       tenantConfig: activeTenantConfig,
       syncToast: activeSyncToast,
     });
-    const adminView = renderSpreadConfigView(spreadConfigController);
+    const adminController = new AdminController({
+      tenantConfig: activeTenantConfig,
+      dealerProfileService: state.dealerProfileService,
+      storage: window.sessionStorage,
+    });
+    const { section: adminView } = renderAdminView(adminController, spreadConfigController);
     const { section: analyticsView, refresh: refreshAnalyticsView } = renderAnalyticsView(analyticsController);
     const simulationView = renderSimulationView(simulationController);
     const harnessView = renderTestHarnessView({
@@ -827,7 +852,6 @@ export function mountApp(root) {
     simulationView.hidden = activeTab !== 'simulation';
     harnessView.hidden = activeTab !== 'harness';
 
-    const a2hsPrompt = renderPwaInstallPromptView({ tenantConfig: activeTenantConfig });
     const testBedDrawer = renderTestBedDrawer({
       spreadConfigService: state.spreadConfigService,
       onApplyToSellForm: applyVehicleToSellForm,
@@ -847,6 +871,7 @@ export function mountApp(root) {
       simulationView,
       harnessView,
       bottomNav,
+      h('a', { class: 'app__seller-link', href: '?view=seller', text: 'View Public Seller Page' }),
       a2hsPrompt?.el,
       testBedDrawer.el,
     ]);
