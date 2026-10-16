@@ -172,3 +172,20 @@ test('Submission defaults isAutoApproved, priceTierBucket, and projectedMargin t
   assert.equal(withFields.priceTierBucket, '10k-20k');
   assert.equal(withFields.projectedMargin, -150);
 });
+
+test('Submission defaults nagSentAt and digestSentAt to null, and queuedForMorningDigest to false', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.nagSentAt, null);
+  assert.equal(submission.digestSentAt, null);
+  assert.equal(submission.queuedForMorningDigest, false);
+
+  assert.throws(() => new Submission(baseData({ nagSentAt: 123 })), /nagSentAt/);
+  assert.throws(() => new Submission(baseData({ digestSentAt: 123 })), /digestSentAt/);
+
+  const withFields = new Submission(
+    baseData({ nagSentAt: '2026-08-25T00:20:00.000Z', queuedForMorningDigest: true, digestSentAt: '2026-08-26T13:00:00.000Z' }),
+  );
+  assert.equal(withFields.nagSentAt, '2026-08-25T00:20:00.000Z');
+  assert.equal(withFields.queuedForMorningDigest, true);
+  assert.equal(withFields.digestSentAt, '2026-08-26T13:00:00.000Z');
+});

@@ -76,6 +76,9 @@ export class Submission {
     projectedMargin,
     rejectionReason,
     rejectionNotes,
+    nagSentAt,
+    queuedForMorningDigest,
+    digestSentAt,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -156,6 +159,12 @@ export class Submission {
     if (rejectionNotes !== undefined && rejectionNotes !== null && typeof rejectionNotes !== 'string') {
       throw new Error('Submission rejectionNotes must be a string');
     }
+    if (nagSentAt !== undefined && nagSentAt !== null && typeof nagSentAt !== 'string') {
+      throw new Error('Submission nagSentAt must be a string');
+    }
+    if (digestSentAt !== undefined && digestSentAt !== null && typeof digestSentAt !== 'string') {
+      throw new Error('Submission digestSentAt must be a string');
+    }
 
     this.id = id;
     this.timestamp = timestamp;
@@ -186,5 +195,8 @@ export class Submission {
     this.projectedMargin = projectedMargin ?? null;
     this.rejectionReason = rejectionReason ?? null;
     this.rejectionNotes = rejectionNotes ?? null;
+    this.nagSentAt = nagSentAt ?? null;
+    this.queuedForMorningDigest = Boolean(queuedForMorningDigest);
+    this.digestSentAt = digestSentAt ?? null;
   }
 }

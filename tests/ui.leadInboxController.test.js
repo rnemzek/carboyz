@@ -72,6 +72,17 @@ test('buildLeadViewModels surfaces the submission vin (null for a no-VIN ESTIMAT
   assert.equal(lead.vin, null);
 });
 
+test('buildLeadViewModels surfaces the submission timestamp and nagSentAt', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const submission = submissionService.submit(baseSubmission());
+  submissionService.updateFields(submission.id, { status: 'PENDING_APPROVAL', nagSentAt: '2026-08-25T14:05:00.000Z' });
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const [lead] = controller.buildLeadViewModels();
+  assert.equal(lead.timestamp, submission.timestamp);
+  assert.equal(lead.nagSentAt, '2026-08-25T14:05:00.000Z');
+});
+
 test('buildLeadViewModels labels an Other competitor with the dealer name', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   submissionService.submit(

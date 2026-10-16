@@ -1394,3 +1394,81 @@ through a real browser session (no UI-automation tool available in this session)
 Pass/Reject modal, filter toggle, and badge wiring in `LeadInboxView.js` are unverified beyond unit
 tests on their pure helpers and the controller logic underneath; flagged to the Product Owner as a
 follow-up before next live test-drive.
+
+## [UOW-50] Desk Unreviewed Lead Escalation Nags & Operating Quiet Hours — 2026-10-15
+
+**Path mapping:** The UOW spec again assumed `src/client/models/TenantConfig.js` and
+`src/client/services/...`, which don't exist in this repo's flat `src/config`/`src/services`/`src/ui`
+layout. Mapped onto the real files: `src/config/tenantConfig.js` (the actual tenant-config model —
+plain factory functions, not a class), `src/services/TenantConfigService.js`,
+`src/models/Submission.js`, `src/services/NotificationService.js`, the new
+`src/services/LeadEscalationService.js`, and `src/ui/LeadInboxController.js`/`LeadInboxView.js`.
+
+**Task 1 — Operating schedule (`src/config/tenantConfig.js` + `TenantConfigService.js`):** Added
+`DEFAULT_OPERATING_SCHEDULE` (`enabled`, `openHourLocal: 8`, `closeHourLocal: 21`,
+`timeZone: 'America/New_York'`, `nagIntervalMinutes: 15`) to `DEFAULT_TENANT_CONFIG`, merged in
+`createTenantConfig` the same way `themeColors`/`contact` already are. Added the pure helper
+`isWithinOperatingHours(date, schedule)`: resolves the hour via `Intl.DateTimeFormat` in
+`schedule.timeZone` (not the runtime's own zone), supports an overnight window that wraps past
+midnight (close hour <= open hour), and treats a disabled schedule as always-open.
+`TenantConfigService` had no notion of "the active tenant" before this UOW (`applyTenant()` only
+ever touched the DOM); it now also stores `this.activeTenantConfig` and exposes
+`getOperatingSchedule()` so `LeadEscalationService` can read the live schedule without reaching
+into a second service.
+
+**Task 2/3 — `LeadEscalationService` (new):** `evaluatePendingLeads({ now })` scans
+`submissionService.getSubmissions()` for `status === 'PENDING_APPROVAL'` with no `nagSentAt` that
+have waited past `nagIntervalMinutes`; inside operating hours it calls
+`notificationService.notifyEscalation({ submission, elapsedMinutes })` and stamps `nagSentAt`,
+otherwise it flags `queuedForMorningDigest: true` and sends nothing. `evaluateMorningDigest({ now
+})` is a no-op during quiet hours; once open, it rolls every `queuedForMorningDigest` lead into one
+`notificationService.notifyMorningDigest({ count })` call and clears the flag (stamping
+`digestSentAt`) so a later sweep in the same open period doesn't re-fire — this data-driven
+idempotency stands in for an explicit "closed→open transition" state machine, since nothing else in
+this app persists a server-side clock tick to detect that edge.
+
+**Model fields (`src/models/Submission.js`):** The UOW only called out `TenantConfig.js` for field
+additions, but Tasks 2/3 patch `nagSentAt`/`queuedForMorningDigest`/`digestSentAt` through
+`submissionService.updateFields()`, which rebuilds a `Submission` from named constructor params —
+any field not in that whitelist would silently vanish on every patch. Added all three (with the
+same validate-in-the-constructor precedent as every other field) as a required data-contract fix,
+not scope creep.
+
+**`NotificationService` additions:** `formatEscalationSms`/`formatMorningDigestSms` match the UOW's
+literal templates. `notifyEscalation` reuses the existing `notifyOnPending === true` roster gate
+(same audience as a fresh pending-approval alert). `notifyMorningDigest` filters to
+`role === TEAM_MEMBER_ROLES.MANAGER` instead, since the template text explicitly addresses "desk
+managers," not the full roster — imported `TEAM_MEMBER_ROLES` from `DealerProfileService.js`.
+
+**Task 4 — Lead Inbox badges (`LeadInboxController.js` + `LeadInboxView.js`):** Controller's
+`buildLeadViewModels()` now also surfaces `timestamp` and `nagSentAt` (needed by the view, previously
+dropped). View adds two pure, directly-tested helpers: `needsReviewBadge(status, elapsedMinutes)`
+→ `[NEEDS REVIEW - 15m+]` only for a `PENDING_APPROVAL` lead past the 15-minute threshold, and
+`formatEscalatedAtLabel(nagSentAt)` → `"Escalated to desk at HH:MM"` or `null`. Wired into
+`renderLeadCard` alongside the existing badge row/meta row. New `.badge--needs-review` CSS class
+pulses between red and amber via a `@keyframes` animation for the "high-visibility" requirement.
+
+**Not wired into `App.js`:** The UOW's five tasks stop at "implement and test the service" / "wire
+the badges" — there's no task asking for a polling loop (`setInterval`) to actually call
+`evaluatePendingLeads`/`evaluateMorningDigest` on a timer. Left that wiring out rather than
+inventing an unrequested scheduler; flagged to the Product Owner as the obvious next step before
+this feature does anything live.
+
+**New tests:** `tests/leadEscalationService.test.js` (new — constructor guards, escalate-during-
+open-hours, queue-during-quiet-hours, interval/already-nagged/non-pending exclusions, digest
+dispatch + flag-clearing, digest no-ops), plus additions to `tests/tenantConfig.test.js`
+(`isWithinOperatingHours` daytime/midnight/overnight-wrap/timezone-boundary/disabled cases),
+`tests/tenantConfigService.test.js` (`getOperatingSchedule`), `tests/submission.test.js` (new field
+defaults/validation), `tests/notificationService.test.js` (new templates + `notifyEscalation`/
+`notifyMorningDigest` roster filtering), `tests/ui.leadInboxView.test.js` (`needsReviewBadge`,
+`formatEscalatedAtLabel`), and `tests/ui.leadInboxController.test.js` (view-model passthrough).
+
+**Verification:** `npm test` → 744/744 passing (24 new tests on top of the prior 720).
+`node --test --experimental-test-coverage` confirms every modified core domain model/service clears
+the 80% line+branch gate: `Submission.js` 100/100, `LeadEscalationService.js` 100/95.83,
+`NotificationService.js` 100/100, `TenantConfigService.js` 94.89/95.35, `tenantConfig.js` 97.47/92.31,
+`LeadInboxController.js` 100/97.44. `LeadInboxView.js`'s DOM-rendering code stays outside the gate,
+consistent with UOW-49's precedent and this repo's established pattern of testing that file only
+through its exported pure helpers. Did not drive this through a live browser session — no
+UI-automation tool available in this session; flagged above as a follow-up alongside the missing
+`App.js` polling wire-up.

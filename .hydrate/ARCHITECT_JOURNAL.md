@@ -644,3 +644,68 @@ sequenceDiagram
   that this assumption would have overflowed the document's printable width — fixed with a small
   greedy word-wrapper and a footer position that floats below the wrapped content, rather than
   working around it by keeping the new disclaimers artificially short.
+
+## UOW-50 completed - 20261015
+Desk unreviewed-lead escalation SMS nags, a per-tenant operating-hours/quiet-hours gate, and a
+morning-digest rollup for anything that arrived overnight.
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Quiet-hours evaluation | Pure `isWithinOperatingHours(date, schedule)` resolving the hour via `Intl.DateTimeFormat` in `schedule.timeZone` | A date library (`luxon`/`date-fns-tz`) dependency | Keeps the zero-dependency/ESM-first precedent; `Intl` is a platform API, no package needed for a single hour-in-zone lookup. |
+| Morning-digest "transition" detection | Data-driven: dispatch once per open period, driven by `queuedForMorningDigest` flags, which clear on dispatch | An explicit closed→open state machine tracking the last-evaluated hour | Nothing in this app persists a server-side clock tick between evaluations; clearing the flag on dispatch makes a second same-period sweep a natural no-op without inventing extra state to track. |
+| `TenantConfigService` schedule access | Service now retains `this.activeTenantConfig` from the last `applyTenant()` call, exposed via `getOperatingSchedule()` | Passing the `tenantConfig` object directly into `LeadEscalationService` instead of through the service | UOW's own Task 2 contract names `tenantConfigService` as the constructor dependency, not a raw config object; extending the service to retain what it's already given keeps that contract honest without a parallel data path. |
+| Escalation vs. digest audience | Escalation SMS reuses the `notifyOnPending` roster gate; morning digest filters to `role === MANAGER` | Both messages going to the same roster | The digest template literally addresses "CarBoyZ desk" managers, not reps — treated as a deliberate, template-implied audience split rather than one undifferentiated broadcast list. |
+
+**Workflow / Sequence Diagram**
+
+```mermaid
+sequenceDiagram
+    participant Esc as LeadEscalationService
+    participant Sub as SubmissionService
+    participant Tenant as TenantConfigService
+    participant Notify as NotificationService
+    participant Roster as DealerProfileService
+
+    Note over Esc,Tenant: evaluatePendingLeads(now) — periodic sweep
+    Esc->>Tenant: getOperatingSchedule()
+    Esc->>Sub: getSubmissions()
+    loop each PENDING_APPROVAL, no nagSentAt, past nagIntervalMinutes
+        alt within operating hours
+            Esc->>Notify: notifyEscalation({submission, elapsedMinutes})
+            Notify->>Roster: listMembers() -> filter notifyOnPending
+            Esc->>Sub: updateFields(id, {nagSentAt: now})
+        else quiet hours
+            Esc->>Sub: updateFields(id, {queuedForMorningDigest: true})
+        end
+    end
+
+    Note over Esc,Tenant: evaluateMorningDigest(now) — fires once hours reopen
+    Esc->>Tenant: getOperatingSchedule()
+    alt within operating hours and queuedForMorningDigest leads exist
+        Esc->>Notify: notifyMorningDigest({count})
+        Notify->>Roster: listMembers() -> filter role === MANAGER
+        Esc->>Sub: updateFields(each id, {queuedForMorningDigest: false, digestSentAt: now})
+    else quiet hours or nothing queued
+        Esc->>Esc: no-op
+    end
+```
+
+**Architectural Wisdom**
+- The UOW spec again named `src/client/...` paths that don't exist here; mapped onto the real
+  flat `src/config`/`src/services`/`src/ui` tree, same precedent as UOW-49.
+- `Submission`'s constructor is a strict named-parameter whitelist — any field not declared there
+  is silently dropped on every `updateFields()` patch. The UOW's field list only named
+  `TenantConfig.js`, but `nagSentAt`/`queuedForMorningDigest`/`digestSentAt` had to be added to
+  `Submission.js` too, or Tasks 2/3's own patches would have been no-ops. Treated as a required
+  data-contract fix, not scope creep — the alternative was a feature that silently never persisted.
+- `evaluateMorningDigest()` deliberately doesn't try to detect a literal closed→open clock edge.
+  It dispatches whenever it's called during operating hours and something is queued, then clears
+  the queue flag so a later same-period call is inert. This is simpler and just as correct as a
+  state machine as long as something calls it periodically — but nothing does yet (see below).
+- **Not wired into `App.js`:** no task in this UOW asked for a polling loop
+  (`setInterval`/equivalent) to actually invoke `evaluatePendingLeads`/`evaluateMorningDigest` on a
+  timer. The service and its tests are real and correct, but the feature is inert in the running
+  app until something schedules those calls — flagged to the Product Owner as the natural
+  UOW-HOTFIX or next-UOW follow-up.

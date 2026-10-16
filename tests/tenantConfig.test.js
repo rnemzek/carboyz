@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_TENANT_CONFIG, createTenantConfig } from '../src/config/tenantConfig.js';
+import {
+  DEFAULT_TENANT_CONFIG,
+  DEFAULT_OPERATING_SCHEDULE,
+  createTenantConfig,
+  isWithinOperatingHours,
+} from '../src/config/tenantConfig.js';
 
 test('createTenantConfig falls back to defaults when called with no overrides', () => {
   const config = createTenantConfig();
@@ -50,4 +55,45 @@ test('createTenantConfig defaults adminPin to "1234"', () => {
 test('createTenantConfig accepts an adminPin override', () => {
   const config = createTenantConfig({ adminPin: '4321' });
   assert.equal(config.adminPin, '4321');
+});
+
+test('createTenantConfig defaults operatingSchedule to DEFAULT_OPERATING_SCHEDULE', () => {
+  const config = createTenantConfig();
+  assert.deepEqual(config.operatingSchedule, DEFAULT_OPERATING_SCHEDULE);
+});
+
+test('createTenantConfig merges operatingSchedule overrides instead of replacing them wholesale', () => {
+  const config = createTenantConfig({ operatingSchedule: { nagIntervalMinutes: 30 } });
+  assert.equal(config.operatingSchedule.nagIntervalMinutes, 30);
+  assert.equal(config.operatingSchedule.openHourLocal, DEFAULT_OPERATING_SCHEDULE.openHourLocal);
+});
+
+test('isWithinOperatingHours is true inside the daytime window and false outside it', () => {
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T13:00:00.000Z'), DEFAULT_OPERATING_SCHEDULE), true); // 8:00 ET
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T12:59:00.000Z'), DEFAULT_OPERATING_SCHEDULE), false); // 7:59 ET
+  assert.equal(isWithinOperatingHours(new Date('2026-01-16T01:59:00.000Z'), DEFAULT_OPERATING_SCHEDULE), true); // 20:59 ET
+  assert.equal(isWithinOperatingHours(new Date('2026-01-16T02:00:00.000Z'), DEFAULT_OPERATING_SCHEDULE), false); // 21:00 ET
+});
+
+test('isWithinOperatingHours treats midnight as quiet hours for a daytime schedule', () => {
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T05:00:00.000Z'), DEFAULT_OPERATING_SCHEDULE), false); // 00:00 ET
+});
+
+test('isWithinOperatingHours wraps across midnight for an overnight window', () => {
+  const overnight = { ...DEFAULT_OPERATING_SCHEDULE, openHourLocal: 20, closeHourLocal: 6 };
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T05:00:00.000Z'), overnight), true); // 00:00 ET, within 20-6
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T16:00:00.000Z'), overnight), false); // 11:00 ET, outside 20-6
+});
+
+test('isWithinOperatingHours resolves the hour in the schedule timeZone, not the runtime zone', () => {
+  const sameInstant = new Date('2026-01-15T03:00:00.000Z');
+  assert.equal(isWithinOperatingHours(sameInstant, DEFAULT_OPERATING_SCHEDULE), false); // 22:00 ET: closed
+  assert.equal(
+    isWithinOperatingHours(sameInstant, { ...DEFAULT_OPERATING_SCHEDULE, timeZone: 'America/Los_Angeles' }),
+    true, // 19:00 PT: open
+  );
+});
+
+test('isWithinOperatingHours is always true when the schedule is disabled', () => {
+  assert.equal(isWithinOperatingHours(new Date('2026-01-15T05:00:00.000Z'), { ...DEFAULT_OPERATING_SCHEDULE, enabled: false }), true);
 });

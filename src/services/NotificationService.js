@@ -1,3 +1,5 @@
+import { TEAM_MEMBER_ROLES } from './DealerProfileService.js';
+
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -70,6 +72,19 @@ export function formatPendingApprovalSms({ submission, host = '' }) {
   );
 }
 
+export function formatEscalationSms({ submission, elapsedMinutes, host = '' }) {
+  return (
+    `⚠️ Escalation: Lead #${submission.id} (${submission.year} ${submission.make} ${submission.model}) ` +
+    `waiting ${elapsedMinutes}m without review. Review now: ${host}/dealer?sub=${submission.id}`
+  );
+}
+
+export function formatMorningDigestSms({ count, host = '' }) {
+  return (
+    `🌅 Good morning CarBoyZ desk: ${count} customer offer(s) arrived overnight waiting for review: ${host}/dealer`
+  );
+}
+
 /**
  * Fans a PENDING_APPROVAL lead out to the dealer roster via SMS, strictly to members with
  * notifyOnPending: true. Exposes both the direct `notifyPendingApproval` call and a generic
@@ -97,5 +112,21 @@ export class NotificationService {
       return [];
     }
     return this.notifyPendingApproval({ submission: notification.submission });
+  }
+
+  /** Nags the same notifyOnPending roster as a fresh PENDING_APPROVAL lead (UOW-50). */
+  notifyEscalation({ submission, elapsedMinutes, host = this.host } = {}) {
+    const message = formatEscalationSms({ submission, elapsedMinutes, host });
+    const recipients = this.dealerProfileService.listMembers().filter((member) => member.notifyOnPending === true);
+    return recipients.map((member) => this.smsAdapter.sendSms({ to: member.phone, body: message }));
+  }
+
+  /** Rolls up overnight-queued leads into a single SMS to desk managers, not the full roster. */
+  notifyMorningDigest({ count, host = this.host } = {}) {
+    const message = formatMorningDigestSms({ count, host });
+    const recipients = this.dealerProfileService
+      .listMembers()
+      .filter((member) => member.role === TEAM_MEMBER_ROLES.MANAGER);
+    return recipients.map((member) => this.smsAdapter.sendSms({ to: member.phone, body: message }));
   }
 }

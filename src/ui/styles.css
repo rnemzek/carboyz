@@ -458,6 +458,25 @@ body {
   background: var(--color-muted);
 }
 
+.badge--needs-review {
+  background: #d93025;
+  animation: needs-review-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes needs-review-pulse {
+  0%, 100% {
+    background: #d93025;
+  }
+  50% {
+    background: #f29900;
+  }
+}
+
+.card__meta--subtle {
+  color: var(--color-muted);
+  font-size: 0.85em;
+}
+
 .filter-toggle {
   margin-bottom: var(--spacing);
 }

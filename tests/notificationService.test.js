@@ -5,8 +5,11 @@ import {
   TwilioSmsAdapter,
   createSmsAdapterFromEnv,
   formatPendingApprovalSms,
+  formatEscalationSms,
+  formatMorningDigestSms,
   NotificationService,
 } from '../src/services/NotificationService.js';
+import { TEAM_MEMBER_ROLES } from '../src/services/DealerProfileService.js';
 
 function baseSubmission(overrides = {}) {
   return {
@@ -177,4 +180,64 @@ test('notify(notification) is a no-op when the notification carries no submissio
 
   assert.deepEqual(notificationService.notify({}), []);
   assert.equal(smsAdapter.calls.length, 0);
+});
+
+test('formatEscalationSms matches the required alert template', () => {
+  const message = formatEscalationSms({
+    submission: baseSubmission(),
+    elapsedMinutes: 22,
+    host: 'https://dealer.carboyz.app',
+  });
+  assert.equal(
+    message,
+    '⚠️ Escalation: Lead #t1-sub-9 (2021 Honda Civic) waiting 22m without review. ' +
+      'Review now: https://dealer.carboyz.app/dealer?sub=t1-sub-9',
+  );
+});
+
+test('formatMorningDigestSms matches the required rollup template', () => {
+  const message = formatMorningDigestSms({ count: 3, host: 'https://dealer.carboyz.app' });
+  assert.equal(
+    message,
+    '🌅 Good morning CarBoyZ desk: 3 customer offer(s) arrived overnight waiting for review: ' +
+      'https://dealer.carboyz.app/dealer',
+  );
+});
+
+test('notifyEscalation dispatches SMS strictly to roster members with notifyOnPending: true', () => {
+  const members = [
+    { id: 'm1', phone: '(910) 555-0128', notifyOnPending: true },
+    { id: 'm2', phone: '(910) 555-0199', notifyOnPending: false },
+  ];
+  const smsAdapter = fakeSmsAdapter();
+  const notificationService = new NotificationService({
+    dealerProfileService: fakeDealerProfileService(members),
+    smsAdapter,
+    host: 'https://dealer.carboyz.app',
+  });
+
+  notificationService.notifyEscalation({ submission: baseSubmission(), elapsedMinutes: 16 });
+
+  assert.equal(smsAdapter.calls.length, 1);
+  assert.equal(smsAdapter.calls[0].to, '(910) 555-0128');
+  assert.match(smsAdapter.calls[0].body, /Escalation/);
+});
+
+test('notifyMorningDigest dispatches a single rollup SMS strictly to MANAGER-role roster members', () => {
+  const members = [
+    { id: 'm1', phone: '(910) 555-0128', role: TEAM_MEMBER_ROLES.MANAGER, notifyOnPending: true },
+    { id: 'm2', phone: '(910) 555-0150', role: TEAM_MEMBER_ROLES.SALES_REP, notifyOnPending: true },
+  ];
+  const smsAdapter = fakeSmsAdapter();
+  const notificationService = new NotificationService({
+    dealerProfileService: fakeDealerProfileService(members),
+    smsAdapter,
+    host: 'https://dealer.carboyz.app',
+  });
+
+  notificationService.notifyMorningDigest({ count: 4 });
+
+  assert.equal(smsAdapter.calls.length, 1);
+  assert.equal(smsAdapter.calls[0].to, '(910) 555-0128');
+  assert.match(smsAdapter.calls[0].body, /4 customer offer/);
 });

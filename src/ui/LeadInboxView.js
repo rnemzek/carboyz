@@ -30,6 +30,33 @@ const DISPATCH_BADGES = {
 
 const PASSED_BADGE = { label: '[PASSED]', className: 'badge badge--passed' };
 
+// Desk nag threshold (UOW-50): mirrors tenantConfig's default nagIntervalMinutes so the badge
+// lights up in step with when LeadEscalationService actually fires the SMS.
+const NEEDS_REVIEW_THRESHOLD_MINUTES = 15;
+const NEEDS_REVIEW_BADGE = { label: '[NEEDS REVIEW - 15m+]', className: 'badge badge--needs-review' };
+
+const escalatedAtFormatter = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Exported for direct unit testing — a PENDING_APPROVAL lead that's waited past the nag
+ * threshold gets the high-visibility pulse badge; anything else (including already-passed or
+ * already-countered leads) gets none.
+ */
+export function needsReviewBadge(status, elapsedMinutes) {
+  if (status !== 'PENDING_APPROVAL' || elapsedMinutes < NEEDS_REVIEW_THRESHOLD_MINUTES) {
+    return null;
+  }
+  return NEEDS_REVIEW_BADGE;
+}
+
+/** Exported for direct unit testing — null until the desk has actually been nagged. */
+export function formatEscalatedAtLabel(nagSentAt) {
+  if (!nagSentAt) {
+    return null;
+  }
+  return `Escalated to desk at ${escalatedAtFormatter.format(new Date(nagSentAt))}`;
+}
+
 /** A rejected ("passed") lead is terminal: counter actions are disabled and it moves to the
  * Lead Inbox's "Passed / Closed Leads" filter instead of "Active Leads". */
 export function isPassedLead(status) {
@@ -103,6 +130,9 @@ function renderLeadCard(
   const badge = spreadBadge(lead.spreadResult.status);
   const dispatchBadge = passed ? null : DISPATCH_BADGES[lead.status];
   const sourceBadge = offerSourceBadge(lead.offerSourceType, lead.vin);
+  const elapsedMinutes = lead.timestamp ? (Date.now() - new Date(lead.timestamp).getTime()) / 60000 : 0;
+  const reviewBadge = needsReviewBadge(lead.status, elapsedMinutes);
+  const escalatedAtLabel = formatEscalatedAtLabel(lead.nagSentAt);
 
   const top = h('div', { class: 'card__top' }, [
     h('h3', { class: 'card__title', text: lead.vehicleTitle }),
@@ -110,12 +140,14 @@ function renderLeadCard(
     passed ? h('span', { class: PASSED_BADGE.className, text: PASSED_BADGE.label }) : null,
     dispatchBadge ? h('span', { class: dispatchBadge.className, text: dispatchBadge.label }) : null,
     sourceBadge ? h('span', { class: sourceBadge.className, text: sourceBadge.label }) : null,
+    reviewBadge ? h('span', { class: reviewBadge.className, text: reviewBadge.label }) : null,
   ]);
 
   const meta = h('div', { class: 'card__meta' }, [
     h('span', { text: `${mileageFormatter.format(lead.mileage)} mi` }),
     h('span', { text: `ZIP ${lead.zipCode}` }),
     h('span', { text: lead.competitorLabel }),
+    escalatedAtLabel ? h('span', { class: 'card__meta--subtle', text: escalatedAtLabel }) : null,
   ]);
 
   const offers = h('div', { class: 'card__meta' }, [

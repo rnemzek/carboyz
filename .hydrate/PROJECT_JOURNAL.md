@@ -62,3 +62,8 @@
 ### UOW-49 — completed 2026-10-15
 - Iterations logged: 0
 - Suggested commit: `feat(leads): add basicAuth gate, desk reject actions, title disclaimers, and sms dispatch hook`
+- [x] **[UOW-50]** Desk Unreviewed Lead Escalation Nags & Operating Quiet Hours — 2026-10-15 | Pass: 744/744 tests
+
+### UOW-50 — completed 2026-10-15
+- Iterations logged: 0
+- Suggested commit: `feat(leads): add unreviewed lead escalation nags and operating quiet hours`

@@ -59,6 +59,7 @@ export class LeadInboxController {
 
       return {
         id: submission.id,
+        timestamp: submission.timestamp,
         vehicleTitle: [submission.year, submission.make, submission.model, submission.trim]
           .filter(Boolean)
           .join(' '),
@@ -72,6 +73,7 @@ export class LeadInboxController {
         status: submission.status,
         rejectionReason: submission.rejectionReason,
         rejectionNotes: submission.rejectionNotes,
+        nagSentAt: submission.nagSentAt,
         spreadResult,
         counterMessage: formatCounterOfferMessage({
           submission,

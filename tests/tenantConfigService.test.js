@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TenantConfigService, buildManifestObject } from '../src/services/TenantConfigService.js';
-import { createTenantConfig } from '../src/config/tenantConfig.js';
+import { createTenantConfig, DEFAULT_OPERATING_SCHEDULE } from '../src/config/tenantConfig.js';
 
 function createFakeElement(tagName) {
   return {
@@ -188,4 +188,15 @@ test('registerServiceWorker() is a safe no-op returning null when serviceWorker 
 
   const noNavigatorService = new TenantConfigService({ document: null, navigator: null });
   assert.equal(noNavigatorService.registerServiceWorker(), null);
+});
+
+test('getOperatingSchedule falls back to DEFAULT_OPERATING_SCHEDULE before any tenant is applied', () => {
+  const service = new TenantConfigService({ document: null });
+  assert.deepEqual(service.getOperatingSchedule(), DEFAULT_OPERATING_SCHEDULE);
+});
+
+test('getOperatingSchedule returns the last applied tenant\'s operatingSchedule', () => {
+  const service = new TenantConfigService({ document: null });
+  service.applyTenant(createTenantConfig({ operatingSchedule: { nagIntervalMinutes: 45 } }));
+  assert.equal(service.getOperatingSchedule().nagIntervalMinutes, 45);
 });

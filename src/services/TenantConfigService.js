@@ -1,4 +1,5 @@
 import { applyTenantTheme } from '../ui/theme.js';
+import { DEFAULT_OPERATING_SCHEDULE } from '../config/tenantConfig.js';
 
 const DEFAULT_THEME_COLOR = '#0057d9';
 const DEFAULT_BACKGROUND_COLOR = '#ffffff';
@@ -77,6 +78,12 @@ export class TenantConfigService {
     this.createManifestUrl = createManifestUrl;
     this.revokeManifestUrl = revokeManifestUrl;
     this.lastManifestUrl = null;
+    this.activeTenantConfig = null;
+  }
+
+  /** The active tenant's quiet-hours/nag-interval schedule, set by the last applyTenant() call. */
+  getOperatingSchedule() {
+    return this.activeTenantConfig?.operatingSchedule ?? DEFAULT_OPERATING_SCHEDULE;
   }
 
   /**
@@ -94,6 +101,8 @@ export class TenantConfigService {
   }
 
   applyTenant(tenantConfig) {
+    this.activeTenantConfig = tenantConfig;
+
     if (!this.document) {
       return;
     }
