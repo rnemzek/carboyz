@@ -24,7 +24,11 @@ export const DEFAULT_OPERATING_SCHEDULE = Object.freeze({
 
 // Acquisition Radar HQ anchor (UOW-52): the dealership center pin and range rings default here
 // when a tenant hasn't configured its own dealershipCoordinates — the CarBoyZ Leland HQ.
-export const DEFAULT_DEALERSHIP_COORDINATES = Object.freeze({ lat: 34.2526, lng: -78.0383 });
+// Standardized (see seedInventory.js's SEED_ANCHOR) to the same ZIP 28451 / Leland, NC centroid
+// used by LOCAL_DEALERS' Leland Motors dealer and locationAdapter.js's gazetteer, rather than the
+// UOW-52 spec's original literal default, which had drifted ~1.3mi from every other "Leland"
+// coordinate already in the codebase.
+export const DEFAULT_DEALERSHIP_COORDINATES = Object.freeze({ lat: 34.2388, lng: -78.0145 });
 
 export const DEFAULT_TENANT_CONFIG = Object.freeze({
   tenantId: 'default',

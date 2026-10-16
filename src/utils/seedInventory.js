@@ -1,7 +1,9 @@
 export const SEED_ZIP_CODE = '28451';
-// Approximate centroid of ZIP 28451 (Rocky Point, NC). No live geocoding is
-// wired up, so this is a reasonable fixed estimate for demo/seed purposes.
-export const SEED_ANCHOR = Object.freeze({ lat: 34.35, lng: -77.8 });
+// Centroid of ZIP 28451 (Leland, NC) — standardized to the same coordinate as
+// LOCAL_DEALERS' Leland Motors, locationAdapter.js's KNOWN_LOCATIONS gazetteer entry, and
+// TenantConfig's DEFAULT_DEALERSHIP_COORDINATES, which all independently claimed to represent
+// this same real-world storefront but previously drifted by several miles.
+export const SEED_ANCHOR = Object.freeze({ lat: 34.2388, lng: -78.0145 });
 
 export const CARBOYZ_HQ_DEALER_ID = 'carboyz-hq';
 

@@ -849,3 +849,24 @@ sequenceDiagram
   actual model enum before implementing — this one was resolved by mapping onto the nearest real
   `status`/`winLossStatus` combination rather than pausing the whole UOW, since it's a map-styling
   concern with no data-integrity consequence if the PO wants the bucketing adjusted later.
+
+## [UOW-HOTFIX] Leland HQ coordinate standardization + SMS relay decision — 2026-10-15
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Canonical Leland HQ storefront coordinate | `{34.2388, -78.0145}` (`LOCAL_DEALERS`' Leland Motors / `locationAdapter.js`'s ZIP 28451 gazetteer entry) | UOW-52's literal `{34.2526, -78.0383}`, or `SEED_ANCHOR`'s prior `{34.35, -77.8}` | The chosen value was already cross-referenced by two independent, pre-existing parts of the codebase (the gazetteer and a named dealer) and by `tests/seedInventory.test.js`'s own "Leland fallback location" assertion — the most load-bearing, verified candidate of the three. This supersedes UOW-52's own spec-literal default, by this explicit follow-up request. |
+| Server-side Twilio SMS relay | **Not built now** — keep `ConsoleSmsAdapter` for the initial dealer walkthrough | Wire `createSmsAdapterFromEnv()` into a new authenticated server endpoint | Real SMS sending is an external, costed, hard-to-reverse action (real texts to real phones) requiring new scope (auth'd endpoint, abuse prevention, Twilio account/A2P compliance) with no signal the walkthrough needs it. `TwilioSmsAdapter`/`createSmsAdapterFromEnv` already exist and are already unit-tested in isolation, so this is a clean, bounded addition to pick up later — not re-architecture. |
+
+**Architectural Wisdom**
+- Multi-tenant config defaults are a sharp edge: adding `DEFAULT_DEALERSHIP_COORDINATES` to
+  `TenantConfig` in UOW-52 silently gave every tenant preset that didn't set its own
+  `dealershipCoordinates` the *same* default — fine for the one tenant the default was modeled on
+  (CarBoyZ), wrong for every other tenant (Summit Auto's radar would have shown a Leland, NC HQ
+  pin). Any new per-tenant-config field with a single hardcoded default should prompt an explicit
+  check of every `TENANT_PRESETS` entry, not just the one the feature was built against.
+- A "standardize these coordinates" ask is a good moment to audit for *all* copies of a value,
+  not just the two explicitly named — this one turned up a third (`SEED_ANCHOR`) with an
+  outright incorrect code comment ("Rocky Point, NC" on a value tagged with Leland's own ZIP),
+  which a narrower two-value standardization would have missed.

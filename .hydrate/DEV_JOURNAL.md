@@ -1680,3 +1680,44 @@ in `src/ui/RadarMapView.js`, both in `showInspectionDrawer()`:
 Re-verified live after the fix: the Unlocated dock item's drawer now reads cleanly (no stray
 `"null"`), and clicking empty map background dismisses the drawer. `npm test` → 785/785, no
 regressions.
+
+## [UOW-HOTFIX] Standardize Leland HQ storefront coordinates + SMS relay decision — 2026-10-15
+
+**Item: standardize the Leland HQ storefront coordinates.** Audit found three different numbers
+all claiming to represent the CarBoyZ Leland, NC storefront, drifted by up to ~10 miles apart:
+`seedInventory.js`'s `SEED_ANCHOR` (`{34.35, -77.8}`, comment incorrectly said "Rocky Point, NC"
+despite being tagged with Leland's own ZIP 28451), `tenantConfig.js`'s
+`DEFAULT_DEALERSHIP_COORDINATES` (`{34.2526, -78.0383}`, UOW-52's literal spec value), and the
+already-cross-referenced pair of `LOCAL_DEALERS`' "Leland Motors" dealer +
+`locationAdapter.js`'s `KNOWN_LOCATIONS` ZIP 28451 gazetteer entry (`{34.2388, -78.0145}` — also
+already asserted as "the Leland fallback location" in `tests/seedInventory.test.js`). Standardized
+on the last one, since it was the most independently cross-referenced/verified value already in
+the codebase, and fixed `SEED_ANCHOR`'s mislabeled comment. Also found that `summit-auto` and
+`harbor-motors` in `App.js`'s `TENANT_PRESETS` had no `dealershipCoordinates` override at all —
+both would have silently inherited the Leland default for their own Acquisition Radar HQ anchor
+(a real tenant-isolation bug for any non-CarBoyZ tenant). Gave each an explicit override matching
+its own dealer cluster (`summit-central` for Summit, `harbor-pier` for Harbor). Verified live:
+CarBoyZ's radar still centers correctly near Leland/Navassa, and switching to Summit Auto Group
+now correctly re-centers the radar on Denver ("Summit Auto Group HQ") instead of leaking Leland,
+NC — this was the actual bug the live check surfaced. `npm test` → 785/785 (updated
+`tests/tenantConfig.test.js` and `tests/radarLayerBuilder.test.js`'s hardcoded expectations for
+the new default value; no other test depended on the exact old literal).
+
+**Item: server-side Twilio SMS relay — decision.** `NotificationService.js` already has a fully
+built `TwilioSmsAdapter` (real Twilio REST API call via `fetch`, HTTP Basic Auth) and
+`createSmsAdapterFromEnv(env)` (picks it when `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/
+`TWILIO_FROM_NUMBER` are set), but neither is wired to anything — `createSmsAdapterFromEnv` is
+dead code today. `App.js` always constructs `NotificationService` with its default
+`ConsoleSmsAdapter`, by design (its own comment: the browser bundle never has access to
+server-side Twilio secrets). There is no server endpoint in `src/server/index.js` the browser
+could call to relay through a server-side `TwilioSmsAdapter` either.
+
+**Decision: keep the console logger for the initial dealer walkthrough.** Rationale (see the
+Architecture Journal's Decision Log for this entry): building the relay is non-trivial new scope
+(a new authenticated API endpoint to prevent an open SMS-relay abuse vector, real Twilio account
+credentials/costs, A2P 10DLC compliance for US SMS, retry/error handling) with no indication the
+walkthrough itself needs real SMS delivery — the console log already demonstrates the full
+notification content/logic end-to-end for review. `TwilioSmsAdapter`/`createSmsAdapterFromEnv`
+are already built and unit-tested in isolation, so wiring the relay later is a bounded, scoped
+addition whenever actually needed, not a from-scratch effort. Flagged to the Product Owner in the
+session response in case this call should go the other way before the walkthrough.

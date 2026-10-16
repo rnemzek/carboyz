@@ -12,7 +12,7 @@ import {
 import { haversineDistanceMiles } from '../src/utils/geo.js';
 import { createTenantConfig } from '../src/config/tenantConfig.js';
 
-const HQ = { lat: 34.2526, lng: -78.0383 };
+const HQ = { lat: 34.2388, lng: -78.0145 };
 
 function leadSubmission(overrides = {}) {
   return {

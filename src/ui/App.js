@@ -83,6 +83,9 @@ const TENANT_PRESETS = [
     tagline: 'Mountain-tested deals, valley-low prices.',
     themeColors: { primary: '#b3541e', secondary: '#2b2118' },
     contact: { phone: '(555) 040-8080', email: 'sales@summitauto.example' },
+    // Without this, Acquisition Radar would silently default to CarBoyZ's Leland, NC HQ anchor
+    // (DEFAULT_DEALERSHIP_COORDINATES) for this tenant too — matches the Summit Central dealer.
+    dealershipCoordinates: { lat: 39.74, lng: -104.99 },
     dealers: [
       { dealerId: 'summit-central', name: 'Summit Central', lat: 39.74, lng: -104.99 },
       { dealerId: 'summit-foothills', name: 'Summit Foothills', lat: 39.65, lng: -105.15 },
@@ -94,6 +97,8 @@ const TENANT_PRESETS = [
     tagline: 'Coastal rides, honest prices.',
     themeColors: { primary: '#0a7f6b', secondary: '#0e2430' },
     contact: { phone: '(555) 070-3030', email: 'info@harbormotors.example' },
+    // Matches the Harbor Pier Autos dealer — see the summit-auto comment above.
+    dealershipCoordinates: { lat: 42.3601, lng: -71.0589 },
     dealers: [
       { dealerId: 'harbor-pier', name: 'Harbor Pier Autos', lat: 42.3601, lng: -71.0589 },
       { dealerId: 'harbor-bay', name: 'Harbor Bay Certified', lat: 42.35, lng: -71.08 },

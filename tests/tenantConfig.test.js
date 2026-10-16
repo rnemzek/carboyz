@@ -72,7 +72,7 @@ test('createTenantConfig merges operatingSchedule overrides instead of replacing
 test('createTenantConfig defaults dealershipCoordinates to the CarBoyZ Leland HQ anchor', () => {
   const config = createTenantConfig();
   assert.deepEqual(config.dealershipCoordinates, DEFAULT_DEALERSHIP_COORDINATES);
-  assert.deepEqual(config.dealershipCoordinates, { lat: 34.2526, lng: -78.0383 });
+  assert.deepEqual(config.dealershipCoordinates, { lat: 34.2388, lng: -78.0145 });
 });
 
 test('createTenantConfig merges dealershipCoordinates overrides instead of replacing them wholesale', () => {
