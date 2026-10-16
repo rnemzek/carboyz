@@ -1,2 +1,24 @@
-# All UOWs are complete!
-Run 'hydrate prompt' when ready for next task.
+# Unit of Work: UOW-55
+# Title: Production Rollout, Provider Credentials & Deployment Verification
+
+- [ ] Task 1: Environment Variables Configuration
+  - Set production SMS provider secrets in Railway dashboard:
+    - Primary (Telnyx): TELNYX_API_KEY, TELNYX_FROM_NUMBER
+    - Secondary/Fallback (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER
+  - Verify PORT and host bindings are configured for Railway container execution.
+
+- [ ] Task 2: Production Deployment
+  - Push latest release commits (0e87f9d+) to origin main.
+  - Monitor Railway deployment logs to ensure clean build, zero-dependency bundle packaging, and successful Hono server initialization.
+
+- [ ] Task 3: Live SMS & Lead Dispatch Smoke Test
+  - Access live deployment at https://<your-railway-domain>/dealer.
+  - Authenticate with basicAuth (admin / carboyz2026) and Admin PIN (1234).
+  - Add active test phone number to Dealer Team Roster with Manager role.
+  - Submit live 3-pillar test lead (VIN, Mileage, Offer Doc) on public intake (/).
+  - Confirm production SMS alert delivers directly to the physical mobile device via POST /api/v1/notifications/sms.
+
+- [ ] Task 4: Dealer Hand-off & Archival
+  - Verify all 821+ tests remain passing.
+  - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.
+  - Update .hydrate journals, archive UOW-55 to .hydrate/archive/UOW-55.md, and commit clean.
