@@ -24,6 +24,8 @@
 
 - [x] [UOW-HOTFIX] Move the c.env/process.env fallback from the route handler into dispatchSms itself: resolves `activeEnv` at the top of dispatchSms (falls back to process.env whenever the passed env has zero keys), and the /sms handler now just passes `c.env ?? env` through safely. Verified: 821/821 tests pass.
 
+- [x] [UOW-HOTFIX] Fix router-level env fallback: `c.env ?? env` never fell through because c.env comes back empty/undefined (not strictly null) under @hono/node-server, which `??` doesn't catch. Handler now checks Object.keys(c.env).length explicitly, falling back to the configured `env` closure (preserving test injection) before dispatchSms's own process.env fallback. Verified: 821/821 tests pass.
+
 - [ ] Task 4: Dealer Hand-off & Archival
   - Verify all 821+ tests remain passing.
   - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.

@@ -93,10 +93,12 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
       return c.json({ success: false, error: err.message }, 500);
     }
 
-    // c.env is populated by Hono's runtime adapter (e.g. Cloudflare Workers); @hono/node-server
-    // never sets it. Pass it through safely (it may be undefined) — dispatchSms falls back to
-    // process.env itself when the resolved env turns out empty.
-    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: c.env ?? env, fetchImpl });
+    // c.env is populated by Hono's runtime adapter (e.g. Cloudflare Workers); under
+    // @hono/node-server it comes back empty/undefined, so `??` never falls through — check key
+    // count explicitly, preferring c.env, then the configured `env` (used directly by tests),
+    // then process.env.
+    const activeEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
+    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: activeEnv, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 
