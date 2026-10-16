@@ -193,6 +193,29 @@ test('Submission defaults isAutoApproved, priceTierBucket, and projectedMargin t
   assert.equal(withFields.projectedMargin, -150);
 });
 
+// Acquisition Radar (UOW-52): an explicit GPS fix lets radarLayerBuilder.js skip zipCode
+// gazetteer resolution altogether.
+test('Submission defaults lat/lng to null and accepts an explicit coordinate pair', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.lat, null);
+  assert.equal(submission.lng, null);
+
+  const withCoords = new Submission(baseData({ lat: 34.2388, lng: -78.0145 }));
+  assert.equal(withCoords.lat, 34.2388);
+  assert.equal(withCoords.lng, -78.0145);
+});
+
+test('Submission accepts negative lat/lng (southern/western hemispheres) and rejects non-numeric values', () => {
+  assert.doesNotThrow(() => new Submission(baseData({ lat: -33.8688, lng: 151.2093 })));
+  assert.throws(() => new Submission(baseData({ lat: 'north', lng: -78.0145 })), /lat/);
+  assert.throws(() => new Submission(baseData({ lat: 34.2388, lng: 'west' })), /lng/);
+});
+
+test('Submission requires lat and lng to be present or absent together', () => {
+  assert.throws(() => new Submission(baseData({ lat: 34.2388 })), /lat and lng/);
+  assert.throws(() => new Submission(baseData({ lng: -78.0145 })), /lat and lng/);
+});
+
 test('Submission defaults nagSentAt and digestSentAt to null, and queuedForMorningDigest to false', () => {
   const submission = new Submission(baseData());
   assert.equal(submission.nagSentAt, null);

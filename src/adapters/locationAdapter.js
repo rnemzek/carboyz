@@ -54,6 +54,18 @@ function resolveOsmEnabled(options = {}) {
   return false;
 }
 
+/**
+ * Synchronous, network-free ZIP resolution against the offline gazetteer only — used by
+ * radarLayerBuilder.js (UOW-52) to plot a submission's zipCode without awaiting the async
+ * Google/OSM geocoder tiers that resolveLocationQuery() tries first. Exact 5-digit match only;
+ * returns null for anything else, never throws.
+ */
+export function resolveZipOffline(zipCode) {
+  if (typeof zipCode !== 'string' || !/^\d{5}$/.test(zipCode)) return null;
+  const match = matchByZip(zipCode);
+  return match ? { lat: match.lat, lng: match.lng, label: match.label } : null;
+}
+
 function resolveOffline(text) {
   const query = normalize(text);
   if (!query) return null;

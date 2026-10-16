@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LeadEscalationService } from '../src/services/LeadEscalationService.js';
+import {
+  LeadEscalationService,
+  startEscalationTicker,
+  stopEscalationTicker,
+  ESCALATION_TICK_INTERVAL_MS,
+} from '../src/services/LeadEscalationService.js';
 import { SubmissionService } from '../src/services/SubmissionService.js';
 import { DEFAULT_OPERATING_SCHEDULE } from '../src/config/tenantConfig.js';
 
@@ -171,4 +176,71 @@ test('evaluateMorningDigest is a no-op when nothing is queued', () => {
 
   assert.equal(result.dispatched, false);
   assert.equal(notificationService.digestCalls.length, 0);
+});
+
+// Escalation heartbeat (UOW-52): App.js's startEscalationTicker/stopEscalationTicker wiring.
+test('startEscalationTicker ticks evaluatePendingLeads and evaluateMorningDigest on every interval', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+
+  const calls = [];
+  const service = {
+    evaluatePendingLeads: (options) => calls.push(['pending', options.now]),
+    evaluateMorningDigest: (options) => calls.push(['digest', options.now]),
+  };
+  const now = () => new Date('2026-01-15T13:00:00.000Z');
+
+  const handle = startEscalationTicker(service, { intervalMs: 1000, now });
+  assert.equal(calls.length, 0);
+
+  t.mock.timers.tick(1000);
+  assert.deepEqual(calls.map(([kind]) => kind), ['pending', 'digest']);
+
+  t.mock.timers.tick(2000);
+  assert.equal(calls.length, 6);
+
+  stopEscalationTicker(handle);
+});
+
+test('startEscalationTicker defaults to a 60-second interval', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+
+  let tickCount = 0;
+  const service = {
+    evaluatePendingLeads: () => {
+      tickCount += 1;
+    },
+    evaluateMorningDigest: () => {},
+  };
+
+  const handle = startEscalationTicker(service);
+  t.mock.timers.tick(ESCALATION_TICK_INTERVAL_MS - 1);
+  assert.equal(tickCount, 0);
+
+  t.mock.timers.tick(1);
+  assert.equal(tickCount, 1);
+
+  stopEscalationTicker(handle);
+});
+
+test('stopEscalationTicker clears the interval so no further ticks fire, and no-ops on a null handle', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+
+  let tickCount = 0;
+  const service = {
+    evaluatePendingLeads: () => {
+      tickCount += 1;
+    },
+    evaluateMorningDigest: () => {},
+  };
+
+  const handle = startEscalationTicker(service, { intervalMs: 1000 });
+  t.mock.timers.tick(1000);
+  assert.equal(tickCount, 1);
+
+  stopEscalationTicker(handle);
+  t.mock.timers.tick(5000);
+  assert.equal(tickCount, 1);
+
+  assert.doesNotThrow(() => stopEscalationTicker(null));
+  assert.doesNotThrow(() => stopEscalationTicker(undefined));
 });

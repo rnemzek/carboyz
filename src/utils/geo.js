@@ -1,7 +1,11 @@
-const EARTH_RADIUS_MILES = 3958.8;
+export const EARTH_RADIUS_MILES = 3958.8;
 
-function toRadians(degrees) {
+export function toRadians(degrees) {
   return (degrees * Math.PI) / 180;
+}
+
+export function toDegrees(radians) {
+  return (radians * 180) / Math.PI;
 }
 
 export function haversineDistanceMiles(pointA, pointB) {

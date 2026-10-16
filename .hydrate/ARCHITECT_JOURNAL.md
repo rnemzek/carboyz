@@ -763,3 +763,89 @@ sequenceDiagram
   `@nemzilla/test-core` — it duplicates the small NHTSA response-normalization shape rather than
   sharing code with the dev Test Bed, keeping the production bundle's dependency graph clean at
   the cost of a small amount of duplication between the two.
+
+## UOW-52 — Acquisition Radar (Carto Dark Matter Map), Unlocated Leads Queue & Escalation Heartbeat — 2026-10-15
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Radar GeoJSON rendering | MapLibre native `circle`/`line`/`fill`/`symbol` layers + `match`/`filter` expressions | spatial-core's `renderTopicLayer`/`updateTopicLayer` | spatial-core's topic abstraction is shaped for point dealer/vehicle markers, not range-ring polygons or a `pinStatus`-keyed color match; native MapLibre layers keep `radarLayerBuilder.js` a plain GeoJSON producer with no spatial-core coupling. |
+| PENDING pin pulse | `setInterval` toggling a second filtered `circle` layer's `circle-opacity`/`circle-radius` | A MapLibre paint-expression animation (`['*', ['sin', ...` time-based) | Simpler, inspectable, and cheap to clear on `beforeunload`; a paint-expression animation has no natural "stop" hook. |
+| ZIP→coordinate resolution for the radar | New synchronous `resolveZipOffline()` in `locationAdapter.js` | Reuse async `resolveLocationQuery()` | `resolveLocationQuery()` tries network geocoders first and returns a Promise; `radarLayerBuilder.js`'s builders are synchronous, pure functions by design (same contract as `carboyzAdapter.js`), so a sync offline-only resolver was added instead of making the builder layer async. |
+| Status→pin-color mapping | `status` first, `winLossStatus` as fallback, open/unmatched statuses default to PENDING | Ask the PO to rename/add literal `ACCEPTED`/`PASSED` status values | The UOW's 3-bucket color spec names status values (`ACCEPTED`, `WON`, `PASSED`, `LOST`) that don't exist as literal `Submission.status` strings — mapping onto the existing `status`/`winLossStatus` pair was the surgical option; renaming the enum would have touched every other status-matching call site in the app for a map-coloring concern. |
+| Old `MapView.js` (dealer/vehicle inventory map) | Left in the tree, unused on any tab | Delete it | Nothing in the UOW asked for its removal, and deleting a fully-built, previously-shipped feature on an inference risked losing work the PO might still want; only its two style-URL helpers are now exported and reused by `RadarMapView.js`. |
+
+**Workflow / Sequence Diagram — Radar tab render + pin inspection**
+
+```mermaid
+sequenceDiagram
+    participant Dealer
+    participant App as App.js
+    participant Radar as RadarMapView
+    participant Builder as radarLayerBuilder
+    participant Gazetteer as locationAdapter (offline)
+    participant MapLibre
+
+    Dealer->>App: click "Acquisition Radar" tab
+    App->>Radar: update(submissions, tenantConfig)
+    App->>Radar: mount()
+    Radar->>MapLibre: new Map({ style: CARTO Dark Matter, center: HQ })
+    MapLibre-->>Radar: 'load' event
+    Radar->>Radar: initLayers() (add hq/rings/lead-origin sources+layers)
+    Radar->>Radar: styleReady = true
+    Radar->>Builder: buildHqAnchorFeature / buildRangeRingFeatures / buildLeadOriginFeatureCollection
+    Builder->>Gazetteer: resolveZipOffline(zipCode) per submission w/o lat/lng
+    Gazetteer-->>Builder: {lat,lng} | null
+    Builder-->>Radar: {featureCollection, unlocated}
+    Radar->>MapLibre: source.setData(...) x3
+    Radar->>Radar: renderUnlocatedDock(unlocated), renderMetricPill(...)
+    Dealer->>MapLibre: click a lead pin
+    MapLibre-->>Radar: 'click' on radar-lead-origin-pins (feature.properties)
+    Radar->>Dealer: showInspectionDrawer(properties)
+    Dealer->>Radar: click "Open in Lead Inbox"
+    Radar->>App: onOpenLeadInbox() -> goToLeadsTab() -> handleTabSelect('leads')
+```
+
+**Modified contracts / payload shapes**
+- `TenantConfig`: new `dealershipCoordinates: { lat, lng }` field, default `{ lat: 34.2526, lng:
+  -78.0383 }` (`DEFAULT_DEALERSHIP_COORDINATES`), merged the same way `operatingSchedule` already
+  is in `createTenantConfig()`.
+- `Submission`: new optional `lat`/`lng` fields (must both be present or both absent).
+- `LeadEscalationService.js` now also exports `startEscalationTicker(service, { intervalMs, now })`
+  / `stopEscalationTicker(handle)` / `ESCALATION_TICK_INTERVAL_MS` — `service` is duck-typed to
+  `{ evaluatePendingLeads, evaluateMorningDigest }`, not necessarily a `LeadEscalationService`
+  instance, so App.js can pass an always-resolve-the-active-tenant indirection.
+- `locationAdapter.js` now also exports `resolveZipOffline(zipCode): {lat,lng,label} | null`
+  (synchronous, offline-gazetteer-only).
+- New `src/services/radarLayerBuilder.js` module: `buildHqAnchorFeature(tenantConfig)`,
+  `buildRangeRingFeature(s)(center, radii?)`, `resolveSubmissionCoordinates(submission)`,
+  `classifyLeadPinStatus(submission): 'PENDING'|'ACTIVE'|'CLOSED'`,
+  `buildLeadOriginFeatureCollection(submissions, hqCoordinates): { featureCollection, unlocated }`,
+  and the `RADAR_STYLE`/`RADAR_RING_RADII_MILES` constants. All pure GeoJSON-in/GeoJSON-out
+  functions, no DOM/MapLibre dependency — consumed by `src/ui/RadarMapView.js`, which owns all
+  MapLibre source/layer wiring and DOM (drawer, dock, metric pill).
+- `src/ui/App.js`'s "map" tab now mounts `renderRadarMapView()` (from the new `RadarMapView.js`)
+  instead of `renderMapView()` (`MapView.js`, now unused but left in the tree); `mapView.update()`'s
+  signature changed from `(dealers, vehicles)` to `(submissions, tenantConfig)`.
+
+**Architectural Wisdom**
+- MapLibre gotcha worth remembering for any future layer work: `map.isStyleLoaded()` is not safe
+  to call synchronously inside the map's own `'load'` handler right after `addSource()` — it also
+  waits on those just-added sources finishing their own load, so it can read `false` in that same
+  tick even though the style itself is fully loaded. Use an explicit flag set inside the `'load'`
+  handler instead of polling `isStyleLoaded()` for "has my first render happened yet" logic.
+- Any view driven by push-only `update(data)` + `mount()` (this repo's established contract, from
+  `MapView.js` onward) will silently show stale data if something writes to the underlying service
+  without going through `App.js`'s `render()` — this UOW hit it via the Test Harness's seed button,
+  which (like several other dev-only mutators in this app) doesn't call `render()`. The established
+  fix, already used by `leads`/`analytics`, is for the tab-select handler to force its own refresh
+  on tab entry rather than relying solely on the last `render()`'s push — `RadarMapView` now does
+  the same for the "map" tab.
+- This UOW's spec referenced submission status values (`ACCEPTED`, `PASSED`) that don't exist
+  anywhere in `Submission.js`'s actual `SUBMISSION_STATUSES`/`WIN_LOSS_STATUSES` enums. Worth a
+  standing note for future UOWs, same shape as UOW-51's: when a Lead Architect payload names
+  specific status/field values for a new consumer (here, pin coloring), verify them against the
+  actual model enum before implementing — this one was resolved by mapping onto the nearest real
+  `status`/`winLossStatus` combination rather than pausing the whole UOW, since it's a map-styling
+  concern with no data-integrity consequence if the PO wants the bucketing adjusted later.

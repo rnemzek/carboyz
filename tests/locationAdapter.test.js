@@ -1,6 +1,11 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveLocationQuery, searchLocationSuggestions, describeCoordinates } from '../src/adapters/locationAdapter.js';
+import {
+  resolveLocationQuery,
+  searchLocationSuggestions,
+  describeCoordinates,
+  resolveZipOffline,
+} from '../src/adapters/locationAdapter.js';
 
 // Tests below rely on "no apiKey option" meaning "no API key configured" so the offline-gazetteer
 // fallback is deterministic. Neutralize any ambient GOOGLE_PLACES_API_KEY (e.g. from a developer's
@@ -255,6 +260,20 @@ test('searchLocationSuggestions respects an explicit limit option', async () => 
   const fetchImpl = async () => fakeMultiGooglePlacesResponse();
   const results = await searchLocationSuggestions('Pensacola', { apiKey: 'test-key', fetchImpl, limit: 1 });
   assert.equal(results.length, 1);
+});
+
+// resolveZipOffline (UOW-52): the synchronous, network-free resolver radarLayerBuilder.js uses to
+// plot a submission's zipCode without awaiting resolveLocationQuery()'s async geocoder tiers.
+test('resolveZipOffline resolves a known 5-digit ZIP synchronously', () => {
+  assert.deepEqual(resolveZipOffline('28451'), { lat: 34.2388, lng: -78.0145, label: 'Leland, NC' });
+});
+
+test('resolveZipOffline returns null for an unknown ZIP, non-ZIP text, or non-string input', () => {
+  assert.equal(resolveZipOffline('00000'), null);
+  assert.equal(resolveZipOffline('Leland'), null);
+  assert.equal(resolveZipOffline(28451), null);
+  assert.equal(resolveZipOffline(undefined), null);
+  assert.equal(resolveZipOffline(null), null);
 });
 
 test('describeCoordinates returns the exact label for a known location', () => {

@@ -86,3 +86,26 @@ export class LeadEscalationService {
     return { dispatched: true, count: queuedSubmissions.length };
   }
 }
+
+export const ESCALATION_TICK_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Starts the Acquisition Radar escalation heartbeat (UOW-52): every `intervalMs` (default 60s),
+ * runs evaluatePendingLeads() then evaluateMorningDigest() against `now()`. `service` only needs
+ * to duck-type those two methods, so App.js can pass an indirection that always resolves to
+ * whichever tenant is currently active rather than a single fixed LeadEscalationService instance.
+ * Returns the interval handle — pass it to stopEscalationTicker() to clear it.
+ */
+export function startEscalationTicker(service, { intervalMs = ESCALATION_TICK_INTERVAL_MS, now = () => new Date() } = {}) {
+  return setInterval(() => {
+    service.evaluatePendingLeads({ now: now() });
+    service.evaluateMorningDigest({ now: now() });
+  }, intervalMs);
+}
+
+/** Clears a handle returned by startEscalationTicker(). No-ops on a null/undefined handle. */
+export function stopEscalationTicker(handle) {
+  if (handle) {
+    clearInterval(handle);
+  }
+}

@@ -30,6 +30,11 @@ import { renderBottomNavView } from './BottomNavView.js';
 import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
 import { DealerProfileService } from '../services/DealerProfileService.js';
 import { NotificationService } from '../services/NotificationService.js';
+import {
+  LeadEscalationService,
+  startEscalationTicker,
+  stopEscalationTicker,
+} from '../services/LeadEscalationService.js';
 import { AdminController } from './AdminController.js';
 import { renderAdminView } from './AdminView.js';
 import { resolveActiveView, VIEWS } from '../config/viewResolution.js';
@@ -45,7 +50,7 @@ import { getBrandInitials } from './branding.js';
 import { discoveryStageLabel } from './discoveryProgress.js';
 import { DealerStudioController } from './DealerStudioController.js';
 import { BuyerSearchController } from './BuyerSearchController.js';
-import { renderMapView } from './MapView.js';
+import { renderRadarMapView } from './RadarMapView.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 
@@ -249,7 +254,7 @@ function renderTabs(activeTab, onSelect) {
     type: 'button',
     role: 'tab',
     'aria-selected': String(activeTab === 'map'),
-    text: 'Map',
+    text: 'Acquisition Radar',
     onClick: () => onSelect('map'),
   });
   const leadsBtn = h('button', {
@@ -570,7 +575,8 @@ export function mountApp(root) {
   const tenantConfigService = new TenantConfigService();
   tenantConfigService.registerServiceWorker();
   const tenantStateByTenantId = new Map();
-  const mapView = renderMapView();
+  let goToLeadsTab = () => {};
+  const mapView = renderRadarMapView({ onOpenLeadInbox: () => goToLeadsTab() });
 
   let activeTenantConfig = registry.resolveTenant({
     search: window.location.search,
@@ -614,6 +620,11 @@ export function mountApp(root) {
         dealerProfileService,
         host: `${window.location.origin}${window.location.pathname}`,
       });
+      const leadEscalationService = new LeadEscalationService({
+        submissionService,
+        notificationService,
+        tenantConfigService,
+      });
       const dispatchService = new DispatchService({
         submissionService,
         spreadConfigService,
@@ -635,6 +646,7 @@ export function mountApp(root) {
         spreadConfigService,
         sessionStashService,
         dealerProfileService,
+        leadEscalationService,
         dispatchService,
         analyticsService,
         simulationService,
@@ -805,7 +817,7 @@ export function mountApp(root) {
       runDiscovery,
     );
 
-    mapView.update(state.dealers, state.ingestService.getInventory());
+    mapView.update(state.submissionService.getSubmissions(), activeTenantConfig);
 
     function handleTabSelect(tab) {
       activeTab = tab;
@@ -830,7 +842,13 @@ export function mountApp(root) {
       bottomNavButtons.forEach((button, buttonTab) => {
         button.setAttribute('aria-selected', String(tab === buttonTab));
       });
-      if (tab === 'map') mapView.mount();
+      if (tab === 'map') {
+        // Re-push submissions on every tab entry, not just on the last render() — dev-harness
+        // seeding (and any other out-of-band submissionService write) doesn't itself trigger a
+        // full app render(), same reason leads/analytics refresh explicitly below.
+        mapView.update(state.submissionService.getSubmissions(), activeTenantConfig);
+        mapView.mount();
+      }
       if (tab === 'leads') refreshLeadsView();
       if (tab === 'analytics') refreshAnalyticsView();
     }
@@ -847,6 +865,7 @@ export function mountApp(root) {
       simulationBtn,
       harnessBtn,
     } = renderTabs(activeTab, (tab) => handleTabSelect(tab));
+    goToLeadsTab = () => handleTabSelect('leads');
     const { nav: bottomNav, buttons: bottomNavButtons } = renderBottomNavView(activeTab, (tab) => handleTabSelect(tab));
     sellView.hidden = activeTab !== 'sell';
     dealerView.hidden = activeTab !== 'dealer';
@@ -883,6 +902,19 @@ export function mountApp(root) {
     ]);
     root.replaceChildren(app);
     if (activeTab === 'map') mapView.mount();
+  }
+
+  // Escalation heartbeat (UOW-52): only runs while operating in the /dealer view, ticking against
+  // whichever tenant is currently active rather than a fixed instance, since switchTenant() can
+  // change activeTenantConfig after the ticker has already started.
+  if (activeView === VIEWS.DEALER) {
+    const escalationTickerHandle = startEscalationTicker({
+      evaluatePendingLeads: (options) =>
+        getTenantState(activeTenantConfig.tenantId).leadEscalationService.evaluatePendingLeads(options),
+      evaluateMorningDigest: (options) =>
+        getTenantState(activeTenantConfig.tenantId).leadEscalationService.evaluateMorningDigest(options),
+    });
+    window.addEventListener('beforeunload', () => stopEscalationTicker(escalationTickerHandle));
   }
 
   render();

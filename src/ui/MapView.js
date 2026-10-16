@@ -10,14 +10,14 @@ import { generateRegionalDealers } from '../utils/generateRegionalDealers.js';
 import { haversineDistanceMiles } from '../utils/geo.js';
 
 // Dark-matter basemap (per the "dark canvas" product spec) — independent of any geocoding API key.
-const CARTO_DARK_MATTER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+export const CARTO_DARK_MATTER_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 /**
  * Resolves the MapLibre style URL to render. Checks `window.CARBOYZ_MAP_STYLE_URL` first (a runtime
  * override for static serving with no build step, matching the `window.CARBOYZ_*` convention used for
  * API keys elsewhere in this codebase), defaulting to the CARTO Dark Matter basemap otherwise.
  */
-function resolveMapStyleUrl() {
+export function resolveMapStyleUrl() {
   if (typeof window !== 'undefined' && typeof window.CARBOYZ_MAP_STYLE_URL === 'string' && window.CARBOYZ_MAP_STYLE_URL) {
     return window.CARBOYZ_MAP_STYLE_URL;
   }

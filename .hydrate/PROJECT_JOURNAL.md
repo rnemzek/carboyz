@@ -68,3 +68,8 @@
 ### UOW-50 — completed 2026-10-15
 - Iterations logged: 0
 - Suggested commit: `feat(leads): add unreviewed lead escalation nags and operating quiet hours`
+- [x] **[UOW-52]** Acquisition Radar (Carto Dark Matter Map), Unlocated Leads Queue & Escalation Heartbeat — 2026-10-15 | Pass: 785/785 tests
+
+### UOW-52 — completed 2026-10-15
+- Iterations logged: 0
+- Suggested commit: `feat(map): transform map into acquisition radar with unlocated queue and escalation ticker`

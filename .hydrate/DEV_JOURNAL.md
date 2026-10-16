@@ -1554,3 +1554,103 @@ tests alone — left outside the 80% gate like every other View file in this rep
 (`PwaInstallPromptView.js` 52%, `SimulationView.js` 10%), since the gate's own wording scopes to
 "core domain models and business logic services," not presentation code. Did not drive this
 through a live browser session — no UI-automation tool available in this session.
+
+## UOW-52 — Acquisition Radar (Carto Dark Matter Map), Unlocated Leads Queue & Escalation Heartbeat — 2026-10-15
+
+**Task 1 — Escalation heartbeat.** `LeadEscalationService.js` already had `evaluatePendingLeads`/
+`evaluateMorningDigest` from UOW-50 but no interval wiring. Added `startEscalationTicker(service,
+{ intervalMs = 60000, now })` / `stopEscalationTicker(handle)` (plain exported functions, not
+class methods — `service` only needs to duck-type the two evaluate methods). `App.js`'s
+`mountApp()` starts the ticker once, only when `resolveActiveView(...) === VIEWS.DEALER`, passing
+an indirection object whose methods always resolve `getTenantState(activeTenantConfig.tenantId)`
+fresh on every tick — so a `switchTenant()` call after the ticker started still ticks the
+currently-active tenant, not whichever tenant was active at mount. Cleared via
+`window.addEventListener('beforeunload', ...)`. Each per-tenant `getTenantState()` now also builds
+a `LeadEscalationService` (added to the per-tenant `state` object) wired to that tenant's
+`submissionService`/`notificationService` and the single app-level `tenantConfigService`.
+
+**Task 2/3 — `src/services/radarLayerBuilder.js` (new).** Pure, DOM-free GeoJSON builders, same
+split carboyzAdapter.js established for the dealer/vehicle map: `buildHqAnchorFeature`,
+`buildRangeRingFeature(s)` (10/25/50mi circle polygons via a destination-point/great-circle
+formula — `toRadians`/`toDegrees`/`EARTH_RADIUS_MILES` promoted to exports in `src/utils/geo.js`
+for reuse), `resolveSubmissionCoordinates` (explicit `submission.lat/lng` wins, else
+`resolveZipOffline(submission.zipCode)`), `classifyLeadPinStatus`, and
+`buildLeadOriginFeatureCollection` (splits into a mapped `FeatureCollection` + an `unlocated`
+array). Added `Submission.lat`/`Submission.lng` (optional, must be present/absent together,
+`allowNegative: true`). Added `resolveZipOffline(zipCode)` to `locationAdapter.js` — a
+synchronous, network-free 5-digit-exact-match wrapper around the existing offline gazetteer, since
+`resolveLocationQuery()` is async (tries Google/OSM first) and radarLayerBuilder needs a
+synchronous resolution path. Added `dealershipCoordinates` to `TenantConfig`
+(`DEFAULT_DEALERSHIP_COORDINATES = { lat: 34.2526, lng: -78.0383 }`, the literal HQ anchor the UOW
+spec names — note this doesn't match the "Leland Motors" dealer coordinates used elsewhere in the
+codebase, `{ lat: 34.2388, lng: -78.0145 }`; kept them separate since the UOW spec gave an explicit
+literal default for this new field).
+
+**Status→pin-color mapping (judgment call, not explicit in the model).** The spec's three buckets
+(PENDING_APPROVAL=amber / AUTO_COUNTER_SENT+ACCEPTED+WON=green / REJECTED+PASSED+LOST=gray)
+reference `ACCEPTED`/`WON`/`PASSED`/`LOST` as if they were `Submission.status` values, but the real
+`SUBMISSION_STATUSES` enum has no such values — `WON`/`LOST`/`MANUAL_APPROVED`/etc. live on the
+separate `winLossStatus` field. `classifyLeadPinStatus()` checks `status` first
+(`REJECTED`→CLOSED, `AUTO_COUNTER_SENT`→ACTIVE), falls back to `winLossStatus`
+(`WON`/`MANUAL_APPROVED`→ACTIVE, `LOST`/`EXPIRED`/`DECLINED`→CLOSED), and buckets every other open
+status (`NEW`/`IN_REVIEW`/`OFFER_BEATEN`/`DECLINED`) as PENDING, since those still need desk
+attention. Flagging this mapping explicitly in case the PO wants a different bucketing once seen
+live.
+
+**Task 4 — `src/ui/RadarMapView.js` (new), replaces `MapView.js` on the "map" tab.** Same
+`{ section, mount, update }` contract as the old `MapView.js` (which stays in the tree, unused, in
+case the dealer/vehicle inventory map is wanted back later — nothing else imports it except its
+now-exported `resolveMapStyleUrl`/`CARTO_DARK_MATTER_STYLE_URL`, reused here). Renders directly via
+MapLibre's native GeoJSON source/layer API (`circle`/`line`/`fill`/`symbol` layers +
+`match`/`filter` expressions) rather than spatial-core's `renderTopicLayer` — that abstraction is
+built around the dealer/vehicle "topic" shape and doesn't fit polygons + a `pinStatus`-keyed color
+match well. Pulsing PENDING halo: a second `circle` layer filtered to `pinStatus === 'PENDING'`,
+with a `setInterval` toggling its `circle-opacity`/`circle-radius` paint properties every 650ms
+(cleared on `beforeunload`) — simpler and more testable-by-inspection than a MapLibre paint-
+expression animation. Inspection drawer and "Open in Lead Inbox" button reuse the same
+`showInspectionDrawer(properties)` path for both a map-pin click and an Unlocated-dock item click.
+App.js wires `onOpenLeadInbox` through a late-bound `goToLeadsTab` closure (set once `render()`
+defines `handleTabSelect`), since the shared `mapView` instance is constructed once in `mountApp()`
+before `render()`/`handleTabSelect` exist. Also found and fixed a second, pre-existing staleness
+gap while live-testing (see below): `handleTabSelect('map')` now re-pushes
+`mapView.update(state.submissionService.getSubmissions(), activeTenantConfig)` on every tab entry,
+not just on the last app-level `render()` — same reason `leads`/`analytics` already call their own
+explicit refresh on tab select (the Test Harness's "Seed N Historical Leads" button, and any other
+out-of-band `submissionService` write, doesn't itself trigger `render()`).
+
+Tab button relabeled "Map" → "Acquisition Radar" (`mapBtn`/`mapView` variable names left as-is —
+only the UI-facing text changed, to keep the diff surgical). Added `.radar-metric-pill`,
+`.radar-unlocated-dock*`, `.radar-pin-badge` to `styles.css`, reusing the existing
+`.map-drawer`/`.map-view__canvas` classes for the inspection drawer and canvas.
+
+**Live-browser bug found & fixed:** `renderLayers()` originally guarded on
+`map.isStyleLoaded()`, called synchronously from inside the map's own `'load'` event handler right
+after `initLayers()` added the GeoJSON sources — but `isStyleLoaded()` also waits on those
+just-added sources finishing their own load, which isn't true in that same synchronous tick, so
+the very first render silently no-op'd (empty metric pill, no HQ pin/rings/lead pins visible).
+Replaced with an explicit `styleReady` flag set `true` inside the `'load'` handler itself. Caught
+via a real `npm start` + Playwright session (dealer basic-auth `admin`/`carboyz2026`, seeded 50
+historical leads via the Test Harness tab) — confirmed visually afterward: HQ pin + labeled
+10/25/50mi rings, status-colored lead pins, a live `"Active Leads within 25mi: 38 | Awaiting
+Review: 0 | Unlocated: 0"` metric pill, clicking a pin opened the inspection drawer with correct
+vehicle/competitor/counter/distance data, and "Open in Lead Inbox" switched tabs to a Lead Inbox
+showing that same lead.
+
+**Files touched:** `src/config/tenantConfig.js`, `src/models/Submission.js`,
+`src/adapters/locationAdapter.js`, `src/utils/geo.js`, `src/services/radarLayerBuilder.js` (new),
+`src/services/LeadEscalationService.js`, `src/ui/App.js`, `src/ui/RadarMapView.js` (new),
+`src/ui/MapView.js` (two consts exported, no behavior change), `src/ui/styles.css`.
+
+**Tests:** `tests/radarLayerBuilder.test.js` (new — HQ anchor, ring-polygon geometry via
+haversine-distance-from-center assertions, coordinate resolution precedence, pin-status
+classification, located/unlocated split), `tests/leadEscalationService.test.js` (ticker
+start/interval/stop via `node:test`'s `t.mock.timers`), plus coverage additions to
+`tests/tenantConfig.test.js`, `tests/submission.test.js`, `tests/locationAdapter.test.js`.
+`npm test` → 785/785 passing (23 new on top of the prior 762; zero regressions). No coverage tool
+is configured in this repo (`"test": "node --test"`, no c8/nyc) — spot-checked
+`radarLayerBuilder.js` and the `LeadEscalationService.js` ticker additions by test-case coverage
+inspection instead (every branch of `classifyLeadPinStatus`, both ring/HQ geometry paths, and both
+ticker start/stop paths have a dedicated assertion). `RadarMapView.js` itself has no dedicated unit
+test file, consistent with `docs/TEST_PLAN.md`'s existing "UI Views: Manual / Browser Smoke Drive"
+gate (the same treatment `MapView.js` already had) — verified instead via the live Playwright
+session described above.

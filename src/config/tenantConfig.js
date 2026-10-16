@@ -22,6 +22,10 @@ export const DEFAULT_OPERATING_SCHEDULE = Object.freeze({
   nagIntervalMinutes: 15,
 });
 
+// Acquisition Radar HQ anchor (UOW-52): the dealership center pin and range rings default here
+// when a tenant hasn't configured its own dealershipCoordinates — the CarBoyZ Leland HQ.
+export const DEFAULT_DEALERSHIP_COORDINATES = Object.freeze({ lat: 34.2526, lng: -78.0383 });
+
 export const DEFAULT_TENANT_CONFIG = Object.freeze({
   tenantId: 'default',
   name: 'Carboyz',
@@ -32,6 +36,7 @@ export const DEFAULT_TENANT_CONFIG = Object.freeze({
   contact: DEFAULT_CONTACT,
   adminPin: DEFAULT_ADMIN_PIN,
   operatingSchedule: DEFAULT_OPERATING_SCHEDULE,
+  dealershipCoordinates: DEFAULT_DEALERSHIP_COORDINATES,
 });
 
 export function createTenantConfig(overrides = {}) {
@@ -49,6 +54,10 @@ export function createTenantConfig(overrides = {}) {
     operatingSchedule: {
       ...DEFAULT_TENANT_CONFIG.operatingSchedule,
       ...(overrides.operatingSchedule ?? {}),
+    },
+    dealershipCoordinates: {
+      ...DEFAULT_TENANT_CONFIG.dealershipCoordinates,
+      ...(overrides.dealershipCoordinates ?? {}),
     },
   };
 }

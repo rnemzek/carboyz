@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_TENANT_CONFIG,
   DEFAULT_OPERATING_SCHEDULE,
+  DEFAULT_DEALERSHIP_COORDINATES,
   createTenantConfig,
   isWithinOperatingHours,
 } from '../src/config/tenantConfig.js';
@@ -66,6 +67,18 @@ test('createTenantConfig merges operatingSchedule overrides instead of replacing
   const config = createTenantConfig({ operatingSchedule: { nagIntervalMinutes: 30 } });
   assert.equal(config.operatingSchedule.nagIntervalMinutes, 30);
   assert.equal(config.operatingSchedule.openHourLocal, DEFAULT_OPERATING_SCHEDULE.openHourLocal);
+});
+
+test('createTenantConfig defaults dealershipCoordinates to the CarBoyZ Leland HQ anchor', () => {
+  const config = createTenantConfig();
+  assert.deepEqual(config.dealershipCoordinates, DEFAULT_DEALERSHIP_COORDINATES);
+  assert.deepEqual(config.dealershipCoordinates, { lat: 34.2526, lng: -78.0383 });
+});
+
+test('createTenantConfig merges dealershipCoordinates overrides instead of replacing them wholesale', () => {
+  const config = createTenantConfig({ dealershipCoordinates: { lat: 39.74 } });
+  assert.equal(config.dealershipCoordinates.lat, 39.74);
+  assert.equal(config.dealershipCoordinates.lng, DEFAULT_DEALERSHIP_COORDINATES.lng);
 });
 
 test('isWithinOperatingHours is true inside the daytime window and false outside it', () => {

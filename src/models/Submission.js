@@ -56,6 +56,8 @@ export class Submission {
     trim,
     mileage,
     zipCode,
+    lat,
+    lng,
     competitor,
     competitorDealerName,
     competitorOfferAmount,
@@ -107,6 +109,14 @@ export class Submission {
     }
     if (zipCode !== undefined && zipCode !== null && typeof zipCode !== 'string') {
       throw new Error('Submission zipCode must be a string');
+    }
+    // Acquisition Radar (UOW-52): an explicit GPS fix takes priority over zipCode gazetteer
+    // resolution, so both must be present together or not at all — lat/lng ride the globe,
+    // allowNegative covers the southern/western hemispheres.
+    validateOptionalNumber(lat, 'lat', { allowNegative: true });
+    validateOptionalNumber(lng, 'lng', { allowNegative: true });
+    if ((lat === undefined || lat === null) !== (lng === undefined || lng === null)) {
+      throw new Error('Submission lat and lng must both be present or both be absent');
     }
     if (!COMPETITORS.includes(competitor)) {
       throw new Error(`Submission competitor must be one of: ${COMPETITORS.join(', ')}`);
@@ -176,6 +186,8 @@ export class Submission {
     this.trim = trim ?? null;
     this.mileage = mileage;
     this.zipCode = zipCode ?? null;
+    this.lat = lat ?? null;
+    this.lng = lng ?? null;
     this.competitor = competitor;
     this.competitorDealerName = competitor === 'Other' ? competitorDealerName : null;
     this.competitorOfferAmount = competitorOfferAmount;
