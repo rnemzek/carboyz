@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createApp, resolveTenantId, startServer } from '../src/server/index.js';
 import { createWsRelay } from '../src/server/wsRelay.js';
+import { normalizePhoneToE164, dispatchSms, createNotificationsRouter } from '../src/server/routes/notifications.js';
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'fixtures', 'offers');
 
@@ -332,6 +333,184 @@ test('POST /api/offers/parse rejects a non-JSON body without crashing the server
 
   assert.equal(res.status, 400);
   assert.equal(body.success, false);
+});
+
+test('normalizePhoneToE164 formats a bare 10-digit US number as +1XXXXXXXXXX', () => {
+  assert.equal(normalizePhoneToE164('9105550128'), '+19105550128');
+  assert.equal(normalizePhoneToE164('(910) 555-0128'), '+19105550128');
+});
+
+test('normalizePhoneToE164 preserves a valid E.164 number', () => {
+  assert.equal(normalizePhoneToE164('+19105550128'), '+19105550128');
+});
+
+test('normalizePhoneToE164 rejects an invalid phone', () => {
+  assert.throws(() => normalizePhoneToE164('555-0128'), /10-digit/);
+  assert.throws(() => normalizePhoneToE164('+1'), /E\.164/);
+  assert.throws(() => normalizePhoneToE164(''), /required/);
+});
+
+test('dispatchSms sends via Telnyx when Telnyx credentials are present', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ data: { id: 'telnyx-1' } }) };
+  };
+
+  const result = await dispatchSms({
+    to: '+19105550128',
+    message: 'hi',
+    env: { TELNYX_API_KEY: 'key', TELNYX_FROM_NUMBER: '+15550100100' },
+    fetchImpl,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.messageId, 'telnyx-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://api.telnyx.com/v2/messages');
+  assert.equal(requests[0].init.headers.Authorization, 'Bearer key');
+  assert.deepEqual(JSON.parse(requests[0].init.body), { from: '+15550100100', to: '+19105550128', text: 'hi' });
+});
+
+test('dispatchSms falls back to Twilio when Telnyx credentials are absent', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ sid: 'SM1' }) };
+  };
+
+  const result = await dispatchSms({
+    to: '+19105550128',
+    message: 'hi',
+    env: { TWILIO_ACCOUNT_SID: 'AC1', TWILIO_AUTH_TOKEN: 'tok', TWILIO_FROM_NUMBER: '+15550100100' },
+    fetchImpl,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.messageId, 'SM1');
+  assert.equal(requests[0].url, 'https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json');
+});
+
+test('dispatchSms returns a failure when no provider credentials are configured', async () => {
+  const result = await dispatchSms({ to: '+19105550128', message: 'hi', env: {} });
+  assert.equal(result.success, false);
+  assert.match(result.error, /credentials/);
+});
+
+test('dispatchSms surfaces a Telnyx HTTP failure as success: false', async () => {
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 422,
+    json: async () => ({ errors: [{ detail: 'bad request' }] }),
+  });
+
+  const result = await dispatchSms({
+    to: '+19105550128',
+    message: 'hi',
+    env: { TELNYX_API_KEY: 'key', TELNYX_FROM_NUMBER: '+15550100100' },
+    fetchImpl,
+  });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /bad request/);
+});
+
+test('POST /sms dispatches successfully for a valid payload', async () => {
+  const fetchImpl = async () => ({ ok: true, json: async () => ({ data: { id: 'telnyx-1' } }) });
+  const router = createNotificationsRouter({
+    env: { TELNYX_API_KEY: 'key', TELNYX_FROM_NUMBER: '+15550100100' },
+    fetchImpl,
+  });
+
+  const res = await router.request('/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: '9105550128', message: 'hi' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.equal(body.messageId, 'telnyx-1');
+});
+
+test('POST /sms returns success: false with 500 when required fields are missing', async () => {
+  const router = createNotificationsRouter({ env: {} });
+  const res = await router.request('/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: '9105550128' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 500);
+  assert.equal(body.success, false);
+});
+
+test('POST /sms returns success: false with 500 for an invalid phone number', async () => {
+  const router = createNotificationsRouter({
+    env: { TELNYX_API_KEY: 'key', TELNYX_FROM_NUMBER: '+15550100100' },
+  });
+  const res = await router.request('/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: '555', message: 'hi' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 500);
+  assert.equal(body.success, false);
+});
+
+test('POST /sms returns success: false with 500 when no provider credentials are configured', async () => {
+  const router = createNotificationsRouter({ env: {} });
+  const res = await router.request('/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: '9105550128', message: 'hi' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 500);
+  assert.equal(body.success, false);
+  assert.match(body.error, /credentials/);
+});
+
+test('POST /api/v1/notifications/sms requires dealer auth', async () => {
+  const app = createApp();
+  const res = await app.request('/api/v1/notifications/sms', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to: '9105550128', message: 'hi' }),
+  });
+  assert.equal(res.status, 401);
+});
+
+test('POST /api/v1/notifications/sms with dealer auth hits the relay route and reports missing credentials', async () => {
+  const PROVIDER_ENV_KEYS = ['TELNYX_API_KEY', 'TELNYX_FROM_NUMBER', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER'];
+  const savedEnv = {};
+  for (const key of PROVIDER_ENV_KEYS) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+  try {
+    const app = createApp();
+    const res = await app.request('/api/v1/notifications/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...DEALER_AUTH_HEADER },
+      body: JSON.stringify({ to: '9105550128', message: 'hi' }),
+    });
+    const body = await res.json();
+
+    assert.equal(res.status, 500);
+    assert.equal(body.success, false);
+    assert.match(body.error, /credentials/);
+  } finally {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test('wsRelay: broadcast to an unknown tenant room delivers to nobody and getRoomSize is 0', () => {

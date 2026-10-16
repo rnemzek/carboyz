@@ -1,10 +1,25 @@
-import { TEAM_MEMBER_ROLES } from './DealerProfileService.js';
+import { TEAM_MEMBER_ROLES, toE164 } from './DealerProfileService.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   maximumFractionDigits: 0,
 });
+
+/**
+ * Normalizes a roster member's stored display-format phone to E.164 before handing it to the SMS
+ * adapter — real providers (Telnyx/Twilio) reject display-format numbers. A member with an
+ * unformattable phone is skipped (warned, not thrown) so one bad record can't block the rest of
+ * the roster (UOW-54).
+ */
+function dispatchToMember(smsAdapter, member, body) {
+  try {
+    return smsAdapter.sendSms({ to: toE164(member.phone), body });
+  } catch (err) {
+    console.warn(`[NotificationService] Skipping SMS to ${member.name ?? member.id}: ${err.message}`);
+    return { success: false, provider: 'skipped', to: member.phone, body, error: err.message };
+  }
+}
 
 function competitorLabel(submission) {
   if (submission.competitor === 'Other' && submission.competitorDealerName) {
@@ -48,6 +63,40 @@ export class TwilioSmsAdapter {
     });
 
     return { success: response.ok, provider: 'twilio', to, body };
+  }
+}
+
+/**
+ * Dispatches SMS through the server-side relay (POST /api/v1/notifications/sms), which holds the
+ * provider credentials this browser bundle never sees. On a failed request or response it warns
+ * to the console rather than throwing, so a dead relay/missing credentials never crash the UI.
+ */
+export class FetchSmsAdapter {
+  constructor({ endpoint = '/api/v1/notifications/sms', fetchImpl = fetch, credentials = 'same-origin' } = {}) {
+    this.endpoint = endpoint;
+    this.fetchImpl = fetchImpl;
+    this.credentials = credentials;
+  }
+
+  async sendSms({ to, body }) {
+    try {
+      const response = await this.fetchImpl(this.endpoint, {
+        method: 'POST',
+        credentials: this.credentials,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to, message: body }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success) {
+        console.warn(`[FetchSmsAdapter] SMS dispatch to ${to} failed: ${result.error ?? `HTTP ${response.status}`}`);
+        return { success: false, provider: 'fetch', to, body, error: result.error ?? `HTTP ${response.status}` };
+      }
+      return { success: true, provider: 'fetch', to, body, messageId: result.messageId ?? null };
+    } catch (err) {
+      console.warn(`[FetchSmsAdapter] SMS dispatch to ${to} threw: ${err.message}`);
+      return { success: false, provider: 'fetch', to, body, error: err.message };
+    }
   }
 }
 
@@ -104,7 +153,7 @@ export class NotificationService {
   notifyPendingApproval({ submission, host = this.host } = {}) {
     const message = formatPendingApprovalSms({ submission, host });
     const recipients = this.dealerProfileService.listMembers().filter((member) => member.notifyOnPending === true);
-    return recipients.map((member) => this.smsAdapter.sendSms({ to: member.phone, body: message }));
+    return recipients.map((member) => dispatchToMember(this.smsAdapter, member, message));
   }
 
   notify(notification) {
@@ -118,7 +167,7 @@ export class NotificationService {
   notifyEscalation({ submission, elapsedMinutes, host = this.host } = {}) {
     const message = formatEscalationSms({ submission, elapsedMinutes, host });
     const recipients = this.dealerProfileService.listMembers().filter((member) => member.notifyOnPending === true);
-    return recipients.map((member) => this.smsAdapter.sendSms({ to: member.phone, body: message }));
+    return recipients.map((member) => dispatchToMember(this.smsAdapter, member, message));
   }
 
   /** Rolls up overnight-queued leads into a single SMS to desk managers, not the full roster. */
@@ -127,6 +176,6 @@ export class NotificationService {
     const recipients = this.dealerProfileService
       .listMembers()
       .filter((member) => member.role === TEAM_MEMBER_ROLES.MANAGER);
-    return recipients.map((member) => this.smsAdapter.sendSms({ to: member.phone, body: message }));
+    return recipients.map((member) => dispatchToMember(this.smsAdapter, member, message));
   }
 }

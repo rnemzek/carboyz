@@ -30,6 +30,33 @@ export function normalizePhone(rawPhone) {
   return `(${digitsOnly.slice(0, 3)}) ${digitsOnly.slice(3, 6)}-${digitsOnly.slice(6)}`;
 }
 
+/**
+ * Converts a stored phone (either normalizePhone's "(XXX) XXX-XXXX" display format or an
+ * already-E.164 number) into strict E.164, for handing to a real SMS provider (UOW-54) — the
+ * display format normalizePhone produces is for UI/dialing, not provider dispatch.
+ */
+export function toE164(phone) {
+  if (typeof phone !== 'string' || !phone.trim()) {
+    throw new Error('phone is required');
+  }
+
+  const trimmed = phone.trim();
+
+  if (trimmed.startsWith('+')) {
+    const candidate = `+${trimmed.slice(1).replace(/\D/g, '')}`;
+    if (!E164_PATTERN.test(candidate)) {
+      throw new Error('phone must be a valid E.164 number');
+    }
+    return candidate;
+  }
+
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length !== 10) {
+    throw new Error('phone must be a 10-digit US number or E.164 format (e.g. +15550100100)');
+  }
+  return `+1${digitsOnly}`;
+}
+
 function storageKey(tenantId) {
   return `carboyz:dealerProfile:${tenantId}`;
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ConsoleSmsAdapter,
   TwilioSmsAdapter,
+  FetchSmsAdapter,
   createSmsAdapterFromEnv,
   formatPendingApprovalSms,
   formatEscalationSms,
@@ -87,6 +88,62 @@ test('TwilioSmsAdapter.sendSms posts to the Twilio REST API with Basic Auth and 
   assert.equal(body.get('Body'), 'Lead alert');
 });
 
+test('FetchSmsAdapter posts to the SMS relay endpoint and reports success with the returned messageId', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ success: true, messageId: 'msg-1' }) };
+  };
+  const adapter = new FetchSmsAdapter({ fetchImpl });
+
+  const result = await adapter.sendSms({ to: '+15559876543', body: 'Lead alert' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.messageId, 'msg-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/api/v1/notifications/sms');
+  assert.equal(requests[0].init.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].init.body), { to: '+15559876543', message: 'Lead alert' });
+});
+
+test('FetchSmsAdapter warns and returns a failure when the relay responds with success: false', async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ success: false, error: 'no credentials' }) });
+    const adapter = new FetchSmsAdapter({ fetchImpl });
+
+    const result = await adapter.sendSms({ to: '+15559876543', body: 'Lead alert' });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'no credentials');
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('FetchSmsAdapter warns and returns a failure instead of throwing when the network request itself fails', async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const fetchImpl = async () => {
+      throw new Error('network down');
+    };
+    const adapter = new FetchSmsAdapter({ fetchImpl });
+
+    const result = await adapter.sendSms({ to: '+15559876543', body: 'Lead alert' });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'network down');
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test('createSmsAdapterFromEnv falls back to ConsoleSmsAdapter when Twilio env vars are absent', () => {
   assert.ok(createSmsAdapterFromEnv({}) instanceof ConsoleSmsAdapter);
   assert.ok(createSmsAdapterFromEnv({ TWILIO_ACCOUNT_SID: 'AC1' }) instanceof ConsoleSmsAdapter);
@@ -142,7 +199,7 @@ test('notifyPendingApproval dispatches SMS strictly to roster members with notif
   notificationService.notifyPendingApproval({ submission: baseSubmission() });
 
   assert.equal(smsAdapter.calls.length, 2);
-  assert.deepEqual(smsAdapter.calls.map((c) => c.to), ['(910) 555-0128', '(910) 555-0150']);
+  assert.deepEqual(smsAdapter.calls.map((c) => c.to), ['+19105550128', '+19105550150']);
   assert.match(smsAdapter.calls[0].body, /CarBoyZ Lead Alert/);
   assert.match(smsAdapter.calls[0].body, /dealer\?sub=t1-sub-9/);
 });
@@ -162,7 +219,7 @@ test('notifyPendingApproval sends nothing when no roster member has notifyOnPend
 test('notify(notification) delegates to notifyPendingApproval when a submission is present', () => {
   const smsAdapter = fakeSmsAdapter();
   const notificationService = new NotificationService({
-    dealerProfileService: fakeDealerProfileService([{ id: 'm1', phone: '555', notifyOnPending: true }]),
+    dealerProfileService: fakeDealerProfileService([{ id: 'm1', phone: '(910) 555-0128', notifyOnPending: true }]),
     smsAdapter,
   });
 
@@ -219,7 +276,7 @@ test('notifyEscalation dispatches SMS strictly to roster members with notifyOnPe
   notificationService.notifyEscalation({ submission: baseSubmission(), elapsedMinutes: 16 });
 
   assert.equal(smsAdapter.calls.length, 1);
-  assert.equal(smsAdapter.calls[0].to, '(910) 555-0128');
+  assert.equal(smsAdapter.calls[0].to, '+19105550128');
   assert.match(smsAdapter.calls[0].body, /Escalation/);
 });
 
@@ -238,6 +295,33 @@ test('notifyMorningDigest dispatches a single rollup SMS strictly to MANAGER-rol
   notificationService.notifyMorningDigest({ count: 4 });
 
   assert.equal(smsAdapter.calls.length, 1);
-  assert.equal(smsAdapter.calls[0].to, '(910) 555-0128');
+  assert.equal(smsAdapter.calls[0].to, '+19105550128');
   assert.match(smsAdapter.calls[0].body, /4 customer offer/);
+});
+
+test('notifyPendingApproval skips a roster member with an unformattable phone instead of throwing', () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const members = [
+      { id: 'm1', name: 'Bad Record', phone: '555', notifyOnPending: true },
+      { id: 'm2', name: 'Front Desk', phone: '(910) 555-0128', notifyOnPending: true },
+    ];
+    const smsAdapter = fakeSmsAdapter();
+    const notificationService = new NotificationService({
+      dealerProfileService: fakeDealerProfileService(members),
+      smsAdapter,
+    });
+
+    const results = notificationService.notifyPendingApproval({ submission: baseSubmission() });
+
+    assert.equal(smsAdapter.calls.length, 1);
+    assert.equal(smsAdapter.calls[0].to, '+19105550128');
+    assert.equal(results[0].success, false);
+    assert.equal(results[1].success, true);
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
 });

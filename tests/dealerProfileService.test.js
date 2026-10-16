@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DealerProfileService, TEAM_MEMBER_ROLES, normalizePhone } from '../src/services/DealerProfileService.js';
+import { DealerProfileService, TEAM_MEMBER_ROLES, normalizePhone, toE164 } from '../src/services/DealerProfileService.js';
 
 function createStorage() {
   const store = new Map();
@@ -23,6 +23,20 @@ test('normalizePhone rejects an invalid phone', () => {
   assert.throws(() => normalizePhone('555-0128'), /10-digit/);
   assert.throws(() => normalizePhone('+1'), /E\.164/);
   assert.throws(() => normalizePhone(''), /required/);
+});
+
+test('toE164 converts normalizePhone\'s display format back to strict E.164', () => {
+  assert.equal(toE164('(910) 555-0128'), '+19105550128');
+});
+
+test('toE164 passes through an already-valid E.164 number', () => {
+  assert.equal(toE164('+19105550128'), '+19105550128');
+});
+
+test('toE164 rejects an invalid phone', () => {
+  assert.throws(() => toE164('555-0128'), /10-digit/);
+  assert.throws(() => toE164('+1'), /E\.164/);
+  assert.throws(() => toE164(''), /required/);
 });
 
 test('DealerProfileService requires a tenantId', () => {

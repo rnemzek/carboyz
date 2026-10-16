@@ -1799,3 +1799,59 @@ extension) was available in this sandbox to drive and screenshot the live UI, so
 stepper/live-ticker/focus-scroll interactions were verified by code review and the unit suite
 only, not by an actual rendered click-through — flagged to the Product Owner per the "say so
 explicitly" guidance rather than claimed as done.
+
+## UOW-54 — Production Server-Side SMS Relay & Provider Dispatch (2026-10-15)
+
+**Picks up the bounded SMS-relay addition the [UOW-HOTFIX] decision log deferred**: a new
+authenticated server endpoint, `POST /api/v1/notifications/sms` (`src/server/routes/
+notifications.js`, mounted in `src/server/index.js` behind the same `dealerAuth` basicAuth
+middleware that already gates `/dealer`). It validates `{ to, message }`, normalizes `to` to
+strict E.164 (`normalizePhoneToE164`), then dispatches via native `fetch` straight to the
+provider REST API — Telnyx primary (`TELNYX_API_KEY`/`TELNYX_FROM_NUMBER`, Bearer auth, `POST
+https://api.telnyx.com/v2/messages`), Twilio fallback (reusing the existing
+`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_FROM_NUMBER` env convention, Basic auth,
+form-encoded) when Telnyx isn't configured, and a `{ success: false, error: 'No SMS provider
+credentials configured' }` / 500 when neither is. Responses are `{ success: true, messageId }`
+(200) or `{ success: false, error }` (500), per spec.
+
+**Client side:** `NotificationService.js` gains `FetchSmsAdapter`, which POSTs `{ to, message:
+body }` to that endpoint with `credentials: 'same-origin'` and never throws — a failed request,
+a non-2xx response, or `success: false` in the body all resolve to `{ success: false, ... }`
+with a `console.warn`, so a dead relay or missing provider credentials can't crash the UI.
+`App.js` now constructs `NotificationService` with `smsAdapter: new FetchSmsAdapter()` instead
+of the `ConsoleSmsAdapter` default, closing out the decision the prior hotfix entry flagged.
+
+**Phone-format fix (Task 3):** `notifyPendingApproval`/`notifyEscalation`/`notifyMorningDigest`
+were handing the SMS adapter `member.phone` straight from the roster — `DealerProfileService`'s
+`normalizePhone` stores it in **display** format (`"(910) 555-0128"`), which Telnyx/Twilio reject.
+Added `DealerProfileService.toE164()` (mirrors `normalizePhone`'s parsing, strict E.164 output)
+and a `dispatchToMember()` helper in `NotificationService.js` that normalizes before calling
+`smsAdapter.sendSms`, catching and `console.warn`-ing (skip, don't throw) on an unformattable
+record so one bad roster entry can't block the rest of the fan-out. `LeadEscalationService.js`
+itself needed no change — it never touches `member.phone` directly, it only calls
+`notificationService.notifyEscalation`/`notifyMorningDigest`, so the fix at the single
+`NotificationService` choke point covers it; verified via `leadEscalationService.test.js`'s
+existing fake-`notificationService` tests (unaffected) plus the updated real-adapter assertions
+in `notificationService.test.js` and `dispatchService.test.js`.
+
+**Scope note (non-blocking):** Task 3's UOW payload named the target file
+`src/models/DealerTeam.js`; no `src/models/DealerTeam.js` or any `DealerTeam` concept exists in
+this repo (confirmed via repo-wide search) — dealer team-member records live entirely in
+`src/services/DealerProfileService.js` (`listMembers`/`addMember`/`normalizePhone`), which is
+where the normalization-for-dispatch fix actually belongs. Treated as a stale/typo'd path rather
+than a stop-and-ask ambiguity, same convention as UOW-53's `src/client/LeadInboxController.js`
+note — the described behavior (clean phone formatting feeding `NotificationService`) was
+unambiguous even though the named file wasn't real.
+
+**Testing:** `npm test` → 821/821 passing (up from 801; +20 new: `normalizePhoneToE164`/
+`dispatchSms`/route-level tests in `tests/server.test.js`, `toE164` in
+`tests/dealerProfileService.test.js`, `FetchSmsAdapter` + the skip-on-bad-phone case in
+`tests/notificationService.test.js`). Coverage (`--experimental-test-coverage`) on touched
+modules: `src/server/routes/notifications.js` 97.94%/87.10%, `DealerProfileService.js`
+96.67%/95.24%, `NotificationService.js` 100%/93.18% (line/branch) — all above the 80% gate.
+
+**Not verified live:** no Telnyx/Twilio account credentials or browser-automation tool were
+available in this sandbox, so the real provider HTTP call and the end-to-end browser
+`FetchSmsAdapter → /api/v1/notifications/sms → provider` path were verified by the unit/mocked-
+fetch suite and code review only, not an actual sent text message — flagged to the Product Owner
+rather than claimed as done.

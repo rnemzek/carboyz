@@ -293,7 +293,7 @@ test('dispatch: manual path wires a NotificationService notifier to SMS roster m
   dispatchService.dispatch(submission);
 
   assert.equal(smsCalls.length, 1);
-  assert.equal(smsCalls[0].to, '(910) 555-0128');
+  assert.equal(smsCalls[0].to, '+19105550128');
   assert.match(smsCalls[0].body, /CarBoyZ Lead Alert: 2021 Honda Civic/);
 });
 

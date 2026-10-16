@@ -914,3 +914,51 @@ sequenceDiagram
   (`overrideCounterOffer` vs. `approveAndSend`) keeps the live-recalculation ticker a pure,
   side-effect-free preview (`previewCounterAdjustment`/`SpreadService.projectMargin`) right up
   until the desk explicitly confirms — no partial-state writes from merely moving a stepper.
+
+## UOW-54 — Production Server-Side SMS Relay & Provider Dispatch — 2026-10-15
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| SMS dispatch architecture | New server route (`src/server/routes/notifications.js`) that calls provider REST APIs directly via `fetch`; client gets a thin `FetchSmsAdapter` that just POSTs to it | Reuse `NotificationService.js`'s existing `TwilioSmsAdapter`/`createSmsAdapterFromEnv` as the route's dispatch logic | The UOW spec requires Telnyx-primary/Twilio-fallback provider selection, which `TwilioSmsAdapter` doesn't model (Twilio-only, one adapter instance per config). Kept the route's dispatch logic (`dispatchSms`) self-contained rather than threading a new multi-provider adapter through `NotificationService`'s existing single-`smsAdapter` constructor shape — `TwilioSmsAdapter` stays as-is for any caller that wants Twilio specifically. |
+| Route auth | Reused the existing `dealerAuth` basicAuth middleware (`DEALER_USER`/`DEALER_PASSWORD`), gating `/api/v1/notifications/*` the same way as `/dealer` | A separate credential/middleware for the relay | The relay is desk-facing infrastructure, not customer-facing — same trust boundary as the dealer portal it serves. No new secret to provision or document. |
+| Phone format for dispatch | New `DealerProfileService.toE164()`, applied at the `NotificationService` dispatch choke point (`dispatchToMember`) | Change `normalizePhone`'s stored format to E.164 directly | `normalizePhone`'s "(XXX) XXX-XXXX" display format is read directly by `AdminView.js` for the roster UI; changing it would require a UI reformat for no benefit. Keeping storage in display format and normalizing only at the SMS send boundary is the smaller, more surgical change and matches the existing precedent of `normalizePhone` already being a dedicated parsing/validation function in the same file. |
+
+**Workflow / Sequence Diagram**
+
+```mermaid
+sequenceDiagram
+    participant Browser as App.js (FetchSmsAdapter)
+    participant Server as Hono (dealerAuth)
+    participant Route as routes/notifications.js
+    participant Provider as Telnyx / Twilio
+
+    Browser->>Server: POST /api/v1/notifications/sms {to, message}
+    Server->>Server: basicAuth check
+    Server->>Route: (authorized)
+    Route->>Route: normalizePhoneToE164(to)
+    alt TELNYX_API_KEY + TELNYX_FROM_NUMBER set
+        Route->>Provider: POST api.telnyx.com/v2/messages (Bearer)
+    else TWILIO_* set
+        Route->>Provider: POST api.twilio.com/.../Messages.json (Basic)
+    else no credentials
+        Route-->>Browser: 500 {success:false, error:"No SMS provider credentials configured"}
+    end
+    Provider-->>Route: HTTP response
+    Route-->>Browser: 200 {success:true, messageId} or 500 {success:false, error}
+```
+
+**Architectural Wisdom**
+- A UOW payload's named file (`src/models/DealerTeam.js`) can describe a real responsibility
+  (team-member phone records) that lives under a different, already-established name
+  (`DealerProfileService.js`) — same lesson as UOW-53's `src/client/` note. Worth a repo-wide
+  search for the *concept* named, not just trusting the literal path, before treating a mismatch
+  as a stop-and-ask ambiguity.
+- A display-formatted value and its provider-API-safe form are different concerns with different
+  audiences (a human reading a roster vs. a REST API that requires E.164) — normalizing once at
+  the single egress point (`NotificationService`'s dispatch helper) rather than changing the
+  stored representation keeps both audiences served without a migration.
+- This closes the "Server-side Twilio SMS relay" item the UOW-HOTFIX decision log (2026-10-15,
+  same day) explicitly deferred — that entry's own call was "bounded addition to pick up later,"
+  and the Telnyx-primary/Twilio-fallback shape here is a superset of what it anticipated.

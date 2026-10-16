@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createWsRelay } from './wsRelay.js';
 import { parseOfferDocument } from './offerParser.js';
+import { createNotificationsRouter } from './routes/notifications.js';
 
 const DEFAULT_PORT = 8080;
 // Repo root (two levels up from this file, src/server/index.js), resolved absolutely so static
@@ -77,6 +78,11 @@ export function createApp({ startedAt = Date.now(), staticRoot = REPO_ROOT } = {
   });
   app.use('/dealer', dealerAuth);
   app.use('/dealer/*', dealerAuth);
+
+  // Server-side SMS relay (UOW-54): holds provider credentials the browser bundle never sees,
+  // gated behind the same dealer auth as the rest of the desk-facing surface.
+  app.use('/api/v1/notifications/*', dealerAuth);
+  app.route('/api/v1/notifications', createNotificationsRouter());
 
   // SPA route for the dealer portal (UOW-48): serveStatic has no history-API fallback, so a
   // direct navigation to /dealer would otherwise 404. The client resolves the actual view from
