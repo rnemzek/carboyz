@@ -92,20 +92,21 @@ export class Submission {
     if (!vin && offerSourceType !== 'ESTIMATE') {
       throw new Error('Submission requires a vin');
     }
-    if (!year) {
-      throw new Error('Submission requires a year');
+    // UOW-51: year/make/model are no longer collected via manual form entry, so a VIN decode or
+    // document-OCR miss (unlisted VIN, NHTSA API down, low-confidence parse) must not block a
+    // submission — they're nullable, same as trim, to be filled in later during desk review.
+    validateOptionalNumber(year, 'year');
+    if (make !== undefined && make !== null && typeof make !== 'string') {
+      throw new Error('Submission make must be a string');
     }
-    if (!make) {
-      throw new Error('Submission requires a make');
+    if (model !== undefined && model !== null && typeof model !== 'string') {
+      throw new Error('Submission model must be a string');
     }
-    if (!model) {
-      throw new Error('Submission requires a model');
+    if (typeof mileage !== 'number' || Number.isNaN(mileage) || mileage <= 0) {
+      throw new Error('Submission requires a positive mileage');
     }
-    if (!mileage) {
-      throw new Error('Submission requires a mileage');
-    }
-    if (!zipCode) {
-      throw new Error('Submission requires a zipCode');
+    if (zipCode !== undefined && zipCode !== null && typeof zipCode !== 'string') {
+      throw new Error('Submission zipCode must be a string');
     }
     if (!COMPETITORS.includes(competitor)) {
       throw new Error(`Submission competitor must be one of: ${COMPETITORS.join(', ')}`);
@@ -169,12 +170,12 @@ export class Submission {
     this.id = id;
     this.timestamp = timestamp;
     this.vin = vin || null;
-    this.year = year;
-    this.make = make;
-    this.model = model;
+    this.year = year ?? null;
+    this.make = make ?? null;
+    this.model = model ?? null;
     this.trim = trim ?? null;
     this.mileage = mileage;
-    this.zipCode = zipCode;
+    this.zipCode = zipCode ?? null;
     this.competitor = competitor;
     this.competitorDealerName = competitor === 'Other' ? competitorDealerName : null;
     this.competitorOfferAmount = competitorOfferAmount;

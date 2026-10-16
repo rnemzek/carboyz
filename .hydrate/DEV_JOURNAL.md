@@ -1472,3 +1472,85 @@ consistent with UOW-49's precedent and this repo's established pattern of testin
 through its exported pure helpers. Did not drive this through a live browser session — no
 UI-automation tool available in this session; flagged above as a follow-up alongside the missing
 `App.js` polling wire-up.
+
+## [UOW-51] Streamlined 3-Pillar Customer Intake (VIN, Mileage, Offer Doc) — 2026-10-15
+
+**Paths:** as with prior UOWs, the spec named `src/client/...` paths that don't exist here —
+mapped onto the real `src/models/Submission.js`, `src/ui/SellerSubmissionView.js`,
+`src/ui/SellerSubmissionController.js`.
+
+**Three scope conflicts surfaced and resolved with the Product Owner before implementation** (all
+three follow the same shape: the UOW's literal text would have broken a battle-tested, already-
+shipped capability used by other pipelines, so enforcement was pushed to the customer-facing
+seller form instead of the shared domain layer):
+
+1. **VIN decode source.** `resolveVehicleFromVin()` named in the UOW only existed in the dev Test
+   Bed (`src/components/dev/TestBedDrawer.js`), importing `@nemzilla/test-core` — a package
+   explicitly described as a "developer test-bed toolkit." PO authorized promoting a standalone,
+   zero-dependency production decoder: new `src/services/nhtsaVinDecoder.js`, calling NHTSA's
+   public vPIC endpoint directly with a fetch timeout (`AbortController`), never importing
+   `@nemzilla/test-core`. Never throws — any failure degrades to a `manual-fallback` shape.
+2. **The UOW-47 no-VIN "ESTIMATE" preliminary-counter path.** Making `vin` unconditionally required
+   on `Submission` would have broken `DispatchService`, `SpreadService`,
+   `SpreadConfigService.NO_VIN_ESTIMATE_BEAT_BUMP`, the Lead Inbox `[PRELIMINARY - NO VIN]` badge,
+   the appraisal PDF's conditional label, and `tests/integration/twoTierEstimateCounters.test.js`.
+   PO decision: keep the model/service-layer exception exactly as-is (`vin` still optional only
+   when `offerSourceType === 'ESTIMATE'`); the live seller form just always requires VIN input, so
+   that no-VIN path is simply never reached from this UI anymore — it stays intact for other
+   intake channels.
+3. **`offerDocument` as a hard-required field.** `src/ui/TestHarnessView.js`'s synthetic-data
+   generator (`buildMockAppraisal`, `decodeAppraisalFromUrlParam` — the completed Analytics/
+   Simulation epic's seeding pipeline) always constructs submissions with `offerDocument: null`,
+   and `tests/ui.testHarnessView.test.js` asserts the model accepts that shape. By the same
+   precedent as #2, `offerDocument` stays optional/nullable on `Submission.js` and in
+   `SellerSubmissionController.js` — the "always require it" rule is enforced only in
+   `SellerSubmissionView.js`'s submit-button gating (see below). Flagging this explicitly in case
+   the PO actually wanted a hard model-layer throw; that would require reworking the synthetic
+   seeding pipeline as a separate, deliberately-scoped follow-up.
+
+**`src/models/Submission.js`:** `zipCode`/`year`/`make`/`model` relaxed to optional/nullable (same
+treatment as `trim`), with type validation when present. `mileage` tightened from a falsy-check to
+an explicit positive-number check (`typeof === 'number' && > 0`) — closes a prior gap where a
+negative mileage passed validation. `vin`'s existing UOW-47 conditional requirement is unchanged.
+
+**`src/services/nhtsaVinDecoder.js` (new):** zero-dependency `resolveVehicleFromVin(vin,
+{ fetchImpl, timeoutMs })`, mirroring `@nemzilla/test-core`'s NHTSA normalization shape but
+decoupled from it, with an `AbortController`-based timeout. Never throws.
+
+**`src/ui/SellerSubmissionView.js`:** Year/Make/Model/Trim manual inputs moved out of the default
+form into a new collapsible `<details class="sell-form__details-drawer">` ("Extracted Offer
+Details") that also now houses Competitor/Dealer Name/Offer Amount — hidden until a document is
+uploaded, then auto-expanded and still editable. Dropzone moved to the top of the form and
+relabeled; VIN input is now unconditionally `required`; mileage/zip rows relabeled "Current
+Mileage" / "ZIP Code (Optional)" (zip's `required` attr removed). VIN now triggers an async
+`nhtsaVinDecoder.resolveVehicleFromVin()` lookup (on scan, on a completed valid typed VIN, or on an
+OCR-extracted VIN) that fills year/make/model/trim only where still empty, never overwriting an
+OCR- or user-supplied value. New `hasThreePillars()`/`updateSubmitState()` disable the submit
+button (with a `pillarHintEl` warning) until VIN + positive mileage + an attached document are all
+present; fixed a bug caught during this work where the submit handler's `finally` block
+unconditionally re-enabled the button after a successful submit, which would have let a seller
+tap Submit again on a now-empty, mid-reset form.
+
+**`src/ui/SellerSubmissionController.js`:** unchanged — see conflict #3 above. Pillar enforcement
+for VIN/mileage already happens via `Submission`'s constructor (called before
+`dispatchService.dispatch()`); the document pillar is UI-gated only.
+
+**New tests:** `tests/nhtsaVinDecoder.test.js` (new — malformed VIN, happy path, "Not
+Applicable"/null NHTSA fields, non-OK status, empty result set, network failure, timeout,
+non-string input, messageless thrown error). `tests/ui.sellerSubmissionView.test.js` (new — first
+dedicated test file for this view; added a minimal hand-rolled DOM shim at
+`tests/helpers/fakeDom.js`, no jsdom dependency, since `h()` in `App.js` needs a real
+`document.createElement`). `tests/submission.test.js` updated for the relaxed/tightened fields.
+
+**Verification:** `npm test` → 762/762 passing (16 new tests on top of the prior 746; zero
+regressions, including every UOW-47 ESTIMATE/no-VIN fixture across
+`dispatchService`/`spreadService`/`spreadConfigService`/`appraisalPdfGenerator`/
+`ui.leadInboxView`/`ui.leadInboxController`/`integration/twoTierEstimateCounters`).
+`node --test --experimental-test-coverage`: `Submission.js` 100/100/100,
+`nhtsaVinDecoder.js` 100/95.83/80 (both clear the 80% gate; the `AbortController`-missing
+defensive branch was removed rather than left uncovered, since every supported Node/browser target
+has it). `SellerSubmissionView.js` sits at ~50% line / 19% function coverage from the new layout
+tests alone — left outside the 80% gate like every other View file in this repo
+(`PwaInstallPromptView.js` 52%, `SimulationView.js` 10%), since the gate's own wording scopes to
+"core domain models and business logic services," not presentation code. Did not drive this
+through a live browser session — no UI-automation tool available in this session.

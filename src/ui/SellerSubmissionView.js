@@ -1,8 +1,9 @@
 import { h } from './App.js';
 import { COMPETITORS } from '../models/Submission.js';
 import { downloadAppraisalSheet } from '../utils/appraisalPdfGenerator.js';
-import { createVinScanner, findValidVin, decodeModelYear, decodeWmiMake } from '../utils/vinScanner.js';
+import { createVinScanner, findValidVin, validateVin } from '../utils/vinScanner.js';
 import { requestOfferParse, mapExtractedOfferToFormValues } from './offerAutoPopulate.js';
+import { resolveVehicleFromVin } from '../services/nhtsaVinDecoder.js';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -118,26 +119,40 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   // offer document). This tracks where the competitor number came from, not whether the VIN field
   // is filled in: the seller supplying a VIN themselves doesn't retroactively make Carvana's (or
   // similar) estimate a firm offer, so only applyExtractedOffer() below ever changes this. See
-  // Submission.OFFER_SOURCE_TYPES. VIN itself is only required for FIRM_OFFER (see
-  // updateVinRequirement) — UOW-47 lets an ESTIMATE submit with no VIN as a preliminary counter.
+  // Submission.OFFER_SOURCE_TYPES. UOW-51 streamlines the live form to always require a VIN
+  // before submit — the no-VIN preliminary-counter path (UOW-47) stays intact at the model/
+  // dispatch layer for other intake channels, it's just never reachable from this form anymore.
   let offerSourceType = 'FIRM_OFFER';
 
   const vinInput = h('input', {
     name: 'vin',
     placeholder: 'VIN',
     maxlength: '17',
+    required: '',
     class: 'input--large sell-form__vin-input',
   });
-  // Starts required: offerSourceType defaults to FIRM_OFFER above, and updateVinRequirement()
-  // (declared below) keeps this in sync with it from here on.
-  vinInput.required = true;
   const scanVinBtn = h('button', { class: 'button button--secondary', type: 'button', text: '📷 Scan VIN' });
   const vinHelperEl = h('p', { class: 'sell-form__vin-helper', role: 'status', 'aria-live': 'polite', hidden: '' });
 
-  // A VIN-less ESTIMATE can still submit for a conservative preliminary counter (UOW-47) — only
-  // a FIRM_OFFER (manual entry, or a parsed real offer document) requires a VIN up front.
-  function updateVinRequirement() {
-    vinInput.required = offerSourceType !== 'ESTIMATE';
+  let lastDecodedVin = null;
+
+  // Best-effort NHTSA vPIC lookup to auto-populate year/make/model/trim now that the form no
+  // longer collects them manually — never blocks the seller; a failed/unlisted decode just
+  // leaves those fields null for desk review to fill in later (see nhtsaVinDecoder.js).
+  async function decodeVinIfValid(vin) {
+    if (!validateVin(vin) || vin === lastDecodedVin) {
+      return;
+    }
+    lastDecodedVin = vin;
+    const decoded = await resolveVehicleFromVin(vin);
+    if (decoded.vin !== lastDecodedVin) {
+      return; // a newer VIN superseded this lookup while it was in flight
+    }
+    if (decoded.year != null && !yearInput.value) yearInput.value = decoded.year;
+    if (decoded.make && !makeInput.value) makeInput.value = decoded.make;
+    if (decoded.model && !modelInput.value) modelInput.value = decoded.model;
+    if (decoded.trim && !trimInput.value) trimInput.value = decoded.trim;
+    openDetailsDrawer();
   }
 
   const vinScannerModal = renderVinScannerModal({
@@ -145,10 +160,8 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       controller.hapticsService?.vibrate?.();
       vinInput.value = vin;
       vinHelperEl.hidden = true;
-      const year = decodeModelYear(vin);
-      if (year) yearInput.value = year;
-      const make = decodeWmiMake(vin);
-      if (make) makeInput.value = make;
+      decodeVinIfValid(vin);
+      updateSubmitState();
     },
   });
   scanVinBtn.addEventListener('click', () => vinScannerModal.open());
@@ -161,21 +174,18 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     if (vinInput.value.trim()) {
       vinHelperEl.hidden = true;
     }
+    const candidate = findValidVin(vinInput.value);
+    if (candidate) decodeVinIfValid(candidate);
+    updateSubmitState();
   });
-  const yearInput = h('input', {
-    name: 'year',
-    type: 'number',
-    placeholder: 'Year',
-    required: '',
-    class: 'input--large sell-form__year-input',
-  });
-  const makeInput = h('input', { name: 'make', placeholder: 'Make', required: '', class: 'input--large' });
-  const modelInput = h('input', { name: 'model', placeholder: 'Model', required: '', class: 'input--large' });
+  const yearInput = h('input', { name: 'year', type: 'number', placeholder: 'Year', class: 'input--large sell-form__year-input' });
+  const makeInput = h('input', { name: 'make', placeholder: 'Make', class: 'input--large' });
+  const modelInput = h('input', { name: 'model', placeholder: 'Model', class: 'input--large' });
   const trimInput = h('input', { name: 'trim', placeholder: 'Trim (optional)', class: 'input--large' });
   const mileageInput = h('input', {
     name: 'mileage',
     type: 'number',
-    placeholder: 'Mileage',
+    placeholder: 'Current Mileage',
     min: '0',
     required: '',
     class: 'input--large',
@@ -184,7 +194,10 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     mileageInput,
     h('span', { class: 'sell-form__unit', 'aria-hidden': 'true', text: 'mi' }),
   ]);
-  const zipInput = h('input', { name: 'zipCode', placeholder: 'ZIP Code', required: '', class: 'input--large' });
+  mileageInput.addEventListener('input', updateSubmitState);
+  // UOW-51: zipCode is no longer one of the 3 mandatory pillars — relaxed to optional on
+  // Submission.js, so it's explicitly labeled as such here too.
+  const zipInput = h('input', { name: 'zipCode', placeholder: 'ZIP Code (Optional)', class: 'input--large' });
 
   const competitorSelect = h(
     'select',
@@ -220,14 +233,16 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     offerAmountInput,
   ]);
 
+  const DROPZONE_DEFAULT_LABEL = 'Offer Document or Screenshot of Offer Document (accepts images & PDFs)';
   const fileInput = h('input', {
     type: 'file',
     name: 'offerDocument',
     accept: 'image/*,application/pdf',
     capture: 'environment',
+    required: '',
     class: 'dropzone__input',
   });
-  const dropzoneLabel = h('span', { class: 'dropzone__label', text: 'Tap to take a photo or drop a PDF' });
+  const dropzoneLabel = h('span', { class: 'dropzone__label', text: DROPZONE_DEFAULT_LABEL });
   const dropzone = h('label', { class: 'dropzone' }, [fileInput, dropzoneLabel]);
 
   let pendingOfferDocumentBase64 = null;
@@ -236,7 +251,10 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     if (!success) return;
     const values = mapExtractedOfferToFormValues(extracted ?? {});
 
-    if (values.vin) vinInput.value = values.vin;
+    if (values.vin) {
+      vinInput.value = values.vin;
+      decodeVinIfValid(values.vin);
+    }
     if (values.year != null) yearInput.value = values.year;
     if (values.make) makeInput.value = values.make;
     if (values.model) modelInput.value = values.model;
@@ -257,9 +275,11 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     // Competitor "Estimate" screens (e.g. Carvana's instant online quote) deliberately omit the
     // VIN to avoid lead spam, so this is the expected shape for an image-sourced parse, not a
     // failure — guide the seller straight to supplying the one field the estimate couldn't have.
+    // UOW-51: the live form always requires a VIN before submit now, so the guidance no longer
+    // offers a no-VIN "submit now for a preliminary offer" path — only the real UOW-47 model/
+    // dispatch capability is still reachable from other intake channels.
     if (values.isEstimate && !values.vin) {
-      vinHelperEl.textContent =
-        "Estimate detected! You can submit now for a preliminary offer, or Unlock Maximum Offer — enter your VIN or scan the barcode for our best guaranteed price.";
+      vinHelperEl.textContent = 'Estimate detected — enter your VIN or scan the barcode to continue.';
       vinHelperEl.hidden = false;
       offerSourceType = 'ESTIMATE';
       vinInput.focus();
@@ -268,27 +288,35 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       vinHelperEl.textContent = '';
       offerSourceType = 'FIRM_OFFER';
     }
-    updateVinRequirement();
+    openDetailsDrawer();
+    updateSubmitState();
   }
 
   // Auto-population is best-effort: a parse failure (network down, low-confidence document)
-  // leaves the dropzone upload intact and the form ready for manual entry.
+  // leaves the dropzone upload intact and the "Extracted Offer Details" drawer open for manual entry.
   async function handleFileSelected(file) {
-    dropzoneLabel.textContent = file?.name ?? 'Tap to take a photo or drop a PDF';
+    dropzoneLabel.textContent = file?.name ?? DROPZONE_DEFAULT_LABEL;
     pendingOfferDocumentBase64 = null;
-    if (!file) return;
+    if (!file) {
+      updateSubmitState();
+      return;
+    }
 
     try {
       pendingOfferDocumentBase64 = await readFileAsBase64(file);
     } catch {
+      updateSubmitState();
       return;
     }
+
+    openDetailsDrawer();
+    updateSubmitState();
 
     try {
       const result = await requestOfferParse({ documentBase64: pendingOfferDocumentBase64, mimeType: file.type });
       applyExtractedOffer(result);
     } catch {
-      // Leave the form for manual entry.
+      // Leave the drawer open for manual entry.
     }
   }
 
@@ -311,6 +339,40 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
 
   const statusEl = h('p', { class: 'form__status', role: 'status', 'aria-live': 'polite' });
   const submitBtn = h('button', { class: 'button button--large', type: 'submit', text: 'Submit for Review' });
+
+  // The 3 mandatory pillars (UOW-51): VIN, mileage, and the offer document. Disabled (with a
+  // short warning) until all three are present, rather than letting the seller hit submit and
+  // bounce off a server-side validation error.
+  function hasThreePillars() {
+    return Boolean(findValidVin(vinInput.value)) && Number(mileageInput.value) > 0 && Boolean(pendingOfferDocumentBase64 || fileInput.files?.[0]);
+  }
+
+  const pillarHintEl = h('p', { class: 'sell-form__pillar-hint', role: 'status', 'aria-live': 'polite' });
+
+  function updateSubmitState() {
+    const ready = hasThreePillars();
+    submitBtn.disabled = !ready;
+    pillarHintEl.textContent = ready ? '' : 'Add your VIN, current mileage, and offer document/screenshot to continue.';
+  }
+
+  // Compact, collapsible review of everything the offer document / VIN decode extracted —
+  // appears once a document is uploaded, pre-filled and editable before the seller submits.
+  const detailsDrawer = h('details', { class: 'sell-form__details-drawer', hidden: '' }, [
+    h('summary', { class: 'sell-form__details-summary', text: 'Extracted Offer Details' }),
+    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor' }), competitorSelect]),
+    dealerNameRow,
+    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor Offer Amount' }), offerAmountField]),
+    h('div', { class: 'form__row--split sell-form__vehicle-grid' }, [
+      h('div', { class: 'form__row' }, [h('label', { text: 'Year' }), yearInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Make' }), makeInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Model' }), modelInput]),
+      h('div', { class: 'form__row' }, [h('label', { text: 'Trim' }), trimInput]),
+    ]),
+  ]);
+  function openDetailsDrawer() {
+    detailsDrawer.hidden = false;
+    detailsDrawer.open = true;
+  }
 
   const waitingSpinner = h('div', { class: 'waiting-screen__spinner', 'aria-hidden': 'true' });
   const waitingMessageEl = h('p', {
@@ -360,25 +422,16 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
   }
 
   const form = h('form', { class: 'form form--mobile sell-form' }, [
+    h('div', { class: 'form__row' }, [h('label', { text: 'Offer Document or Screenshot of Offer Document' }), dropzone]),
     h('div', { class: 'form__row' }, [
       h('label', { text: 'VIN' }),
       h('div', { class: 'vin-input-row' }, [vinInput, scanVinBtn]),
       vinHelperEl,
     ]),
-    h('div', { class: 'form__row--split sell-form__vehicle-grid' }, [
-      h('div', { class: 'form__row' }, [h('label', { text: 'Year' }), yearInput]),
-      h('div', { class: 'form__row' }, [h('label', { text: 'Make' }), makeInput]),
-      h('div', { class: 'form__row' }, [h('label', { text: 'Model' }), modelInput]),
-      h('div', { class: 'form__row' }, [h('label', { text: 'Trim' }), trimInput]),
-    ]),
-    h('div', { class: 'form__row form__row--split' }, [
-      h('div', { class: 'form__row' }, [h('label', { text: 'Mileage' }), mileageField]),
-      h('div', { class: 'form__row' }, [h('label', { text: 'ZIP Code' }), zipInput]),
-    ]),
-    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor' }), competitorSelect]),
-    dealerNameRow,
-    h('div', { class: 'form__row' }, [h('label', { text: 'Competitor Offer Amount' }), offerAmountField]),
-    h('div', { class: 'form__row' }, [h('label', { text: 'Offer Document' }), dropzone]),
+    h('div', { class: 'form__row' }, [h('label', { text: 'Current Mileage' }), mileageField]),
+    h('div', { class: 'form__row' }, [h('label', { text: 'ZIP Code (Optional)' }), zipInput]),
+    detailsDrawer,
+    pillarHintEl,
     submitBtn,
     statusEl,
   ]);
@@ -395,12 +448,12 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
 
       const { pendingSessionId } = controller.submitSubmission({
         vin: data.get('vin'),
-        year: Number(data.get('year')),
-        make: data.get('make'),
-        model: data.get('model'),
+        year: data.get('year') ? Number(data.get('year')) : null,
+        make: data.get('make') || null,
+        model: data.get('model') || null,
         trim: data.get('trim') || null,
         mileage: Number(data.get('mileage')),
-        zipCode: data.get('zipCode'),
+        zipCode: data.get('zipCode') || null,
         competitor: data.get('competitor'),
         competitorDealerName: data.get('competitorDealerName') || null,
         competitorOfferAmount: Number(data.get('competitorOfferAmount')),
@@ -410,10 +463,12 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
 
       form.reset();
       dealerNameRow.hidden = true;
-      dropzoneLabel.textContent = 'Tap to take a photo or drop a PDF';
+      dropzoneLabel.textContent = DROPZONE_DEFAULT_LABEL;
       pendingOfferDocumentBase64 = null;
+      lastDecodedVin = null;
       offerSourceType = 'FIRM_OFFER';
-      updateVinRequirement();
+      detailsDrawer.hidden = true;
+      detailsDrawer.open = false;
       vinHelperEl.hidden = true;
       vinHelperEl.textContent = '';
       statusEl.textContent = "Submitted! We'll let you know if we can beat that offer.";
@@ -426,7 +481,7 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
       statusEl.textContent = error.message;
       statusEl.classList.add('form__status--error');
     } finally {
-      submitBtn.disabled = false;
+      updateSubmitState();
     }
   });
 
@@ -465,7 +520,10 @@ export function renderSellerSubmissionView(controller, { sessionStashService = n
     setInputValue(modelInput, model);
     setInputValue(trimInput, trim);
     setInputValue(mileageInput, mileage);
+    updateSubmitState();
   }
+
+  updateSubmitState();
 
   const section = h('section', { class: 'view', id: 'view-sell' }, [
     h('h2', { text: 'Sell Your Car' }),

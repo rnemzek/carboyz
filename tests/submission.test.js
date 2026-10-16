@@ -18,15 +18,35 @@ function baseData(overrides = {}) {
   };
 }
 
-test('Submission requires id, timestamp, vin, year, make, model, mileage, and zipCode', () => {
+test('Submission requires id, timestamp, vin, and mileage', () => {
   assert.throws(() => new Submission(baseData({ id: undefined })), /id/);
   assert.throws(() => new Submission(baseData({ timestamp: undefined })), /timestamp/);
   assert.throws(() => new Submission(baseData({ vin: undefined })), /vin/);
-  assert.throws(() => new Submission(baseData({ year: undefined })), /year/);
-  assert.throws(() => new Submission(baseData({ make: undefined })), /make/);
-  assert.throws(() => new Submission(baseData({ model: undefined })), /model/);
   assert.throws(() => new Submission(baseData({ mileage: undefined })), /mileage/);
-  assert.throws(() => new Submission(baseData({ zipCode: undefined })), /zipCode/);
+});
+
+test('Submission requires a positive numeric mileage', () => {
+  assert.throws(() => new Submission(baseData({ mileage: 0 })), /mileage/);
+  assert.throws(() => new Submission(baseData({ mileage: -500 })), /mileage/);
+  assert.throws(() => new Submission(baseData({ mileage: 'lots' })), /mileage/);
+  assert.doesNotThrow(() => new Submission(baseData({ mileage: 1 })));
+});
+
+// UOW-51: year/make/model/zipCode are no longer collected via manual form entry (VIN decode and
+// document-OCR parsing can both miss), so they're relaxed to optional/nullable, same as trim.
+test('Submission allows year, make, model, and zipCode to be omitted and defaults them to null', () => {
+  const submission = new Submission(
+    baseData({ year: undefined, make: undefined, model: undefined, zipCode: undefined }),
+  );
+  assert.equal(submission.year, null);
+  assert.equal(submission.make, null);
+  assert.equal(submission.model, null);
+  assert.equal(submission.zipCode, null);
+
+  assert.throws(() => new Submission(baseData({ year: 'not-a-year' })), /year/);
+  assert.throws(() => new Submission(baseData({ make: 42 })), /make/);
+  assert.throws(() => new Submission(baseData({ model: 42 })), /model/);
+  assert.throws(() => new Submission(baseData({ zipCode: 28451 })), /zipCode/);
 });
 
 test('Submission rejects a competitor outside the allowed enum', () => {

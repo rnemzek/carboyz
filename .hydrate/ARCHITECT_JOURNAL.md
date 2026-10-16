@@ -709,3 +709,57 @@ sequenceDiagram
   timer. The service and its tests are real and correct, but the feature is inert in the running
   app until something schedules those calls — flagged to the Product Owner as the natural
   UOW-HOTFIX or next-UOW follow-up.
+
+## [UOW-51] Streamlined 3-Pillar Customer Intake (VIN, Mileage, Offer Doc) — 2026-10-15
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Production VIN decode | New `src/services/nhtsaVinDecoder.js` — zero-dependency direct fetch to NHTSA's public vPIC endpoint, `AbortController` timeout | Reuse `src/components/dev/TestBedDrawer.js`'s `resolveVehicleFromVin` (imports `@nemzilla/test-core`) | `@nemzilla/test-core` is explicitly a dev-only test-bed toolkit; importing it into the customer-facing bundle breaks the client zero-dependency boundary (Section 2). PO authorized the extraction as a one-time exception, decoupled from the dev component. |
+| UOW-47 no-VIN "ESTIMATE" exception | Kept at the model/service layer exactly as-is; only the live form's VIN input is now unconditionally required | Make `vin` unconditionally required on `Submission` itself | The exception is load-bearing for `DispatchService`/`SpreadService`/`SpreadConfigService.NO_VIN_ESTIMATE_BEAT_BUMP`/Lead Inbox badge/appraisal PDF and their tests. Removing it at the model layer would have deleted a shipped feature well outside this UOW's "update zipCode fixtures" scope. |
+| `offerDocument` pillar enforcement | UI-only (`SellerSubmissionView.js` submit-button gating) | Hard `throw` in `Submission.js` constructor | `TestHarnessView.js`'s synthetic-data generator (the completed Analytics/Simulation epic's seeding pipeline) always builds submissions with `offerDocument: null`; a model-level throw would break that pipeline and its tests. |
+
+**Workflow / Sequence Diagram — VIN entry to auto-populated specs**
+
+```mermaid
+sequenceDiagram
+    participant Seller
+    participant View as SellerSubmissionView
+    participant Decoder as nhtsaVinDecoder
+    participant NHTSA as NHTSA vPIC API
+    participant Model as Submission
+
+    Seller->>View: scans/types VIN or drops offer document
+    View->>View: findValidVin() / requestOfferParse() (OCR)
+    View->>Decoder: resolveVehicleFromVin(vin)
+    Decoder->>NHTSA: GET decodevinvalues (timeout via AbortController)
+    alt success
+        NHTSA-->>Decoder: year/make/model/trim
+        Decoder-->>View: source nhtsa
+    else timeout / non-OK / network error / unlisted VIN
+        Decoder-->>View: source manual-fallback, specs null
+    end
+    View->>View: fill only still-empty spec fields, open Extracted Offer Details drawer
+    Seller->>View: submit (enabled only once VIN + mileage + offerDocument present)
+    View->>Model: new Submission(vin, mileage, offerDocument, year/make/model possibly null, zipCode possibly null)
+    Model-->>View: throws only if vin/mileage pillar actually missing
+```
+
+**Architectural Wisdom**
+- Same path-mapping precedent as UOW-49/UOW-50: the UOW named `src/client/...` paths that don't
+  exist; mapped onto the real flat tree.
+- This UOW is the first case where the Lead Architect's own authorization text, read literally,
+  would have broken already-shipped, tested capability (UOW-47's no-VIN estimate flow, and the
+  synthetic-data seeding pipeline) if applied at the domain-model layer rather than the UI layer.
+  Resolved by pushing the "3 mandatory pillars" business rule to the customer-facing form's
+  submit-gating only, leaving `Submission.js`/`SellerSubmissionController.js` as permissive as
+  before except for the specific fields this UOW asked to relax (`zipCode`/`year`/`make`/`model`)
+  or tighten (`mileage`'s positive-number check). Worth a standing note for future UOWs: "the 3
+  mandatory pillars are strictly X, Y, Z" type directives should be read as a form-level UX rule
+  unless the UOW explicitly calls out every downstream consumer of the relaxed/tightened model
+  field by name.
+- `nhtsaVinDecoder.js` deliberately does not import anything from `src/components/dev/` or
+  `@nemzilla/test-core` — it duplicates the small NHTSA response-normalization shape rather than
+  sharing code with the dev Test Bed, keeping the production bundle's dependency graph clean at
+  the cost of a small amount of duplication between the two.
