@@ -30,10 +30,10 @@ export function normalizePhoneToE164(rawPhone) {
  * Telnyx is primary (TELNYX_API_KEY + TELNYX_FROM_NUMBER); Twilio is the fallback when Telnyx
  * isn't configured (UOW-54).
  */
-export async function dispatchSms({ to, message, env = process.env, fetchImpl = fetch }) {
-  // The `env = process.env` default only fires when the caller omits `env` entirely; a caller
-  // passing `c.env` (which is `{}` under @hono/node-server) still wins the default and leaves us
-  // with no credentials, so fall back explicitly whenever the resolved env has no keys.
+export async function dispatchSms({ to, message, env, fetchImpl = fetch }) {
+  // A default param (`env = process.env`) only fires when the caller omits `env` entirely; a
+  // caller passing `c.env` (which is `{}` under @hono/node-server) would still win over it and
+  // leave us with no credentials, so resolve the fallback explicitly instead.
   const activeEnv = env && Object.keys(env).length > 0 ? env : process.env;
   const { TELNYX_API_KEY, TELNYX_FROM_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = activeEnv;
 
