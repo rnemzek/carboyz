@@ -89,7 +89,10 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
       return c.json({ success: false, error: err.message }, 500);
     }
 
-    const result = await dispatchSms({ to: normalizedTo, message: body.message, env, fetchImpl });
+    // c.env is populated by Hono's runtime adapter (e.g. Cloudflare Workers); @hono/node-server
+    // never sets it, so fall back to the process.env-backed `env` closure when it's absent/empty.
+    const requestEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
+    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: requestEnv, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 

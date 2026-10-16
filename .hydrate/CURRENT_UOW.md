@@ -20,6 +20,8 @@
 
 - [x] [UOW-HOTFIX] Fix "Illegal invocation" crash in NotificationService.js: TwilioSmsAdapter/FetchSmsAdapter default `fetchImpl = fetch` lost its Window receiver when invoked as `this.fetchImpl(...)`; bound to `fetch.bind(globalThis)` in both constructors. Verified: 821/821 tests pass.
 
+- [x] [UOW-HOTFIX] Fix "No SMS provider credentials configured" under @hono/node-server locally: the /sms route handler now falls back to the process.env-backed `env` closure when `c.env` is undefined or empty (c.env is only populated by Hono's non-Node runtime adapters). Verified: 821/821 tests pass.
+
 - [ ] Task 4: Dealer Hand-off & Archival
   - Verify all 821+ tests remain passing.
   - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.
