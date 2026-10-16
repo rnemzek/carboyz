@@ -72,7 +72,8 @@ const OFFER_SOURCE_BADGES = {
   FIRM_OFFER: { label: '[FIRM COUNTER]', className: 'badge badge--firm-counter' },
 };
 
-function spreadBadge(status) {
+/** Exported for reuse by OfferCounterTableView.js's Market Spread / Margin Badge column. */
+export function spreadBadge(status) {
   const className = `badge badge--${status.toLowerCase().replace('_', '-')}`;
   return { label: BADGE_LABELS[status] ?? BADGE_LABELS.NO_DATA, className };
 }

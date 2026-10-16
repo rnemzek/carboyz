@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateSpread, DealScoreStatus, WHOLESALE_FACTOR, DEFAULT_COUNTER_OFFSET } from '../src/services/SpreadService.js';
+import {
+  calculateSpread,
+  projectMargin,
+  DealScoreStatus,
+  WHOLESALE_FACTOR,
+  DEFAULT_COUNTER_OFFSET,
+} from '../src/services/SpreadService.js';
 import { NO_VIN_ESTIMATE_BEAT_BUMP } from '../src/services/SpreadConfigService.js';
 
 test('calculateSpread requires a non-negative numeric competitorOfferAmount', () => {
@@ -204,6 +210,16 @@ test('offerSourceType/vin default to null and never trigger the no-VIN override 
   const tier = { minPrice: 0, maxPrice: null, flatAmount: 300, percent: 0.02, strategy: 'MAX', autoApprove: true };
   const result = calculateSpread({ fairMarketValue: 20000, competitorOfferAmount: 13100, tierConfig: [tier] });
   assert.deepEqual(result.matchedTier, tier);
+});
+
+test('projectMargin computes estimatedWholesaleValue minus the proposed counter offer', () => {
+  assert.equal(projectMargin({ estimatedWholesaleValue: 17600, counterOfferAmount: 15300 }), 2300);
+  assert.equal(projectMargin({ estimatedWholesaleValue: 17600, counterOfferAmount: 18000 }), -400);
+});
+
+test('projectMargin returns null when estimatedWholesaleValue or counterOfferAmount is not a number', () => {
+  assert.equal(projectMargin({ estimatedWholesaleValue: null, counterOfferAmount: 15300 }), null);
+  assert.equal(projectMargin({ estimatedWholesaleValue: 17600, counterOfferAmount: undefined }), null);
 });
 
 test('policyVersionId is echoed back on the result, including the NO_DATA path', () => {

@@ -1,4 +1,4 @@
-import { calculateSpread } from '../services/SpreadService.js';
+import { calculateSpread, projectMargin } from '../services/SpreadService.js';
 import { formatCounterOfferMessage } from '../services/DispatchService.js';
 
 export const WIN_LOSS_QUICK_ACTIONS = ['WON', 'LOST'];
@@ -74,6 +74,10 @@ export class LeadInboxController {
         rejectionReason: submission.rejectionReason,
         rejectionNotes: submission.rejectionNotes,
         nagSentAt: submission.nagSentAt,
+        modifiedBy: submission.modifiedBy,
+        modifiedAt: submission.modifiedAt,
+        finalCounterOffer: submission.finalCounterOffer,
+        proposedCounterOffer: submission.finalCounterOffer ?? spreadResult.recommendedCounterOffer,
         spreadResult,
         counterMessage: formatCounterOfferMessage({
           submission,
@@ -106,10 +110,10 @@ export class LeadInboxController {
       offerSourceType: before.offerSourceType,
       vin: before.vin,
     });
-    const expectedMargin =
-      spreadResult.estimatedWholesaleValue === null
-        ? null
-        : spreadResult.estimatedWholesaleValue - counterOfferAmount;
+    const expectedMargin = projectMargin({
+      estimatedWholesaleValue: spreadResult.estimatedWholesaleValue,
+      counterOfferAmount,
+    });
     const timeToCounterMs = Date.now() - new Date(before.timestamp).getTime();
 
     const submission = this.submissionService.updateFields(id, {
@@ -121,10 +125,48 @@ export class LeadInboxController {
       approvalType: 'HUMAN_APPROVED',
       isAutoApproved: false,
       timeToCounterMs,
+      modifiedBy: 'DESK_OVERRIDE',
+      modifiedAt: new Date().toISOString(),
     });
     const message = formatCounterOfferMessage({ submission, recommendedCounterOffer: counterOfferAmount });
     this.sessionStashService?.resolveBySubmissionId?.(id, { finalCounterOffer: counterOfferAmount });
     return { submission, message };
+  }
+
+  /**
+   * Stages a desk-adjusted counter offer on a still-PENDING_APPROVAL lead (the Offer Counter
+   * Grid's inline stepper/popout) without dispatching it — distinct from approveAndSend(), which
+   * commits and sends. Persists the override on the Submission with modifiedBy/modifiedAt so the
+   * amount survives a refresh before the desk is ready to approve.
+   */
+  overrideCounterOffer(id, counterOfferAmount) {
+    const before = this.getSubmission(id);
+    if (!before) {
+      throw new Error(`Submission not found: ${id}`);
+    }
+
+    const fairMarketValue = this.resolveFairMarketValue(before);
+    const tierConfig = this.spreadConfigService?.getTiersForCompetitor(before.competitor);
+    const spreadResult = calculateSpread({
+      fairMarketValue,
+      competitorOfferAmount: before.competitorOfferAmount,
+      tierConfig,
+      offerSourceType: before.offerSourceType,
+      vin: before.vin,
+    });
+    const projectedMarginPreview = projectMargin({
+      estimatedWholesaleValue: spreadResult.estimatedWholesaleValue,
+      counterOfferAmount,
+    });
+
+    const submission = this.submissionService.updateFields(id, {
+      finalCounterOffer: counterOfferAmount,
+      projectedMargin: projectedMarginPreview,
+      modifiedBy: 'DESK_OVERRIDE',
+      modifiedAt: new Date().toISOString(),
+    });
+
+    return { submission, spreadResult, projectedMargin: projectedMarginPreview };
   }
 
   /**

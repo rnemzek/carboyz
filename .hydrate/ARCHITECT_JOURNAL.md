@@ -870,3 +870,47 @@ sequenceDiagram
   not just the two explicitly named — this one turned up a third (`SEED_ANCHOR`) with an
   outright incorrect code comment ("Rocky Point, NC" on a value tagged with Leland's own ZIP),
   which a narrower two-value standardization would have missed.
+
+## UOW-53 — Dealer Offer & Counter Grid View with Inline Adjustment Engine (2026-10-15)
+
+**Technology Decisions Log**
+
+| Decision | Selected | Alternative | Rationale |
+|---|---|---|---|
+| Persisting a desk counter override before approval | New `LeadInboxController.overrideCounterOffer(id, amount)` writes `finalCounterOffer`/`projectedMargin`/`modifiedBy`/`modifiedAt` while leaving `status` at `PENDING_APPROVAL` | Only ever persist on `approveAndSend()` (dispatch) | The UOW spec splits "persist the override" (Task 2) from "Approve & Dispatch commits the edited counter" (Task 3) as separate bullets — a desk rep adjusting then walking away mid-review shouldn't lose the staged number on refresh. |
+| Market Spread / Margin badge reuse | Exported `LeadInboxView.js`'s existing module-private `spreadBadge()` | Duplicate the `BADGE_LABELS` map in the new grid file | One status→label/className mapping, one place to update if badge copy changes. |
+| Grid markup | Reused `.data-table`/`.kpi-row`/`.kpi-card` CSS already introduced for `AnalyticsView.js` | New grid-specific CSS classes | Same visual language for tabular dealer-facing data across the app; zero new CSS primitives needed. |
+| Submission.modifiedBy/modifiedAt | Nullable strings, same optional-field pattern as `nagSentAt`/`digestSentAt` | A separate audit-log entity/table | Matches the existing shape of "who/when touched this lead last" fields already on the model; a full audit trail is out of this UOW's scope and would duplicate `AuditLedgerService`'s policy-version ledger, which tracks a different concern. |
+
+**Workflow / Sequence Diagram — desk adjusts then dispatches a counter**
+
+```mermaid
+sequenceDiagram
+    participant Desk
+    participant Grid as OfferCounterTableView
+    participant Ctrl as LeadInboxController
+    participant Sub as SubmissionService
+
+    Desk->>Grid: click Proposed Counter (PENDING_APPROVAL row)
+    Grid->>Grid: open inline stepper panel
+    Desk->>Grid: +$250 / edit exact amount
+    Grid->>Grid: previewCounterAdjustment() -> live ticker (no persistence yet)
+    Desk->>Grid: Confirm Counter
+    Grid->>Ctrl: overrideCounterOffer(id, amount)
+    Ctrl->>Sub: updateFields({finalCounterOffer, projectedMargin, modifiedBy, modifiedAt})
+    Note over Sub: status stays PENDING_APPROVAL
+    Desk->>Grid: Approve & Dispatch
+    Grid->>Ctrl: approveAndSend(id, amount)
+    Ctrl->>Sub: updateFields({status: AUTO_COUNTER_SENT, ...})
+```
+
+**Architectural Wisdom**
+- A "contract" field named in a UOW payload (here, Task 3's `src/client/LeadInboxController.js`)
+  is not itself ground truth — `src/client/` doesn't exist in this repo, and the described
+  behavior (row actions calling `approveAndSend`/`rejectLead`/`getSubmission`) is unambiguously
+  `src/ui/LeadInboxController.js`'s existing surface. Treated as a path typo rather than a stop-
+  and-ask ambiguity, since the described contract was unambiguous even though the path was wrong.
+- Splitting "stage an override" from "dispatch" into two controller methods
+  (`overrideCounterOffer` vs. `approveAndSend`) keeps the live-recalculation ticker a pure,
+  side-effect-free preview (`previewCounterAdjustment`/`SpreadService.projectMargin`) right up
+  until the desk explicitly confirms — no partial-state writes from merely moving a stepper.

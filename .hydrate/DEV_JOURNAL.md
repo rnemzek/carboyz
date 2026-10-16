@@ -1721,3 +1721,81 @@ notification content/logic end-to-end for review. `TwilioSmsAdapter`/`createSmsA
 are already built and unit-tested in isolation, so wiring the relay later is a bounded, scoped
 addition whenever actually needed, not a from-scratch effort. Flagged to the Product Owner in the
 session response in case this call should go the other way before the walkthrough.
+
+## UOW-53 — Dealer Offer & Counter Grid View with Inline Adjustment Engine (2026-10-15)
+
+**Summary:** New `src/ui/OfferCounterTableView.js` tabular desk workspace — every submission in
+one sortable grid (newest first), replacing per-lead card scrolling for high-volume desk review.
+
+**Files touched:**
+- `src/ui/OfferCounterTableView.js` (new) — the grid: summary KPI chips (Total Bids, Pending
+  Review, Aggregate Projected Margin), a quick filter bar (All / Needs Review / Counter Sent /
+  Passed), the `.data-table` itself (Timestamp, Vehicle, Competitor, Market Spread/Margin Badge,
+  Proposed Counter, Status, Actions), an inline stepper+live-recalculation panel for adjusting a
+  PENDING_APPROVAL lead's counter (+$100/+$250/+$500 or exact entry), an "Inspect" slide-out
+  detail drawer, and a reused Pass modal. Pure helpers (`sortLeadsByTimestampDesc`,
+  `filterOfferGridLeads`, `computeOfferGridSummary`, `previewCounterAdjustment`) are exported
+  separately from DOM rendering for direct unit testing, mirroring `LeadInboxView.js`'s existing
+  split — the project's established pattern of not DOM-testing the render functions themselves.
+- `src/ui/LeadInboxController.js` — added `overrideCounterOffer(id, counterOfferAmount)`: stages
+  a desk-adjusted counter on a still-PENDING_APPROVAL lead (persists `finalCounterOffer` +
+  `projectedMargin` + `modifiedBy`/`modifiedAt`) without dispatching, distinct from
+  `approveAndSend()` which commits and sends. `buildLeadViewModels()` now also surfaces
+  `finalCounterOffer`, `proposedCounterOffer` (= `finalCounterOffer ?? recommendedCounterOffer`),
+  `modifiedBy`, `modifiedAt`. `approveAndSend()` now also stamps `modifiedBy: 'DESK_OVERRIDE'` /
+  `modifiedAt` on every human-approved dispatch (every `approveAndSend` call is already a desk
+  action, same as its existing always-set `approvalType: 'HUMAN_APPROVED'`).
+- `src/services/SpreadService.js` — added pure `projectMargin({ estimatedWholesaleValue,
+  counterOfferAmount })`, factored out of `approveAndSend()`'s inline margin arithmetic so the
+  grid's live recalculation ticker and the controller share one tested calc.
+- `src/models/Submission.js` — added nullable `modifiedBy`/`modifiedAt` string fields (same
+  optional-string pattern as `nagSentAt`/`digestSentAt`).
+- `src/ui/LeadInboxView.js` — exported its existing `spreadBadge()` (was module-private) for
+  reuse by the new grid's Market Spread/Margin column, avoiding a duplicate `BADGE_LABELS` map.
+- `src/ui/App.js` — new "Offer Grid" tab (`offers`) wired alongside Lead Inbox in both the top
+  tab bar and `handleTabSelect`. Added `?view=dealer&tab=offers&sub=<id>` deep-link parsing at
+  mount time (mirrors the existing `pendingPrefill` one-shot-consume pattern) that opens straight
+  to the grid with the target row focused/scrolled-into-view and outlined via
+  `.offer-grid__row--focused`.
+- `src/ui/BottomNavView.js` — added an `offers` entry to `BOTTOM_NAV_ITEMS` for mobile parity.
+- `src/ui/styles.css` — `.offer-grid__table` (horizontal scroll on mobile), `.offer-grid__row--
+  focused`, `.offer-grid__adjust-panel`, `.offer-grid-drawer`/`.offer-grid-drawer__body`. Reused
+  existing `.kpi-row`/`.kpi-card` (from Analytics) and `.data-table` (from Analytics) rather than
+  introducing parallel styling.
+
+**Edge cases handled:**
+- A PENDING_APPROVAL lead's "Proposed Counter" cell is the only one that opens the adjustment
+  popout; AUTO_COUNTER_SENT/REJECTED rows render it as a static amount (no stray Approve/Pass
+  actions on terminal rows, matching `LeadInboxView.js`'s existing status-gated action rendering).
+- Summary chips are always computed from the *full* lead set, not the currently-filtered one, so
+  switching quick filters doesn't make the totals jump around under the desk's feet.
+- `previewCounterAdjustment`/`projectMargin` return `null` cleanly for a NO_DATA lead (no market
+  comps yet) instead of producing `NaN` — the ticker falls back to an amount-only readout.
+- Deep-link focus (`focusSubmissionId`) is consumed once per mount (nulled out immediately after
+  the first `renderOfferCounterTableView()` call), identical to the existing `pendingPrefill`
+  one-shot pattern, so repeated internal re-renders don't keep re-scrolling to the same row.
+
+**Scope note (non-blocking):** the UOW payload named Task 3's file as
+`src/client/LeadInboxController.js`; no `src/client/` directory exists in this repo and the
+described row-action wiring (Approve & Dispatch / Pass / Inspect) is squarely
+`src/ui/LeadInboxController.js`'s existing responsibility (it already owns `approveAndSend`/
+`rejectLead`/`getSubmission`), so that file was treated as the intended target.
+
+**Testing:** `npm test` → 801/801 passing (up from 785; +16 new: `Submission` modifiedBy/
+modifiedAt validation, `SpreadService.projectMargin`, `LeadInboxController.overrideCounterOffer`
++ `proposedCounterOffer`/`modifiedBy` surfacing + `approveAndSend`'s new stamp, and
+`OfferCounterTableView`'s pure sort/filter/summary/preview helpers). Coverage
+(`--experimental-test-coverage`) on touched business-logic modules: `Submission.js` 100%/100%,
+`SpreadService.js` 100%/95.12%, `LeadInboxController.js` 100%/95.24% (lines/branches) — all above
+the 80% gate. `OfferCounterTableView.js`'s DOM-rendering code is intentionally untested by the
+same convention already established for `LeadInboxView.js`/`AnalyticsView.js` (21.69%/12.82% line
+coverage respectively) — its pure helpers hit 100% branch coverage; the file is a UI view, not a
+core domain model or business-logic service, so it falls outside that gate's stated scope.
+
+**Manual verification:** started the dev server (`npm start`) and confirmed `/dealer` serves 200
+under HTTP Basic Auth with the new `OfferCounterTableView.js` module and "Offer Grid" tab label
+present in the served bundle. No browser-automation tool (Playwright/Chromium/a Claude browser
+extension) was available in this sandbox to drive and screenshot the live UI, so the inline
+stepper/live-ticker/focus-scroll interactions were verified by code review and the unit suite
+only, not by an actual rendered click-through — flagged to the Product Owner per the "say so
+explicitly" guidance rather than claimed as done.

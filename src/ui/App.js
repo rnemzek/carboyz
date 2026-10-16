@@ -16,6 +16,7 @@ import { SellerSubmissionController } from './SellerSubmissionController.js';
 import { renderSellerSubmissionView } from './SellerSubmissionView.js';
 import { LeadInboxController } from './LeadInboxController.js';
 import { renderLeadInboxView } from './LeadInboxView.js';
+import { renderOfferCounterTableView } from './OfferCounterTableView.js';
 import { SpreadConfigController } from './SpreadConfigController.js';
 import { AnalyticsController } from './AnalyticsController.js';
 import { renderAnalyticsView } from './AnalyticsView.js';
@@ -270,6 +271,14 @@ function renderTabs(activeTab, onSelect) {
     text: 'Lead Inbox',
     onClick: () => onSelect('leads'),
   });
+  const offersBtn = h('button', {
+    class: 'tabs__button',
+    type: 'button',
+    role: 'tab',
+    'aria-selected': String(activeTab === 'offers'),
+    text: 'Offer Grid',
+    onClick: () => onSelect('offers'),
+  });
   const adminBtn = h('button', {
     class: 'tabs__button',
     type: 'button',
@@ -308,6 +317,7 @@ function renderTabs(activeTab, onSelect) {
     buyerBtn,
     mapBtn,
     leadsBtn,
+    offersBtn,
     adminBtn,
     analyticsBtn,
     simulationBtn,
@@ -320,6 +330,7 @@ function renderTabs(activeTab, onSelect) {
     buyerBtn,
     mapBtn,
     leadsBtn,
+    offersBtn,
     adminBtn,
     analyticsBtn,
     simulationBtn,
@@ -589,9 +600,15 @@ export function mountApp(root) {
     defaultTenantId: DEFAULT_TENANT_ID,
   });
   let pendingPrefill = parsePrefillFromSearch(window.location.search);
-  let activeTab = 'sell';
   let isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const activeView = resolveActiveView({ search: window.location.search, pathname: window.location.pathname });
+
+  // Offer Counter Grid deep-linking (UOW-53): ?view=dealer&tab=offers&sub=<id> opens straight to
+  // the grid with the target lead row focused — only meaningful on the /dealer view, same as the
+  // escalation ticker below.
+  const initialSearchParams = new URLSearchParams(window.location.search);
+  let activeTab = activeView === VIEWS.DEALER && initialSearchParams.get('tab') === 'offers' ? 'offers' : 'sell';
+  let pendingFocusSubmissionId = initialSearchParams.get('sub');
 
   function flushPendingSync(tenantId) {
     const state = tenantStateByTenantId.get(tenantId);
@@ -795,6 +812,11 @@ export function mountApp(root) {
       tenantConfig: activeTenantConfig,
       syncToast: activeSyncToast,
     });
+    const { section: offerGridView, refresh: refreshOfferGridView } = renderOfferCounterTableView(
+      leadInboxController,
+      { focusSubmissionId: pendingFocusSubmissionId },
+    );
+    pendingFocusSubmissionId = null;
     const adminController = new AdminController({
       tenantConfig: activeTenantConfig,
       dealerProfileService: state.dealerProfileService,
@@ -831,6 +853,7 @@ export function mountApp(root) {
       buyerView.hidden = tab !== 'buyer';
       mapView.section.hidden = tab !== 'map';
       leadsView.hidden = tab !== 'leads';
+      offerGridView.hidden = tab !== 'offers';
       adminView.hidden = tab !== 'admin';
       analyticsView.hidden = tab !== 'analytics';
       simulationView.hidden = tab !== 'simulation';
@@ -840,6 +863,7 @@ export function mountApp(root) {
       buyerBtn.setAttribute('aria-selected', String(tab === 'buyer'));
       mapBtn.setAttribute('aria-selected', String(tab === 'map'));
       leadsBtn.setAttribute('aria-selected', String(tab === 'leads'));
+      offersBtn.setAttribute('aria-selected', String(tab === 'offers'));
       adminBtn.setAttribute('aria-selected', String(tab === 'admin'));
       analyticsBtn.setAttribute('aria-selected', String(tab === 'analytics'));
       simulationBtn.setAttribute('aria-selected', String(tab === 'simulation'));
@@ -855,6 +879,7 @@ export function mountApp(root) {
         mapView.mount();
       }
       if (tab === 'leads') refreshLeadsView();
+      if (tab === 'offers') refreshOfferGridView();
       if (tab === 'analytics') refreshAnalyticsView();
     }
 
@@ -865,6 +890,7 @@ export function mountApp(root) {
       buyerBtn,
       mapBtn,
       leadsBtn,
+      offersBtn,
       adminBtn,
       analyticsBtn,
       simulationBtn,
@@ -877,6 +903,7 @@ export function mountApp(root) {
     buyerView.hidden = activeTab !== 'buyer';
     mapView.section.hidden = activeTab !== 'map';
     leadsView.hidden = activeTab !== 'leads';
+    offerGridView.hidden = activeTab !== 'offers';
     adminView.hidden = activeTab !== 'admin';
     analyticsView.hidden = activeTab !== 'analytics';
     simulationView.hidden = activeTab !== 'simulation';
@@ -896,6 +923,7 @@ export function mountApp(root) {
       buyerView,
       mapView.section,
       leadsView,
+      offerGridView,
       adminView,
       analyticsView,
       simulationView,

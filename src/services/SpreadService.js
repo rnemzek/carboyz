@@ -45,6 +45,18 @@ function resolveCounterOfferOffset({ competitorOfferAmount, tierConfig, fallback
   return { counterOffset: evaluateTierOffset(tier, competitorOfferAmount), matchedTier: tier };
 }
 
+/**
+ * Projects dealer gross margin for a given counter-offer amount against an already-computed
+ * estimatedWholesaleValue (calculateSpread()'s output) — the pure calc behind the desk's live
+ * recalculation ticker when they adjust a proposed counter before confirming it.
+ */
+export function projectMargin({ estimatedWholesaleValue, counterOfferAmount }) {
+  if (typeof estimatedWholesaleValue !== 'number' || typeof counterOfferAmount !== 'number') {
+    return null;
+  }
+  return estimatedWholesaleValue - counterOfferAmount;
+}
+
 export function calculateSpread({
   fairMarketValue,
   competitorOfferAmount,

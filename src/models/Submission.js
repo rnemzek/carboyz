@@ -81,6 +81,8 @@ export class Submission {
     nagSentAt,
     queuedForMorningDigest,
     digestSentAt,
+    modifiedBy,
+    modifiedAt,
   }) {
     if (!id) {
       throw new Error('Submission requires an id');
@@ -176,6 +178,12 @@ export class Submission {
     if (digestSentAt !== undefined && digestSentAt !== null && typeof digestSentAt !== 'string') {
       throw new Error('Submission digestSentAt must be a string');
     }
+    if (modifiedBy !== undefined && modifiedBy !== null && typeof modifiedBy !== 'string') {
+      throw new Error('Submission modifiedBy must be a string');
+    }
+    if (modifiedAt !== undefined && modifiedAt !== null && typeof modifiedAt !== 'string') {
+      throw new Error('Submission modifiedAt must be a string');
+    }
 
     this.id = id;
     this.timestamp = timestamp;
@@ -211,5 +219,7 @@ export class Submission {
     this.nagSentAt = nagSentAt ?? null;
     this.queuedForMorningDigest = Boolean(queuedForMorningDigest);
     this.digestSentAt = digestSentAt ?? null;
+    this.modifiedBy = modifiedBy ?? null;
+    this.modifiedAt = modifiedAt ?? null;
   }
 }

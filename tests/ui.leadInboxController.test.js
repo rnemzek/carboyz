@@ -177,6 +177,60 @@ test('approveAndSend works without a sessionStashService configured', () => {
   assert.doesNotThrow(() => controller.approveAndSend(created.id, 16000));
 });
 
+test('approveAndSend marks modifiedBy DESK_OVERRIDE and stamps modifiedAt', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const before = Date.now();
+  const { submission } = controller.approveAndSend(created.id, 16000);
+
+  assert.equal(submission.modifiedBy, 'DESK_OVERRIDE');
+  assert.ok(new Date(submission.modifiedAt).getTime() >= before);
+});
+
+test('buildLeadViewModels exposes proposedCounterOffer, defaulting to the recommended counter until a finalCounterOffer is set', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const [beforeOverride] = controller.buildLeadViewModels();
+  assert.equal(beforeOverride.proposedCounterOffer, beforeOverride.spreadResult.recommendedCounterOffer);
+  assert.equal(beforeOverride.finalCounterOffer, null);
+
+  controller.overrideCounterOffer(created.id, 15900);
+
+  const [afterOverride] = controller.buildLeadViewModels();
+  assert.equal(afterOverride.proposedCounterOffer, 15900);
+  assert.equal(afterOverride.finalCounterOffer, 15900);
+});
+
+test('overrideCounterOffer stages a desk-adjusted counter without dispatching (status stays unchanged)', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  ingestService.intake({ dealerId: 'dA', make: 'Toyota', model: 'Camry', year: 2020, price: 20000 });
+  const created = submissionService.submit(baseSubmission({ competitorOfferAmount: 15000 }));
+  submissionService.updateStatus(created.id, 'PENDING_APPROVAL');
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  const { submission, projectedMargin } = controller.overrideCounterOffer(created.id, 15900);
+
+  assert.equal(submission.status, 'PENDING_APPROVAL');
+  assert.equal(submission.finalCounterOffer, 15900);
+  assert.equal(submission.modifiedBy, 'DESK_OVERRIDE');
+  assert.ok(submission.modifiedAt);
+  // FMV = 20000; estimatedWholesaleValue = 17600; projectedMargin = 17600 - 15900 = 1700
+  assert.equal(projectedMargin, 1700);
+  assert.equal(submission.projectedMargin, 1700);
+});
+
+test('overrideCounterOffer throws for an unknown submission id', () => {
+  const { telemetryService, ingestService, submissionService } = makeServices();
+  const controller = new LeadInboxController({ submissionService, telemetryService, ingestService });
+
+  assert.throws(() => controller.overrideCounterOffer('nope', 1000), /Submission not found/);
+});
+
 test('rejectLead marks the submission REJECTED and persists the rejection reason and notes', () => {
   const { telemetryService, ingestService, submissionService } = makeServices();
   const created = submissionService.submit(baseSubmission());

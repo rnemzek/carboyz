@@ -232,3 +232,18 @@ test('Submission defaults nagSentAt and digestSentAt to null, and queuedForMorni
   assert.equal(withFields.queuedForMorningDigest, true);
   assert.equal(withFields.digestSentAt, '2026-08-26T13:00:00.000Z');
 });
+
+test('Submission defaults modifiedBy and modifiedAt to null and validates them as strings', () => {
+  const submission = new Submission(baseData());
+  assert.equal(submission.modifiedBy, null);
+  assert.equal(submission.modifiedAt, null);
+
+  assert.throws(() => new Submission(baseData({ modifiedBy: 123 })), /modifiedBy/);
+  assert.throws(() => new Submission(baseData({ modifiedAt: 123 })), /modifiedAt/);
+
+  const withFields = new Submission(
+    baseData({ modifiedBy: 'DESK_OVERRIDE', modifiedAt: '2026-08-25T00:20:00.000Z' }),
+  );
+  assert.equal(withFields.modifiedBy, 'DESK_OVERRIDE');
+  assert.equal(withFields.modifiedAt, '2026-08-25T00:20:00.000Z');
+});
