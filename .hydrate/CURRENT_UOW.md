@@ -18,6 +18,8 @@
   - Submit live 3-pillar test lead (VIN, Mileage, Offer Doc) on public intake (/).
   - Confirm production SMS alert delivers directly to the physical mobile device via POST /api/v1/notifications/sms.
 
+- [x] [UOW-HOTFIX] Fix "Illegal invocation" crash in NotificationService.js: TwilioSmsAdapter/FetchSmsAdapter default `fetchImpl = fetch` lost its Window receiver when invoked as `this.fetchImpl(...)`; bound to `fetch.bind(globalThis)` in both constructors. Verified: 821/821 tests pass.
+
 - [ ] Task 4: Dealer Hand-off & Archival
   - Verify all 821+ tests remain passing.
   - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.

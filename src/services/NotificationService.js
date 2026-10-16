@@ -38,7 +38,7 @@ export class ConsoleSmsAdapter {
 
 /** Sends real SMS via Twilio's REST API directly (no SDK dependency) using HTTP Basic Auth. */
 export class TwilioSmsAdapter {
-  constructor({ accountSid, authToken, fromNumber, fetchImpl = fetch } = {}) {
+  constructor({ accountSid, authToken, fromNumber, fetchImpl = fetch.bind(globalThis) } = {}) {
     if (!accountSid || !authToken || !fromNumber) {
       throw new Error('TwilioSmsAdapter requires accountSid, authToken, and fromNumber');
     }
@@ -72,7 +72,7 @@ export class TwilioSmsAdapter {
  * to the console rather than throwing, so a dead relay/missing credentials never crash the UI.
  */
 export class FetchSmsAdapter {
-  constructor({ endpoint = '/api/v1/notifications/sms', fetchImpl = fetch, credentials = 'same-origin' } = {}) {
+  constructor({ endpoint = '/api/v1/notifications/sms', fetchImpl = fetch.bind(globalThis), credentials = 'same-origin' } = {}) {
     this.endpoint = endpoint;
     this.fetchImpl = fetchImpl;
     this.credentials = credentials;
