@@ -68,20 +68,24 @@ export function renderRadarMapView({ onOpenLeadInbox } = {}) {
     const statusBadge = el('span', 'radar-pin-badge', badge.label);
     statusBadge.style.setProperty('--radar-pin-color', badge.color);
 
+    // Native Element.append() (unlike this file's own el()/h() helpers) stringifies a null/
+    // undefined argument into a literal "null" text node rather than skipping it — filter first.
     drawerBody.append(
-      el('h3', 'map-drawer__title', properties.vehicle),
-      statusBadge,
-      el(
-        'p',
-        'map-drawer__summary',
-        `Competitor: ${properties.competitor ?? 'Unknown'} · Offer: ${currencyFormatter.format(properties.offerAmount ?? 0)}`,
-      ),
-      properties.finalCounterOffer != null
-        ? el('p', 'map-drawer__summary', `Counter offer: ${currencyFormatter.format(properties.finalCounterOffer)}`)
-        : null,
-      properties.distanceFromHqMiles != null
-        ? el('p', 'map-drawer__summary', `${properties.distanceFromHqMiles} mi from HQ`)
-        : null,
+      ...[
+        el('h3', 'map-drawer__title', properties.vehicle),
+        statusBadge,
+        el(
+          'p',
+          'map-drawer__summary',
+          `Competitor: ${properties.competitor ?? 'Unknown'} · Offer: ${currencyFormatter.format(properties.offerAmount ?? 0)}`,
+        ),
+        properties.finalCounterOffer != null
+          ? el('p', 'map-drawer__summary', `Counter offer: ${currencyFormatter.format(properties.finalCounterOffer)}`)
+          : null,
+        properties.distanceFromHqMiles != null
+          ? el('p', 'map-drawer__summary', `${properties.distanceFromHqMiles} mi from HQ`)
+          : null,
+      ].filter(Boolean),
     );
 
     const openLeadBtn = document.createElement('button');
@@ -283,6 +287,11 @@ export function renderRadarMapView({ onOpenLeadInbox } = {}) {
     });
     map.on('mouseleave', 'radar-lead-origin-pins', () => {
       map.getCanvas().style.cursor = '';
+    });
+    // Clicking empty map background dismisses the drawer, same as the old MapView.js.
+    map.on('click', (event) => {
+      const hitPin = map.queryRenderedFeatures(event.point, { layers: ['radar-lead-origin-pins'] });
+      if (hitPin.length === 0) drawer.hidden = true;
     });
 
     startPulse();

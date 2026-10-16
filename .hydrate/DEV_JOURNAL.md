@@ -1654,3 +1654,29 @@ ticker start/stop paths have a dedicated assertion). `RadarMapView.js` itself ha
 test file, consistent with `docs/TEST_PLAN.md`'s existing "UI Views: Manual / Browser Smoke Drive"
 gate (the same treatment `MapView.js` already had) — verified instead via the live Playwright
 session described above.
+
+## [UOW-HOTFIX] Radar inspection drawer polish — 2026-10-15
+
+Found during a live `npm start` + Playwright QA pass against UOW-52 (checklist: clean tree, HQ
+pin/rings/metric pill, pin + Unlocated-dock drawer interaction, 60s escalation ticker). Two bugs
+in `src/ui/RadarMapView.js`, both in `showInspectionDrawer()`:
+
+1. **Literal `"null"` text in the drawer.** `drawerBody.append(...)` is native `Element.append()`,
+   which stringifies a non-Node argument instead of skipping it like this codebase's own
+   `h()`/`el()` helpers do — so the conditional `properties.distanceFromHqMiles != null ? el(...) :
+   null` entries rendered a literal `"null"` text node whenever a lead had no HQ distance (every
+   Unlocated Leads dock item, since those have no resolved coordinates to measure from).
+   Reproduced live: clicking the dock's one unlocated lead showed `"...Counter offer:
+   $10,100nullOpen in Lead Inbox"`. Fixed by `.filter(Boolean)`-ing the element array before
+   spreading it into `.append(...)`.
+2. **No background-click-to-dismiss.** The old `MapView.js` closed its drawer on
+   `onMapBackgroundClick`; `RadarMapView.js` only closed it via the drawer's own Close button,
+   so returning to the Radar tab with the drawer left open from an earlier click intercepted
+   pointer events on the Unlocated Leads dock underneath it (also caught live, via the QA
+   script's attempted dock-item click). Added a generic `map.on('click', ...)` handler that
+   `queryRenderedFeatures` at the click point and hides the drawer when the click didn't land on
+   a `radar-lead-origin-pins` feature.
+
+Re-verified live after the fix: the Unlocated dock item's drawer now reads cleanly (no stray
+`"null"`), and clicking empty map background dismisses the drawer. `npm test` → 785/785, no
+regressions.
