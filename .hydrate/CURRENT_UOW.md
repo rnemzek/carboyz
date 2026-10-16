@@ -22,6 +22,8 @@
 
 - [x] [UOW-HOTFIX] Fix "No SMS provider credentials configured" under @hono/node-server locally: the /sms route handler now falls back to the process.env-backed `env` closure when `c.env` is undefined or empty (c.env is only populated by Hono's non-Node runtime adapters). Verified: 821/821 tests pass.
 
+- [x] [UOW-HOTFIX] Move the c.env/process.env fallback from the route handler into dispatchSms itself: resolves `activeEnv` at the top of dispatchSms (falls back to process.env whenever the passed env has zero keys), and the /sms handler now just passes `c.env ?? env` through safely. Verified: 821/821 tests pass.
+
 - [ ] Task 4: Dealer Hand-off & Archival
   - Verify all 821+ tests remain passing.
   - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.

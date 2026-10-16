@@ -31,7 +31,11 @@ export function normalizePhoneToE164(rawPhone) {
  * isn't configured (UOW-54).
  */
 export async function dispatchSms({ to, message, env = process.env, fetchImpl = fetch }) {
-  const { TELNYX_API_KEY, TELNYX_FROM_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = env;
+  // The `env = process.env` default only fires when the caller omits `env` entirely; a caller
+  // passing `c.env` (which is `{}` under @hono/node-server) still wins the default and leaves us
+  // with no credentials, so fall back explicitly whenever the resolved env has no keys.
+  const activeEnv = env && Object.keys(env).length > 0 ? env : process.env;
+  const { TELNYX_API_KEY, TELNYX_FROM_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = activeEnv;
 
   if (TELNYX_API_KEY && TELNYX_FROM_NUMBER) {
     const response = await fetchImpl('https://api.telnyx.com/v2/messages', {
@@ -90,9 +94,9 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
     }
 
     // c.env is populated by Hono's runtime adapter (e.g. Cloudflare Workers); @hono/node-server
-    // never sets it, so fall back to the process.env-backed `env` closure when it's absent/empty.
-    const requestEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
-    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: requestEnv, fetchImpl });
+    // never sets it. Pass it through safely (it may be undefined) — dispatchSms falls back to
+    // process.env itself when the resolved env turns out empty.
+    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: c.env ?? env, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 
