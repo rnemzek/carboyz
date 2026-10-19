@@ -4,10 +4,13 @@ import {
   ConsoleSmsAdapter,
   TwilioSmsAdapter,
   FetchSmsAdapter,
+  FetchEmailAdapter,
   createSmsAdapterFromEnv,
   formatPendingApprovalSms,
   formatEscalationSms,
   formatMorningDigestSms,
+  formatPendingApprovalEmailSubject,
+  formatPendingApprovalEmailHtml,
   NotificationService,
 } from '../src/services/NotificationService.js';
 import { TEAM_MEMBER_ROLES } from '../src/services/DealerProfileService.js';
@@ -35,6 +38,17 @@ function fakeSmsAdapter() {
     sendSms: (payload) => {
       calls.push(payload);
       return { success: true, provider: 'fake', ...payload };
+    },
+  };
+}
+
+function fakeEmailAdapter() {
+  const calls = [];
+  return {
+    calls,
+    sendEmail: async (payload) => {
+      calls.push(payload);
+      return { success: true, provider: 'fake', id: 'fake-1' };
     },
   };
 }
@@ -144,6 +158,62 @@ test('FetchSmsAdapter warns and returns a failure instead of throwing when the n
   }
 });
 
+test('FetchEmailAdapter posts to the email relay endpoint and reports success with the returned id', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ success: true, id: 'resend-1' }) };
+  };
+  const adapter = new FetchEmailAdapter({ fetchImpl });
+
+  const result = await adapter.sendEmail({ subject: 'New Lead', html: '<p>hi</p>' });
+
+  assert.equal(result.success, true);
+  assert.equal(result.id, 'resend-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, '/api/v1/notifications/email');
+  assert.equal(requests[0].init.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].init.body), { subject: 'New Lead', html: '<p>hi</p>' });
+});
+
+test('FetchEmailAdapter warns and returns a failure when the relay responds with success: false', async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ success: false, error: 'RESEND_API_KEY missing' }) });
+    const adapter = new FetchEmailAdapter({ fetchImpl });
+
+    const result = await adapter.sendEmail({ subject: 'New Lead', html: '<p>hi</p>' });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'RESEND_API_KEY missing');
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('FetchEmailAdapter warns and returns a failure instead of throwing when the network request itself fails', async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+  try {
+    const fetchImpl = async () => {
+      throw new Error('network down');
+    };
+    const adapter = new FetchEmailAdapter({ fetchImpl });
+
+    const result = await adapter.sendEmail({ subject: 'New Lead', html: '<p>hi</p>' });
+
+    assert.equal(result.success, false);
+    assert.equal(result.error, 'network down');
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
 test('createSmsAdapterFromEnv falls back to ConsoleSmsAdapter when Twilio env vars are absent', () => {
   assert.ok(createSmsAdapterFromEnv({}) instanceof ConsoleSmsAdapter);
   assert.ok(createSmsAdapterFromEnv({ TWILIO_ACCOUNT_SID: 'AC1' }) instanceof ConsoleSmsAdapter);
@@ -177,6 +247,33 @@ test('formatPendingApprovalSms labels an Other competitor with the dealer name',
     submission: baseSubmission({ competitor: 'Other', competitorDealerName: 'Hendrick Motors' }),
   });
   assert.match(message, /Comp: Hendrick Motors/);
+});
+
+test('formatPendingApprovalEmailSubject matches the required subject template', () => {
+  assert.equal(
+    formatPendingApprovalEmailSubject({ submission: baseSubmission() }),
+    'New $15,000 Lead: 2021 Honda Civic',
+  );
+});
+
+test('formatPendingApprovalEmailHtml includes VIN, vehicle, mileage, counter, and a /dealer link', () => {
+  const html = formatPendingApprovalEmailHtml({
+    submission: baseSubmission({ vin: '1HGCM82633A123456', mileage: 42000 }),
+    recommendedCounterOffer: 15500,
+    host: 'https://dealer.carboyz.app',
+  });
+
+  assert.match(html, /1HGCM82633A123456/);
+  assert.match(html, /2021 Honda Civic/);
+  assert.match(html, /42,000/);
+  assert.match(html, /\$15,500/);
+  assert.match(html, /CarMax \$15,000/);
+  assert.match(html, /https:\/\/dealer\.carboyz\.app\/dealer\?sub=t1-sub-9/);
+});
+
+test('formatPendingApprovalEmailHtml falls back to "Pending review" when no counter is recommended yet', () => {
+  const html = formatPendingApprovalEmailHtml({ submission: baseSubmission() });
+  assert.match(html, /Pending review/);
 });
 
 test('NotificationService requires a dealerProfileService', () => {
@@ -237,6 +334,56 @@ test('notify(notification) is a no-op when the notification carries no submissio
 
   assert.deepEqual(notificationService.notify({}), []);
   assert.equal(smsAdapter.calls.length, 0);
+});
+
+test('notifyPendingApprovalEmail is a no-op when no emailAdapter is configured', () => {
+  const notificationService = new NotificationService({
+    dealerProfileService: fakeDealerProfileService([]),
+    smsAdapter: fakeSmsAdapter(),
+  });
+
+  assert.equal(notificationService.notifyPendingApprovalEmail({ submission: baseSubmission() }), null);
+});
+
+test('notify(notification) fires the dealer alert email once, concurrently with the SMS fan-out', async () => {
+  const members = [
+    { id: 'm1', phone: '(910) 555-0128', notifyOnPending: true },
+    { id: 'm2', phone: '(910) 555-0150', notifyOnPending: true },
+  ];
+  const smsAdapter = fakeSmsAdapter();
+  const emailAdapter = fakeEmailAdapter();
+  const notificationService = new NotificationService({
+    dealerProfileService: fakeDealerProfileService(members),
+    smsAdapter,
+    emailAdapter,
+    host: 'https://dealer.carboyz.app',
+  });
+
+  const settled = await notificationService.notify({
+    submission: baseSubmission(),
+    recommendedCounterOffer: 15500,
+  });
+
+  assert.equal(smsAdapter.calls.length, 2);
+  assert.equal(emailAdapter.calls.length, 1);
+  assert.match(emailAdapter.calls[0].subject, /New \$15,000 Lead/);
+  assert.match(emailAdapter.calls[0].html, /\$15,500/);
+  assert.ok(Array.isArray(settled));
+  assert.ok(settled.every((entry) => entry.status === 'fulfilled'));
+});
+
+test('notify(notification) still returns the plain SMS results array when no emailAdapter is configured', () => {
+  const smsAdapter = fakeSmsAdapter();
+  const notificationService = new NotificationService({
+    dealerProfileService: fakeDealerProfileService([{ id: 'm1', phone: '(910) 555-0128', notifyOnPending: true }]),
+    smsAdapter,
+  });
+
+  const result = notificationService.notify({ submission: baseSubmission() });
+
+  assert.equal(smsAdapter.calls.length, 1);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].success, true);
 });
 
 test('formatEscalationSms matches the required alert template', () => {

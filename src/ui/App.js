@@ -30,7 +30,7 @@ import { SyncAdapter } from '../services/SyncAdapter.js';
 import { renderBottomNavView } from './BottomNavView.js';
 import { renderPwaInstallPromptView } from './PwaInstallPromptView.js';
 import { DealerProfileService } from '../services/DealerProfileService.js';
-import { NotificationService, FetchSmsAdapter } from '../services/NotificationService.js';
+import { NotificationService, FetchSmsAdapter, FetchEmailAdapter } from '../services/NotificationService.js';
 import {
   LeadEscalationService,
   startEscalationTicker,
@@ -55,10 +55,11 @@ import { renderRadarMapView } from './RadarMapView.js';
 
 const BODY_STYLES = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'van'];
 
-// Provider secrets (TELNYX_API_KEY, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM_NUMBER, ...) live only on
-// the server, which this browser bundle never has access to — so NotificationService here is
-// mounted with FetchSmsAdapter, which relays the send through POST /api/v1/notifications/sms
-// rather than talking to a provider directly (UOW-54).
+// Provider secrets (TELNYX_API_KEY, TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM_NUMBER, RESEND_API_KEY,
+// ...) live only on the server, which this browser bundle never has access to — so
+// NotificationService here is mounted with FetchSmsAdapter/FetchEmailAdapter, which relay the
+// send through POST /api/v1/notifications/sms and /email rather than talking to a provider
+// directly (UOW-54, UOW-56).
 function createDistroNotifier(notificationService) {
   return {
     notify(notification) {
@@ -642,6 +643,7 @@ export function mountApp(root) {
       const notificationService = new NotificationService({
         dealerProfileService,
         smsAdapter: new FetchSmsAdapter(),
+        emailAdapter: new FetchEmailAdapter(),
         host: `${window.location.origin}${window.location.pathname}`,
       });
       const leadEscalationService = new LeadEscalationService({

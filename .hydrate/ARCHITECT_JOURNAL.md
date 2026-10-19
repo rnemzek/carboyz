@@ -962,3 +962,53 @@ sequenceDiagram
 - This closes the "Server-side Twilio SMS relay" item the UOW-HOTFIX decision log (2026-10-15,
   same day) explicitly deferred — that entry's own call was "bounded addition to pick up later,"
   and the Telnyx-primary/Twilio-fallback shape here is a superset of what it anticipated.
+
+## [2026-10-19] Resend email channel as a second, independent notification transport
+
+**Decision:** added `dispatchEmail` (Resend REST API) in `src/server/routes/notifications.js` as
+a sibling to `dispatchSms`, not a replacement — both channels are optional and independently
+configured (`RESEND_API_KEY`/`DEALER_ALERT_EMAIL` vs. `TELNYX_*`/`TWILIO_*`). Rationale: Twilio's
+A2P 10DLC carrier vetting (error 30034) is an external approval process outside the team's
+control; email needed zero lead time.
+
+**Contract shape:**
+- SMS fans out per-roster-member (`notifyOnPending: true`), one POST per recipient.
+- Email is a single dispatch per event to one configured address (`DEALER_ALERT_EMAIL`), not
+  fanned out — deliberately asymmetric with SMS, since the roster model carries phone numbers
+  only, no per-member email.
+- Both channels run concurrently via `Promise.allSettled` at `NotificationService.notify()`, so
+  neither channel's outage/misconfiguration blocks the other.
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant SmsRoute as POST /api/v1/notifications/sms
+    participant EmailRoute as POST /api/v1/notifications/email
+    participant Telnyx/Twilio
+    participant Resend
+
+    Browser->>Browser: notify(notification) [Promise.allSettled]
+    par SMS fan-out (per roster member)
+        Browser->>SmsRoute: {to, message}
+        SmsRoute->>Telnyx/Twilio: provider REST call
+        Telnyx/Twilio-->>SmsRoute: result
+        SmsRoute-->>Browser: {success, messageId|error}
+    and single dealer alert email
+        Browser->>EmailRoute: {subject, html}
+        EmailRoute->>EmailRoute: resolve `to` from DEALER_ALERT_EMAIL (server-side only)
+        EmailRoute->>Resend: POST /emails
+        Resend-->>EmailRoute: result
+        EmailRoute-->>Browser: {success, id|error}
+    end
+```
+
+**Architectural Wisdom**
+- The `c.env` vs. `process.env` fallback bug fixed earlier the same day on `dispatchSms`
+  (`env && Object.keys(env).length > 0 ? env : process.env`) was proactively applied to
+  `dispatchEmail` too, since it's the same route-module/runtime-adapter pairing and would have
+  hit the identical failure under `@hono/node-server` otherwise.
+- Kept provider credentials AND the alert recipient server-side for email, same boundary as SMS
+  provider credentials — the browser bundle sends only `subject`/`html`, never `to` or any key.
+- Deferred: the spec's "or the designated dealer email from the Admin roster" fallback has no
+  home yet — `DealerProfileService` team members have no `email` field. Worth a future UOW if
+  per-recipient (not just single dealer-alert) email is wanted.

@@ -76,7 +76,39 @@ export async function dispatchSms({ to, message, env, fetchImpl = fetch }) {
   return { success: false, error: 'No SMS provider credentials configured' };
 }
 
-/** Mounts POST /sms (relative to wherever the caller `app.route()`s this in, e.g. /api/v1/notifications). */
+/**
+ * Dispatches one transactional email via Resend's REST API (no SDK dependency) — a zero-friction
+ * fallback channel while Twilio's A2P 10DLC campaign is still pending carrier vetting (error
+ * 30034). `to` may be a single address or an array; Resend always wants an array.
+ */
+export async function dispatchEmail({ to, subject, html, env, fetchImpl = fetch }) {
+  // Same empty-object pitfall as dispatchSms: a caller passing c.env (which is `{}` under
+  // @hono/node-server) must not win over a real process.env.
+  const activeEnv = env && Object.keys(env).length > 0 ? env : process.env;
+  const apiKey = activeEnv.RESEND_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: 'RESEND_API_KEY missing' };
+  }
+
+  const from = activeEnv.RESEND_FROM_EMAIL || 'CarBoyZ Alerts <onboarding@resend.dev>';
+  const response = await fetchImpl('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'CarBoyZ/1.0',
+    },
+    body: JSON.stringify({ from, to: Array.isArray(to) ? to : [to], subject, html }),
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    return { success: false, error: data.message || `HTTP ${response.status}` };
+  }
+  return { success: true, id: data.id };
+}
+
+/** Mounts POST /sms and /email (relative to wherever the caller `app.route()`s this in, e.g. /api/v1/notifications). */
 export function createNotificationsRouter({ env = process.env, fetchImpl = fetch } = {}) {
   const router = new Hono();
 
@@ -99,6 +131,25 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
     // then process.env.
     const activeEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
     const result = await dispatchSms({ to: normalizedTo, message: body.message, env: activeEnv, fetchImpl });
+    return c.json(result, result.success ? 200 : 500);
+  });
+
+  // Dealer alert email relay: the client never sees RESEND_API_KEY or the alert recipient, both
+  // of which are resolved here from env — only subject/html cross the wire from the browser.
+  router.post('/email', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.subject !== 'string' || typeof body.html !== 'string') {
+      return c.json({ success: false, error: 'subject and html are required' }, 500);
+    }
+
+    const activeEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
+    const resolvedEnv = activeEnv && Object.keys(activeEnv).length > 0 ? activeEnv : process.env;
+    const to = resolvedEnv.DEALER_ALERT_EMAIL;
+    if (!to) {
+      return c.json({ success: false, error: 'DEALER_ALERT_EMAIL not configured' }, 500);
+    }
+
+    const result = await dispatchEmail({ to, subject: body.subject, html: body.html, env: resolvedEnv, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 

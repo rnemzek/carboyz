@@ -8,7 +8,12 @@ import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createApp, resolveTenantId, startServer } from '../src/server/index.js';
 import { createWsRelay } from '../src/server/wsRelay.js';
-import { normalizePhoneToE164, dispatchSms, createNotificationsRouter } from '../src/server/routes/notifications.js';
+import {
+  normalizePhoneToE164,
+  dispatchSms,
+  dispatchEmail,
+  createNotificationsRouter,
+} from '../src/server/routes/notifications.js';
 
 const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'fixtures', 'offers');
 
@@ -511,6 +516,140 @@ test('POST /api/v1/notifications/sms with dealer auth hits the relay route and r
       else process.env[key] = value;
     }
   }
+});
+
+test('dispatchEmail posts to Resend with the expected headers and body', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ id: 'resend-1' }) };
+  };
+
+  const result = await dispatchEmail({
+    to: 'dealer@example.com',
+    subject: 'New Lead',
+    html: '<p>hi</p>',
+    env: { RESEND_API_KEY: 'key' },
+    fetchImpl,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.id, 'resend-1');
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://api.resend.com/emails');
+  assert.equal(requests[0].init.headers.Authorization, 'Bearer key');
+  assert.equal(requests[0].init.headers['User-Agent'], 'CarBoyZ/1.0');
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    from: 'CarBoyZ Alerts <onboarding@resend.dev>',
+    to: ['dealer@example.com'],
+    subject: 'New Lead',
+    html: '<p>hi</p>',
+  });
+});
+
+test('dispatchEmail wraps an array `to` as-is and honors RESEND_FROM_EMAIL', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ id: 'resend-2' }) };
+  };
+
+  await dispatchEmail({
+    to: ['a@example.com', 'b@example.com'],
+    subject: 'Lead',
+    html: '<p>hi</p>',
+    env: { RESEND_API_KEY: 'key', RESEND_FROM_EMAIL: 'Dealer <alerts@carboyz.app>' },
+    fetchImpl,
+  });
+
+  const parsedBody = JSON.parse(requests[0].init.body);
+  assert.deepEqual(parsedBody.to, ['a@example.com', 'b@example.com']);
+  assert.equal(parsedBody.from, 'Dealer <alerts@carboyz.app>');
+});
+
+test('dispatchEmail returns a failure without throwing when RESEND_API_KEY is missing', async () => {
+  const result = await dispatchEmail({ to: 'dealer@example.com', subject: 'Lead', html: '<p>hi</p>', env: {} });
+  assert.equal(result.success, false);
+  assert.equal(result.error, 'RESEND_API_KEY missing');
+});
+
+test('dispatchEmail surfaces a non-2xx Resend response as success: false', async () => {
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 422,
+    json: async () => ({ message: 'invalid `to` field' }),
+  });
+
+  const result = await dispatchEmail({
+    to: 'dealer@example.com',
+    subject: 'Lead',
+    html: '<p>hi</p>',
+    env: { RESEND_API_KEY: 'key' },
+    fetchImpl,
+  });
+
+  assert.equal(result.success, false);
+  assert.match(result.error, /invalid `to` field/);
+});
+
+test('POST /email dispatches successfully to the configured DEALER_ALERT_EMAIL', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => {
+    requests.push({ url, init });
+    return { ok: true, json: async () => ({ id: 'resend-1' }) };
+  };
+  const router = createNotificationsRouter({
+    env: { RESEND_API_KEY: 'key', DEALER_ALERT_EMAIL: 'dealer@example.com' },
+    fetchImpl,
+  });
+
+  const res = await router.request('/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject: 'New Lead', html: '<p>hi</p>' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+  assert.deepEqual(JSON.parse(requests[0].init.body).to, ['dealer@example.com']);
+});
+
+test('POST /email returns success: false with 500 when DEALER_ALERT_EMAIL is not configured', async () => {
+  const router = createNotificationsRouter({ env: { RESEND_API_KEY: 'key' } });
+  const res = await router.request('/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject: 'New Lead', html: '<p>hi</p>' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 500);
+  assert.equal(body.success, false);
+  assert.match(body.error, /DEALER_ALERT_EMAIL/);
+});
+
+test('POST /email returns success: false with 500 when required fields are missing', async () => {
+  const router = createNotificationsRouter({ env: {} });
+  const res = await router.request('/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject: 'New Lead' }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 500);
+  assert.equal(body.success, false);
+});
+
+test('POST /api/v1/notifications/email requires dealer auth', async () => {
+  const app = createApp();
+  const res = await app.request('/api/v1/notifications/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject: 'New Lead', html: '<p>hi</p>' }),
+  });
+  assert.equal(res.status, 401);
 });
 
 test('wsRelay: broadcast to an unknown tenant room delivers to nobody and getRoomSize is 0', () => {

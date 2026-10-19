@@ -100,6 +100,41 @@ export class FetchSmsAdapter {
   }
 }
 
+/**
+ * Dispatches a dealer alert email through the server-side relay (POST
+ * /api/v1/notifications/email), which holds the Resend API key and the alert recipient — this
+ * browser bundle never sees either. Mirrors FetchSmsAdapter: warns instead of throwing on a
+ * failed request or response, so a dead relay/missing credentials never crash the UI.
+ */
+export class FetchEmailAdapter {
+  constructor({ endpoint = '/api/v1/notifications/email', fetchImpl = fetch.bind(globalThis), credentials = 'same-origin' } = {}) {
+    this.endpoint = endpoint;
+    this.fetchImpl = fetchImpl;
+    this.credentials = credentials;
+  }
+
+  async sendEmail({ subject, html }) {
+    try {
+      const response = await this.fetchImpl(this.endpoint, {
+        method: 'POST',
+        credentials: this.credentials,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, html }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result.success) {
+        console.warn(`[FetchEmailAdapter] Email dispatch failed: ${result.error ?? `HTTP ${response.status}`}`);
+        return { success: false, provider: 'fetch', error: result.error ?? `HTTP ${response.status}` };
+      }
+      return { success: true, provider: 'fetch', id: result.id ?? null };
+    } catch (err) {
+      console.warn(`[FetchEmailAdapter] Email dispatch threw: ${err.message}`);
+      return { success: false, provider: 'fetch', error: err.message };
+    }
+  }
+}
+
 /** Picks TwilioSmsAdapter when all three Twilio env vars are set, else the console fallback. */
 export function createSmsAdapterFromEnv(env = process.env) {
   const { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = env;
@@ -135,18 +170,49 @@ export function formatMorningDigestSms({ count, host = '' }) {
 }
 
 /**
+ * Structured HTML appraisal card for the dealer alert email (Resend) — the zero-friction
+ * fallback channel while Twilio's A2P 10DLC campaign is still pending carrier vetting.
+ */
+export function formatPendingApprovalEmailSubject({ submission }) {
+  return `New ${currencyFormatter.format(submission.competitorOfferAmount)} Lead: ${submission.year} ${submission.make} ${submission.model}`;
+}
+
+export function formatPendingApprovalEmailHtml({ submission, recommendedCounterOffer, host = '' }) {
+  const vehicleTitle = [submission.year, submission.make, submission.model, submission.trim].filter(Boolean).join(' ');
+  const counter =
+    recommendedCounterOffer != null ? currencyFormatter.format(recommendedCounterOffer) : 'Pending review';
+  const row = (label, value) =>
+    `<tr><td style="padding:4px 12px 4px 0;color:#666;">${label}</td><td style="padding:4px 0;font-weight:bold;">${value}</td></tr>`;
+
+  return (
+    `<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">` +
+    `<h2 style="color:#111;">🔥 New CarBoyZ Lead Alert</h2>` +
+    `<table style="border-collapse:collapse;">` +
+    row('VIN', submission.vin || '—') +
+    row('Vehicle', vehicleTitle || '—') +
+    row('Mileage', submission.mileage != null ? Number(submission.mileage).toLocaleString('en-US') : '—') +
+    row('Competitor Offer', `${competitorLabel(submission)} ${currencyFormatter.format(submission.competitorOfferAmount)}`) +
+    row('Recommended Counter', counter) +
+    `</table>` +
+    `<p><a href="${host}/dealer?sub=${submission.id}" style="display:inline-block;margin-top:12px;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:4px;">Review in Dealer Desk</a></p>` +
+    `</div>`
+  );
+}
+
+/**
  * Fans a PENDING_APPROVAL lead out to the dealer roster via SMS, strictly to members with
  * notifyOnPending: true. Exposes both the direct `notifyPendingApproval` call and a generic
  * `notify(notification)` so it can be wired in as DispatchService's `notifier` (see
  * DispatchService.buildApprovalNotification, which carries the full submission through).
  */
 export class NotificationService {
-  constructor({ dealerProfileService, smsAdapter = new ConsoleSmsAdapter(), host = '' } = {}) {
+  constructor({ dealerProfileService, smsAdapter = new ConsoleSmsAdapter(), emailAdapter = null, host = '' } = {}) {
     if (!dealerProfileService) {
       throw new Error('NotificationService requires a dealerProfileService');
     }
     this.dealerProfileService = dealerProfileService;
     this.smsAdapter = smsAdapter;
+    this.emailAdapter = emailAdapter;
     this.host = host;
   }
 
@@ -156,11 +222,39 @@ export class NotificationService {
     return recipients.map((member) => dispatchToMember(this.smsAdapter, member, message));
   }
 
+  /**
+   * Dispatches the single dealer alert email for a PENDING_APPROVAL lead — unlike SMS, this goes
+   * once to DEALER_ALERT_EMAIL (resolved server-side), not fanned out per roster member. A no-op
+   * when no emailAdapter is configured (Resend is optional, SMS still works without it).
+   */
+  notifyPendingApprovalEmail({ submission, recommendedCounterOffer, host = this.host } = {}) {
+    if (!this.emailAdapter) {
+      return null;
+    }
+    return this.emailAdapter.sendEmail({
+      subject: formatPendingApprovalEmailSubject({ submission }),
+      html: formatPendingApprovalEmailHtml({ submission, recommendedCounterOffer, host }),
+    });
+  }
+
+  /**
+   * Fans SMS out to the roster and fires the single dealer alert email concurrently via
+   * Promise.allSettled, so a Twilio outage (e.g. A2P 10DLC error 30034) and a Resend outage never
+   * block each other.
+   */
   notify(notification) {
     if (!notification?.submission) {
       return [];
     }
-    return this.notifyPendingApproval({ submission: notification.submission });
+    const smsResults = this.notifyPendingApproval({ submission: notification.submission });
+    const emailResult = this.notifyPendingApprovalEmail({
+      submission: notification.submission,
+      recommendedCounterOffer: notification.recommendedCounterOffer,
+    });
+    if (!emailResult) {
+      return smsResults;
+    }
+    return Promise.allSettled([...smsResults, emailResult]);
   }
 
   /** Nags the same notifyOnPending roster as a fresh PENDING_APPROVAL lead (UOW-50). */

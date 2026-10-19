@@ -1855,3 +1855,59 @@ available in this sandbox, so the real provider HTTP call and the end-to-end bro
 `FetchSmsAdapter → /api/v1/notifications/sms → provider` path were verified by the unit/mocked-
 fetch suite and code review only, not an actual sent text message — flagged to the Product Owner
 rather than claimed as done.
+
+## [UOW-HOTFIX-chain, 2026-10-19] Resend transactional email dealer-alert channel
+
+**Context:** Twilio outbound SMS was returning carrier error 30034 (A2P 10DLC campaign vetting
+pending), blocking the Monday COB handoff. Product Owner requested a zero-dependency Resend
+email fallback, wired into the appraisal/counter-offer notification pipeline, verified by tests —
+delivered directly in chat (not a clipboard UOW payload), so logged here rather than as a
+CURRENT_UOW.md task.
+
+**Server (`src/server/routes/notifications.js`):**
+- `dispatchEmail({ to, subject, html, env, fetchImpl })` — POSTs to `https://api.resend.com/emails`
+  with `Authorization: Bearer`, `Content-Type: application/json`, `User-Agent: CarBoyZ/1.0`. Wraps
+  a single `to` in an array; `from` defaults to `RESEND_FROM_EMAIL` or
+  `CarBoyZ Alerts <onboarding@resend.dev>`. Missing `RESEND_API_KEY` returns
+  `{success:false, error:'RESEND_API_KEY missing'}` without throwing; non-2xx returns
+  `{success:false, error: data.message || 'HTTP <status>'}`; success returns `{success:true, id}`.
+  Reuses the same `env && Object.keys(env).length > 0 ? env : process.env` fallback already fixed
+  on `dispatchSms` for the identical `c.env` empty-object pitfall under `@hono/node-server`.
+- New `POST /email` route on `createNotificationsRouter` — resolves the recipient from
+  `DEALER_ALERT_EMAIL` server-side (client never sends or sees it, same boundary as the provider
+  key); client only crosses `subject`/`html`. Gated by the same `dealerAuth` wildcard middleware
+  already applied to `/api/v1/notifications/*` in `src/server/index.js` — no change needed there.
+
+**Client (`src/services/NotificationService.js`):**
+- `formatPendingApprovalEmailSubject` / `formatPendingApprovalEmailHtml` — structured HTML card
+  (VIN, vehicle, mileage, competitor offer, recommended counter, `/dealer?sub=` link), mirroring
+  the existing `formatPendingApprovalSms` template pattern.
+- `FetchEmailAdapter` — mirrors `FetchSmsAdapter`: POSTs to `/api/v1/notifications/email`, warns
+  (not throws) on a failed response or network error.
+- `NotificationService` takes an optional `emailAdapter` (default `null` — email is opt-in, SMS
+  keeps working unchanged without it). New `notifyPendingApprovalEmail()` sends exactly ONE email
+  per event (not fanned out per roster member, unlike SMS). `notify(notification)` now threads
+  `recommendedCounterOffer` through (previously dropped) and, when an emailAdapter is configured,
+  fires it concurrently with the SMS fan-out via `Promise.allSettled` so a Twilio outage and a
+  Resend outage can't block each other; with no emailAdapter configured it still returns the plain
+  SMS results array unchanged (verified — no behavior change for existing callers/tests).
+- `src/ui/App.js` wires `new FetchEmailAdapter()` into the real `NotificationService` alongside
+  `FetchSmsAdapter()`.
+
+**Design decision not in the original spec:** the spec said route the alert to
+`env.DEALER_ALERT_EMAIL` "or the designated dealer email from the Admin roster" — the roster
+model (`DealerProfileService`) has no `email` field on team members (phone-only), and adding one
+would be a schema change outside this task's surgical scope, so only `DEALER_ALERT_EMAIL` is
+implemented. Flagged to the Product Owner rather than silently adding a roster field.
+
+**Testing:** `npm test` → 838/838 passing (up from 821; +17 new: `dispatchEmail` + `POST /email`
+route tests in `tests/server.test.js`, `FetchEmailAdapter` + email-formatter + `notify()`
+concurrency tests in `tests/notificationService.test.js`). Coverage on touched modules:
+`src/server/routes/notifications.js` 98.73%/81.67%, `NotificationService.js` 100%/89.71%
+(line/branch) — both above the 80% gate. CLI smoke probe confirmed `dispatchEmail` formats and
+attempts dispatch against a mocked Resend endpoint (see chat transcript).
+
+**Not verified live:** no real Resend API key or browser-automation tool was available in this
+sandbox, so the actual Resend HTTP call and the end-to-end `FetchEmailAdapter → POST /email →
+Resend` path were verified by the unit/mocked-fetch suite only, not a real delivered email —
+flagged to the Product Owner rather than claimed as done.
