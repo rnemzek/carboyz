@@ -32,8 +32,8 @@ export function normalizePhoneToE164(rawPhone) {
  */
 export async function dispatchSms({ to, message, env, fetchImpl = fetch }) {
   // A default param (`env = process.env`) only fires when the caller omits `env` entirely; a
-  // caller passing `c.env` (which is `{}` under @hono/node-server) would still win over it and
-  // leave us with no credentials, so resolve the fallback explicitly instead.
+  // caller passing an explicit-but-empty object (e.g. {}) would still win over it and leave us
+  // with no credentials, so resolve that fallback explicitly instead.
   const activeEnv = env && Object.keys(env).length > 0 ? env : process.env;
   const { TELNYX_API_KEY, TELNYX_FROM_NUMBER, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER } = activeEnv;
 
@@ -82,8 +82,8 @@ export async function dispatchSms({ to, message, env, fetchImpl = fetch }) {
  * 30034). `to` may be a single address or an array; Resend always wants an array.
  */
 export async function dispatchEmail({ to, subject, html, env, fetchImpl = fetch }) {
-  // Same empty-object pitfall as dispatchSms: a caller passing c.env (which is `{}` under
-  // @hono/node-server) must not win over a real process.env.
+  // Same empty-object pitfall as dispatchSms: an explicit-but-empty env must not win over a real
+  // process.env.
   const activeEnv = env && Object.keys(env).length > 0 ? env : process.env;
   const apiKey = activeEnv.RESEND_API_KEY;
   if (!apiKey) {
@@ -125,12 +125,13 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
       return c.json({ success: false, error: err.message }, 500);
     }
 
-    // c.env is populated by Hono's runtime adapter (e.g. Cloudflare Workers); under
-    // @hono/node-server it comes back empty/undefined, so `??` never falls through — check key
-    // count explicitly, preferring c.env, then the configured `env` (used directly by tests),
-    // then process.env.
-    const activeEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
-    const result = await dispatchSms({ to: normalizedTo, message: body.message, env: activeEnv, fetchImpl });
+    // Deliberately NOT consulting c.env: this app has no Cloudflare Workers/non-Node deployment
+    // target, and @hono/node-server unconditionally calls fetchCallback(req, { incoming, outgoing
+    // }) for every request (see getRequestListener in @hono/node-server/dist/index.mjs) — c.env
+    // is always that 2-key Node req/res pair here, never real env vars, so treating it as a env
+    // source silently masked real credentials with { incoming, outgoing }. `env` already defaults
+    // to process.env and is what tests override explicitly.
+    const result = await dispatchSms({ to: normalizedTo, message: body.message, env, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 
@@ -142,14 +143,14 @@ export function createNotificationsRouter({ env = process.env, fetchImpl = fetch
       return c.json({ success: false, error: 'subject and html are required' }, 500);
     }
 
-    const activeEnv = c.env && Object.keys(c.env).length > 0 ? c.env : env;
-    const resolvedEnv = activeEnv && Object.keys(activeEnv).length > 0 ? activeEnv : process.env;
-    const to = resolvedEnv.DEALER_ALERT_EMAIL;
+    // See the identical note in the /sms handler above: c.env is never real env vars under
+    // @hono/node-server, so it's not consulted here either.
+    const to = env.DEALER_ALERT_EMAIL;
     if (!to) {
       return c.json({ success: false, error: 'DEALER_ALERT_EMAIL not configured' }, 500);
     }
 
-    const result = await dispatchEmail({ to, subject: body.subject, html: body.html, env: resolvedEnv, fetchImpl });
+    const result = await dispatchEmail({ to, subject: body.subject, html: body.html, env, fetchImpl });
     return c.json(result, result.success ? 200 : 500);
   });
 

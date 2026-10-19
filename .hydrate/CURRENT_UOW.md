@@ -26,6 +26,8 @@
 
 - [x] [UOW-HOTFIX] Fix router-level env fallback: `c.env ?? env` never fell through because c.env comes back empty/undefined (not strictly null) under @hono/node-server, which `??` doesn't catch. Handler now checks Object.keys(c.env).length explicitly, falling back to the configured `env` closure (preserving test injection) before dispatchSms's own process.env fallback. Verified: 821/821 tests pass.
 
+- [x] [UOW-HOTFIX] Fix real root cause of "DEALER_ALERT_EMAIL/credentials not configured" on the real server: @hono/node-server (dist/index.mjs:1023) unconditionally calls fetchCallback(req, {incoming, outgoing}) on every request, so c.env is ALWAYS that 2-key Node req/res pair here — never empty, never real env vars (this repo has no Cloudflare Workers/non-Node target). The Object.keys(c.env).length>0 checks in /sms and /email were therefore always true and always masked real credentials with {incoming,outgoing}. This broke /sms in production too, not just the new /email route. Fix: stopped consulting c.env entirely in both route handlers; they now just pass the `env` closure (defaults to process.env) straight through. Also fixed a real .env/.env.local key mismatch (DEALER_USERNAME vs. the DEALER_USER src/server/index.js actually reads) and reverted a live Telnyx key that had been pasted into the git-tracked .env.sample (never committed/pushed — caught before it reached a commit). Verified live against the real server via node --env-file=.env: POST /email → 200 (real Resend send), POST /sms → 200 (real Twilio send). 838/838 tests pass.
+
 - [ ] Task 4: Dealer Hand-off & Archival
   - Verify all 821+ tests remain passing.
   - Deliver live URL, basicAuth credentials, and onboarding notes to dealership operator.
